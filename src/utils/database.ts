@@ -161,6 +161,19 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_relations_object ON relations(object_id);
       CREATE INDEX IF NOT EXISTS idx_relations_predicate ON relations(predicate);
       CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
+
+      -- Vector embeddings table (Phase 4.2)
+      CREATE TABLE IF NOT EXISTS vector_embeddings (
+        id TEXT PRIMARY KEY,
+        content_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        metadata TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (content_id) REFERENCES context_items(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_vector_content_id ON vector_embeddings(content_id);
     `);
   }
 

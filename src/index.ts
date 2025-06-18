@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { simpleGit, SimpleGit } from 'simple-git';
 import { KnowledgeGraphManager } from './utils/knowledge-graph.js';
+import { VectorStore } from './utils/vector-store.js';
 
 // Initialize database
 const db = new Database('context.db');
@@ -20,6 +21,9 @@ const git: SimpleGit = simpleGit();
 
 // Initialize knowledge graph manager
 const knowledgeGraph = new KnowledgeGraphManager(db);
+
+// Initialize vector store
+const vectorStore = new VectorStore(db);
 
 // Create tables with enhanced schema
 db.exec(`
@@ -192,7 +196,7 @@ function createSummary(items: any[], options: { categories?: string[]; maxLength
 const server = new Server(
   {
     name: 'memory-keeper',
-    version: '0.5.0',
+    version: '0.6.0',
   },
   {
     capabilities: {
@@ -284,13 +288,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case 'context_save': {
       const { key, value, category, priority = 'normal' } = args;
       const sessionId = ensureSession();
+      const itemId = uuidv4();
       
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
       
-      stmt.run(uuidv4(), sessionId, key, value, category, priority);
+      stmt.run(itemId, sessionId, key, value, category, priority);
+      
+      // Create embedding for semantic search
+      try {
+        const content = `${key}: ${value}`;
+        const metadata = { key, category, priority };
+        await vectorStore.storeDocument(itemId, content, metadata);
+      } catch (error) {
+        // Log but don't fail the save operation
+        console.error('Failed to create embedding:', error);
+      }
       
       return {
         content: [{
@@ -1220,6 +1235,78 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
       }
     }
 
+    // Phase 4.2: Semantic Search
+    case 'context_semantic_search': {
+      const { query, topK = 10, minSimilarity = 0.3, sessionId } = args;
+      const targetSessionId = sessionId || ensureSession();
+      
+      try {
+        // Ensure embeddings are up to date for the session
+        const embeddingCount = await vectorStore.updateSessionEmbeddings(targetSessionId);
+        
+        // Perform semantic search
+        const results = await vectorStore.searchInSession(
+          targetSessionId,
+          query,
+          topK,
+          minSimilarity
+        );
+        
+        if (results.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: `No results found for query: "${query}"`,
+            }],
+          };
+        }
+        
+        // Format results
+        let response = `Found ${results.length} results for: "${query}"\n\n`;
+        
+        results.forEach((result, index) => {
+          const similarity = (result.similarity * 100).toFixed(1);
+          response += `${index + 1}. [${similarity}% match]\n`;
+          
+          // Extract key and value from content
+          const colonIndex = result.content.indexOf(':');
+          if (colonIndex > -1) {
+            const key = result.content.substring(0, colonIndex);
+            const value = result.content.substring(colonIndex + 1).trim();
+            response += `   Key: ${key}\n`;
+            response += `   Value: ${value.substring(0, 200)}${value.length > 200 ? '...' : ''}\n`;
+          } else {
+            response += `   ${result.content.substring(0, 200)}${result.content.length > 200 ? '...' : ''}\n`;
+          }
+          
+          if (result.metadata) {
+            if (result.metadata.category) {
+              response += `   Category: ${result.metadata.category}`;
+            }
+            if (result.metadata.priority) {
+              response += `, Priority: ${result.metadata.priority}`;
+            }
+            response += '\n';
+          }
+          response += '\n';
+        });
+        
+        return {
+          content: [{
+            type: 'text',
+            text: response,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Semantic search failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -1516,6 +1603,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             sessionId: { type: 'string', description: 'Session to visualize (defaults to current)' },
           },
+        },
+      },
+      // Phase 4.2: Semantic Search
+      {
+        name: 'context_semantic_search',
+        description: 'Search context using natural language queries',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Natural language search query' },
+            topK: { 
+              type: 'number', 
+              description: 'Number of results to return',
+              default: 10 
+            },
+            minSimilarity: { 
+              type: 'number', 
+              description: 'Minimum similarity score (0-1)',
+              default: 0.3 
+            },
+            sessionId: { type: 'string', description: 'Search within specific session (defaults to current)' },
+          },
+          required: ['query'],
         },
       },
     ],

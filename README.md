@@ -457,12 +457,37 @@ mcp_context_visualize({
 })
 ```
 
+### Semantic Search (Phase 4.2)
+
+Find context using natural language queries:
+
+```javascript
+// Search with natural language
+mcp_context_semantic_search({ 
+  query: "how are we handling user authentication?",
+  topK: 5 
+})
+
+// Find the most relevant security decisions
+mcp_context_semantic_search({ 
+  query: "security concerns and decisions",
+  minSimilarity: 0.5 
+})
+
+// Search with specific similarity threshold
+mcp_context_semantic_search({ 
+  query: "database performance optimization",
+  topK: 10,
+  minSimilarity: 0.3 
+})
+```
+
 ## Documentation
 
 - **[Quick Start Examples](./EXAMPLES.md)** - Real-world scenarios and workflows
 - **[Troubleshooting Guide](./TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Recipe Book](./RECIPES.md)** - Common patterns and best practices
 - **[API Reference](./API.md)** - Complete tool documentation (coming soon)
-- **[Recipes](./RECIPES.md)** - Common patterns and best practices (coming soon)
 
 ## Development
 
@@ -546,10 +571,10 @@ Test categories:
 | Export/Import | ✅ Stable | v0.3+ | Backup & sharing |
 | Knowledge Graph | ✅ Stable | v0.5+ | Code relationship analysis |
 | Visualization | ✅ Stable | v0.5+ | Context exploration |
-| Semantic Search | 🚧 Beta | v0.6+ | Natural language queries |
+| Semantic Search | ✅ Stable | v0.6+ | Natural language queries |
 | Multi-Agent | 📋 Planned | v0.7+ | Intelligent processing |
 
-### Current Features (v0.5.0)
+### Current Features (v0.6.0)
 - ✅ **Session Management**: Create, list, and continue sessions with branching support
 - ✅ **Context Storage**: Save/retrieve context with categories (task, decision, progress, note) and priorities
 - ✅ **File Caching**: Track file changes with SHA-256 hashing
@@ -561,6 +586,7 @@ Test categories:
 - ✅ **SQLite Storage**: Persistent, reliable data storage with WAL mode
 - ✅ **Knowledge Graph**: Automatic entity and relationship extraction from context
 - ✅ **Visualization**: Generate graph, timeline, and heatmap data for context exploration
+- ✅ **Semantic Search**: Natural language search using lightweight vector embeddings
 
 ### Roadmap
 

@@ -478,6 +478,77 @@ await context_find_related({
 await context_visualize({ type: "timeline" });
 ```
 
+## Semantic Search Examples
+
+### Natural Language Queries
+Find context using conversational queries:
+
+```typescript
+// Ask questions naturally
+await context_semantic_search({
+  query: "what did we decide about authentication?"
+});
+// Returns decisions about JWT tokens, session handling, etc.
+
+await context_semantic_search({
+  query: "any bugs or issues with the database?"
+});
+// Finds context items mentioning database problems
+
+await context_semantic_search({
+  query: "what needs to be done for security?"
+});
+// Finds security-related tasks and notes
+```
+
+### Finding Related Work
+Discover connections between different parts of your work:
+
+```typescript
+// After working on authentication
+await context_save({
+  key: "auth_complete",
+  value: "Finished implementing JWT authentication with refresh tokens",
+  category: "progress"
+});
+
+// Find related work
+await context_semantic_search({
+  query: "JWT token refresh authentication security",
+  topK: 10
+});
+// Shows all related context: decisions, tasks, progress, warnings
+
+// Find similar implementations
+await context_semantic_search({
+  query: "Repository pattern data access layer",
+  minSimilarity: 0.4
+});
+```
+
+### Debugging with Semantic Search
+Use natural language to find relevant debugging context:
+
+```typescript
+// When investigating an issue
+await context_semantic_search({
+  query: "memory leak WebSocket connection error",
+  topK: 5
+});
+
+// Find previous similar issues
+await context_semantic_search({
+  query: "performance optimization database queries slow",
+  minSimilarity: 0.3
+});
+
+// Search for specific error patterns
+await context_semantic_search({
+  query: "null pointer exception undefined error",
+  sessionId: "previous-debugging-session-id"
+});
+```
+
 ## Real-World Example: Full Day Workflow
 
 ```typescript
