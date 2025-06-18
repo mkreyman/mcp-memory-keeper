@@ -17,9 +17,13 @@ Claude Code users often face context loss when the conversation window fills up.
 - 🔄 Save and restore context between Claude Code sessions
 - 📁 File content caching with change detection  
 - 🏷️ Organize context with categories and priorities
-- 💾 SQLite-based persistent storage for Claude AI assistants
-- 🚀 Fast and lightweight MCP server implementation
-- 🤖 Designed specifically for Claude Code context management
+- 📸 Checkpoint system for complete context snapshots
+- 🤖 Smart compaction helper that never loses critical info
+- 🔍 Full-text search across all saved context
+- 💾 Export/import for backup and sharing
+- 🌿 Git integration with automatic context correlation
+- 📊 AI-friendly summarization with priority awareness
+- 🚀 Fast SQLite-based storage optimized for Claude
 
 ## Installation
 
@@ -336,6 +340,84 @@ Example summary output:
 - db_choice: Use PostgreSQL for better JSON support
 ```
 
+### Smart Compaction (Phase 3)
+
+Never lose critical context when Claude's window fills up:
+
+```javascript
+// Before context window fills
+mcp_context_prepare_compaction()
+
+// This automatically:
+// - Creates a checkpoint
+// - Identifies high-priority items
+// - Captures unfinished tasks
+// - Saves all decisions
+// - Generates a summary
+// - Prepares restoration instructions
+```
+
+### Git Integration (Phase 3)
+
+Automatically save context with your commits:
+
+```javascript
+// Commit with auto-save
+mcp_context_git_commit({ 
+  message: "feat: Add user authentication",
+  autoSave: true  // Creates checkpoint with commit
+})
+
+// Context is automatically linked to the commit
+```
+
+### Context Search (Phase 3)
+
+Find anything in your saved context:
+
+```javascript
+// Search in keys and values
+mcp_context_search({ query: "authentication" })
+
+// Search only in keys
+mcp_context_search({ 
+  query: "config",
+  searchIn: ["key"] 
+})
+
+// Search in specific session
+mcp_context_search({ 
+  query: "bug",
+  sessionId: "session-id" 
+})
+```
+
+### Export/Import (Phase 3)
+
+Share context or backup your work:
+
+```javascript
+// Export current session
+mcp_context_export()  // Creates memory-keeper-export-xxx.json
+
+// Export specific session
+mcp_context_export({ 
+  sessionId: "session-id",
+  format: "json" 
+})
+
+// Import from file
+mcp_context_import({ 
+  filePath: "memory-keeper-export-xxx.json" 
+})
+
+// Merge into current session
+mcp_context_import({ 
+  filePath: "backup.json",
+  merge: true 
+})
+```
+
 ## Development
 
 ### Running in Development Mode
@@ -366,25 +448,29 @@ mcp-memory-keeper/
 
 ## Roadmap
 
-### Current Features (v0.3.0)
+### Current Features (v0.4.0)
 - ✅ Session management with branching support
 - ✅ Enhanced context storage with categories and priorities
 - ✅ File caching with change detection
 - ✅ Checkpoint system for named snapshots
 - ✅ Context restore from checkpoints
 - ✅ AI-friendly context summarization
+- ✅ Smart compaction preparation tool
+- ✅ Git integration with auto-save on commits
+- ✅ Context search capabilities
+- ✅ Export/import functionality
+- ✅ Automatic critical context detection
 - ✅ Git status capture in checkpoints
 - ✅ Persistent SQLite storage
-- ✅ Git branch awareness
 
-### Planned Features (Phase 3)
-- [ ] Advanced git integration (auto-save on commits)
-- [ ] Context prepare for compaction tool
-- [ ] Automatic context detection before compaction
+### Future Enhancements
 - [ ] Web UI for browsing context history
-- [ ] Context search and filtering
-- [ ] Export/import functionality
 - [ ] Multi-user/team support
+- [ ] Context sharing via cloud sync
+- [ ] Integration with other AI assistants
+- [ ] Advanced analytics and insights
+- [ ] Custom context templates
+- [ ] Automatic context pruning policies
 
 ## Contributing
 

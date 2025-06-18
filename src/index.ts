@@ -188,7 +188,7 @@ function createSummary(items: any[], options: { categories?: string[]; maxLength
 const server = new Server(
   {
     name: 'memory-keeper',
-    version: '0.3.0',
+    version: '0.4.0',
   },
   {
     capabilities: {
@@ -613,6 +613,361 @@ Original checkpoint created: ${cp.created_at}`,
       };
     }
 
+    // Phase 3: Smart Compaction Helper
+    case 'context_prepare_compaction': {
+      const sessionId = ensureSession();
+      
+      // Get all high priority items
+      const highPriorityItems = db.prepare(`
+        SELECT * FROM context_items 
+        WHERE session_id = ? AND priority = 'high'
+        ORDER BY created_at DESC
+      `).all(sessionId);
+
+      // Get recent tasks
+      const recentTasks = db.prepare(`
+        SELECT * FROM context_items 
+        WHERE session_id = ? AND category = 'task'
+        ORDER BY created_at DESC LIMIT 10
+      `).all(sessionId);
+
+      // Get all decisions
+      const decisions = db.prepare(`
+        SELECT * FROM context_items 
+        WHERE session_id = ? AND category = 'decision'
+        ORDER BY created_at DESC
+      `).all(sessionId);
+
+      // Get files that changed
+      const changedFiles = db.prepare(`
+        SELECT file_path, hash FROM file_cache 
+        WHERE session_id = ?
+      `).all(sessionId);
+
+      // Auto-create checkpoint
+      const checkpointId = uuidv4();
+      const checkpointName = `auto-compaction-${new Date().toISOString()}`;
+      
+      const gitInfo = await getGitStatus();
+      
+      db.prepare(`
+        INSERT INTO checkpoints (id, session_id, name, description, git_status, git_branch)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        checkpointId, 
+        sessionId, 
+        checkpointName,
+        'Automatic checkpoint before compaction',
+        gitInfo.status,
+        gitInfo.branch
+      );
+
+      // Save all context items to checkpoint
+      const allItems = db.prepare('SELECT id FROM context_items WHERE session_id = ?').all(sessionId);
+      const itemStmt = db.prepare('INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)');
+      for (const item of allItems) {
+        itemStmt.run(uuidv4(), checkpointId, (item as any).id);
+      }
+
+      // Generate summary for next session
+      const summary = createSummary([...highPriorityItems, ...recentTasks, ...decisions], { maxLength: 2000 });
+      
+      // Determine next steps
+      const nextSteps: string[] = [];
+      const unfinishedTasks = recentTasks.filter((t: any) => 
+        !t.value.toLowerCase().includes('completed') && 
+        !t.value.toLowerCase().includes('done')
+      );
+      
+      unfinishedTasks.forEach((task: any) => {
+        nextSteps.push(`Continue: ${task.key}`);
+      });
+
+      // Save prepared context
+      const preparedContext = {
+        checkpoint: checkpointName,
+        summary,
+        nextSteps,
+        criticalItems: highPriorityItems.map((i: any) => ({ key: i.key, value: i.value })),
+        decisions: decisions.map((d: any) => ({ key: d.key, value: d.value })),
+        filesModified: changedFiles.length,
+        gitBranch: gitInfo.branch
+      };
+
+      // Save as special context item
+      db.prepare(`
+        INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        uuidv4(),
+        sessionId,
+        '_prepared_compaction',
+        JSON.stringify(preparedContext),
+        'system',
+        'high'
+      );
+
+      return {
+        content: [{
+          type: 'text',
+          text: `Prepared for compaction:
+
+Checkpoint: ${checkpointName}
+Critical items saved: ${highPriorityItems.length}
+Decisions preserved: ${decisions.length}
+Next steps identified: ${nextSteps.length}
+Files tracked: ${changedFiles.length}
+
+Summary:
+${summary.substring(0, 500)}${summary.length > 500 ? '...' : ''}
+
+Next Steps:
+${nextSteps.join('\n')}
+
+To restore after compaction:
+mcp_context_restore_checkpoint({ name: "${checkpointName}" })`,
+        }],
+      };
+    }
+
+    // Phase 3: Git Integration
+    case 'context_git_commit': {
+      const { message, autoSave = true } = args;
+      const sessionId = ensureSession();
+      
+      if (autoSave) {
+        // Save current context state
+        const timestamp = new Date().toISOString();
+        db.prepare(`
+          INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+          uuidv4(),
+          sessionId,
+          `commit_${timestamp}`,
+          message || 'No commit message',
+          'git',
+          'normal'
+        );
+
+        // Create checkpoint
+        const checkpointId = uuidv4();
+        const checkpointName = `git-commit-${timestamp}`;
+        const gitInfo = await getGitStatus();
+        
+        db.prepare(`
+          INSERT INTO checkpoints (id, session_id, name, description, git_status, git_branch)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+          checkpointId,
+          sessionId,
+          checkpointName,
+          `Git commit: ${message || 'No message'}`,
+          gitInfo.status,
+          gitInfo.branch
+        );
+
+        // Link current context to checkpoint
+        const items = db.prepare('SELECT id FROM context_items WHERE session_id = ?').all(sessionId);
+        const itemStmt = db.prepare('INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)');
+        for (const item of items) {
+          itemStmt.run(uuidv4(), checkpointId, (item as any).id);
+        }
+      }
+
+      // Execute git commit
+      try {
+        await git.add('.');
+        const commitResult = await git.commit(message || 'Commit via Memory Keeper');
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Git commit successful!
+Commit: ${commitResult.commit}
+Context saved: ${autoSave ? 'Yes' : 'No'}
+Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Git commit failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    // Phase 3: Context Search
+    case 'context_search': {
+      const { query, searchIn = ['key', 'value'], sessionId: specificSessionId } = args;
+      const targetSessionId = specificSessionId || currentSessionId || ensureSession();
+      
+      let conditions: string[] = [];
+      if (searchIn.includes('key')) {
+        conditions.push('key LIKE ?');
+      }
+      if (searchIn.includes('value')) {
+        conditions.push('value LIKE ?');
+      }
+      
+      const whereClause = conditions.length > 0 ? `AND (${conditions.join(' OR ')})` : '';
+      const queryParams = [targetSessionId, ...conditions.map(() => `%${query}%`)];
+      
+      const results = db.prepare(`
+        SELECT * FROM context_items 
+        WHERE session_id = ? ${whereClause}
+        ORDER BY priority DESC, created_at DESC
+        LIMIT 20
+      `).all(...queryParams);
+
+      if (results.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: `No results found for: "${query}"`,
+          }],
+        };
+      }
+
+      const resultText = results.map((r: any) => 
+        `• [${r.priority}] ${r.key} (${r.category || 'none'})\n  ${r.value.substring(0, 100)}${r.value.length > 100 ? '...' : ''}`
+      ).join('\n\n');
+
+      return {
+        content: [{
+          type: 'text',
+          text: `Found ${results.length} results for "${query}":\n\n${resultText}`,
+        }],
+      };
+    }
+
+    // Phase 3: Export/Import
+    case 'context_export': {
+      const { sessionId: specificSessionId, format = 'json' } = args;
+      const targetSessionId = specificSessionId || currentSessionId || ensureSession();
+      
+      // Get session data
+      const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(targetSessionId) as any;
+      const contextItems = db.prepare('SELECT * FROM context_items WHERE session_id = ?').all(targetSessionId);
+      const fileCache = db.prepare('SELECT * FROM file_cache WHERE session_id = ?').all(targetSessionId);
+      
+      const exportData = {
+        version: '0.4.0',
+        exported: new Date().toISOString(),
+        session,
+        contextItems,
+        fileCache,
+      };
+
+      if (format === 'json') {
+        const exportPath = `memory-keeper-export-${targetSessionId.substring(0, 8)}.json`;
+        fs.writeFileSync(exportPath, JSON.stringify(exportData, null, 2));
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Exported session to: ${exportPath}
+Items: ${contextItems.length}
+Files: ${fileCache.length}`,
+          }],
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify(exportData, null, 2),
+        }],
+      };
+    }
+
+    case 'context_import': {
+      const { filePath, merge = false } = args;
+      
+      try {
+        const importData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        
+        // Create new session or merge
+        let targetSessionId: string;
+        if (merge && currentSessionId) {
+          targetSessionId = currentSessionId;
+        } else {
+          targetSessionId = uuidv4();
+          const importedSession = importData.session;
+          db.prepare(`
+            INSERT INTO sessions (id, name, description, branch, created_at)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(
+            targetSessionId,
+            `Imported: ${importedSession.name}`,
+            `Imported from ${filePath} on ${new Date().toISOString()}`,
+            importedSession.branch,
+            new Date().toISOString()
+          );
+          currentSessionId = targetSessionId;
+        }
+
+        // Import context items
+        const itemStmt = db.prepare(`
+          INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        let itemCount = 0;
+        for (const item of importData.contextItems) {
+          itemStmt.run(
+            uuidv4(),
+            targetSessionId,
+            item.key,
+            item.value,
+            item.category,
+            item.priority,
+            item.created_at
+          );
+          itemCount++;
+        }
+
+        // Import file cache
+        const fileStmt = db.prepare(`
+          INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, last_read)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        let fileCount = 0;
+        for (const file of importData.fileCache || []) {
+          fileStmt.run(
+            uuidv4(),
+            targetSessionId,
+            file.file_path,
+            file.content,
+            file.hash,
+            file.last_read
+          );
+          fileCount++;
+        }
+
+        return {
+          content: [{
+            type: 'text',
+            text: `Import successful!
+Session: ${targetSessionId.substring(0, 8)}
+Context items: ${itemCount}
+Files: ${fileCount}
+Mode: ${merge ? 'Merged' : 'New session'}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Import failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -773,6 +1128,84 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               default: 1000 
             },
           },
+        },
+      },
+      // Phase 3: Smart Compaction
+      {
+        name: 'context_prepare_compaction',
+        description: 'Automatically save critical context before compaction',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      // Phase 3: Git Integration
+      {
+        name: 'context_git_commit',
+        description: 'Create git commit with automatic context save',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            message: { type: 'string', description: 'Commit message' },
+            autoSave: { 
+              type: 'boolean', 
+              description: 'Automatically save context state',
+              default: true 
+            },
+          },
+          required: ['message'],
+        },
+      },
+      // Phase 3: Search
+      {
+        name: 'context_search',
+        description: 'Search through saved context items',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query' },
+            searchIn: { 
+              type: 'array',
+              items: { type: 'string', enum: ['key', 'value'] },
+              description: 'Fields to search in',
+              default: ['key', 'value']
+            },
+            sessionId: { type: 'string', description: 'Session to search (defaults to current)' },
+          },
+          required: ['query'],
+        },
+      },
+      // Phase 3: Export/Import
+      {
+        name: 'context_export',
+        description: 'Export session data for backup or sharing',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string', description: 'Session to export (defaults to current)' },
+            format: { 
+              type: 'string', 
+              enum: ['json', 'inline'],
+              description: 'Export format',
+              default: 'json'
+            },
+          },
+        },
+      },
+      {
+        name: 'context_import',
+        description: 'Import previously exported session data',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Path to import file' },
+            merge: { 
+              type: 'boolean', 
+              description: 'Merge with current session instead of creating new',
+              default: false 
+            },
+          },
+          required: ['filePath'],
         },
       },
     ],
