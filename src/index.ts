@@ -41,8 +41,10 @@ db.exec(`
     name TEXT,
     description TEXT,
     branch TEXT,
+    parent_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (parent_id) REFERENCES sessions(id)
   );
 
   -- Enhanced context_items table with session support
@@ -98,6 +100,41 @@ db.exec(`
     file_cache_id TEXT NOT NULL,
     FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id),
     FOREIGN KEY (file_cache_id) REFERENCES file_cache(id)
+  );
+
+  -- Journal entries table (Phase 4.4)
+  CREATE TABLE IF NOT EXISTS journal_entries (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    entry TEXT NOT NULL,
+    tags TEXT,
+    mood TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+  );
+
+  -- Compressed context table (Phase 4.4)
+  CREATE TABLE IF NOT EXISTS compressed_context (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    original_count INTEGER NOT NULL,
+    compressed_data TEXT NOT NULL,
+    compression_ratio REAL NOT NULL,
+    date_range_start TIMESTAMP,
+    date_range_end TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+  );
+
+  -- Cross-tool integration events (Phase 4.4)
+  CREATE TABLE IF NOT EXISTS tool_events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    data TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
   );
 `);
 
@@ -1388,6 +1425,445 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
       }
     }
 
+    // Phase 4.4: Session Branching
+    case 'context_branch_session': {
+      const { branchName, copyDepth = 'shallow' } = args;
+      const sourceSessionId = ensureSession();
+      
+      try {
+        // Get source session info
+        const sourceSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sourceSessionId) as any;
+        if (!sourceSession) {
+          throw new Error('Source session not found');
+        }
+        
+        // Create new branch session
+        const branchId = uuidv4();
+        db.prepare(`
+          INSERT INTO sessions (id, name, description, branch, parent_id)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(
+          branchId,
+          branchName,
+          `Branch of ${sourceSession.name} created at ${new Date().toISOString()}`,
+          sourceSession.branch,
+          sourceSessionId
+        );
+        
+        if (copyDepth === 'deep') {
+          // Copy all context items
+          const items = db.prepare('SELECT * FROM context_items WHERE session_id = ?').all(sourceSessionId) as any[];
+          const stmt = db.prepare('INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+          
+          for (const item of items) {
+            stmt.run(uuidv4(), branchId, item.key, item.value, item.category, item.priority, item.created_at);
+          }
+          
+          // Copy file cache
+          const files = db.prepare('SELECT * FROM file_cache WHERE session_id = ?').all(sourceSessionId) as any[];
+          const fileStmt = db.prepare('INSERT INTO file_cache (id, session_id, file_path, content, hash, last_read) VALUES (?, ?, ?, ?, ?, ?)');
+          
+          for (const file of files) {
+            fileStmt.run(uuidv4(), branchId, file.file_path, file.content, file.hash, file.last_read);
+          }
+        } else {
+          // Shallow copy - only copy high priority items
+          const items = db.prepare('SELECT * FROM context_items WHERE session_id = ? AND priority = ?').all(sourceSessionId, 'high') as any[];
+          const stmt = db.prepare('INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+          
+          for (const item of items) {
+            stmt.run(uuidv4(), branchId, item.key, item.value, item.category, item.priority, item.created_at);
+          }
+        }
+        
+        // Switch to the new branch
+        currentSessionId = branchId;
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Created branch session: ${branchName}
+ID: ${branchId}
+Parent: ${sourceSession.name} (${sourceSessionId.substring(0, 8)})
+Copy depth: ${copyDepth}
+Items copied: ${copyDepth === 'deep' ? 'All' : 'High priority only'}
+
+Now working in branch: ${branchName}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Branch creation failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    // Phase 4.4: Session Merging
+    case 'context_merge_sessions': {
+      const { sourceSessionId, conflictResolution = 'keep_current' } = args;
+      const targetSessionId = ensureSession();
+      
+      try {
+        // Get both sessions
+        const sourceSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sourceSessionId) as any;
+        const targetSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(targetSessionId) as any;
+        
+        if (!sourceSession) {
+          throw new Error('Source session not found');
+        }
+        
+        // Get items from source session
+        const sourceItems = db.prepare('SELECT * FROM context_items WHERE session_id = ?').all(sourceSessionId) as any[];
+        
+        let merged = 0;
+        let skipped = 0;
+        
+        for (const item of sourceItems) {
+          // Check if item exists in target
+          const existing = db.prepare('SELECT * FROM context_items WHERE session_id = ? AND key = ?').get(targetSessionId, item.key) as any;
+          
+          if (existing) {
+            // Handle conflict
+            if (conflictResolution === 'keep_source' || 
+                (conflictResolution === 'keep_newest' && new Date(item.created_at) > new Date(existing.created_at))) {
+              db.prepare('UPDATE context_items SET value = ?, category = ?, priority = ? WHERE session_id = ? AND key = ?')
+                .run(item.value, item.category, item.priority, targetSessionId, item.key);
+              merged++;
+            } else {
+              skipped++;
+            }
+          } else {
+            // No conflict, insert item
+            db.prepare('INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+              .run(uuidv4(), targetSessionId, item.key, item.value, item.category, item.priority, item.created_at);
+            merged++;
+          }
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Merge completed!
+Source: ${sourceSession.name} (${sourceSessionId.substring(0, 8)})
+Target: ${targetSession.name} (${targetSessionId.substring(0, 8)})
+Items merged: ${merged}
+Items skipped: ${skipped}
+Conflict resolution: ${conflictResolution}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Session merge failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    // Phase 4.4: Journal Entry
+    case 'context_journal_entry': {
+      const { entry, tags = [], mood } = args;
+      const sessionId = ensureSession();
+      
+      try {
+        const id = uuidv4();
+        db.prepare(`
+          INSERT INTO journal_entries (id, session_id, entry, tags, mood)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(id, sessionId, entry, JSON.stringify(tags), mood);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Journal entry added!
+Time: ${new Date().toISOString()}
+Mood: ${mood || 'not specified'}
+Tags: ${tags.join(', ') || 'none'}
+Entry saved with ID: ${id.substring(0, 8)}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Journal entry failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    // Phase 4.4: Timeline
+    case 'context_timeline': {
+      const { startDate, endDate, groupBy = 'day', sessionId } = args;
+      const targetSessionId = sessionId || ensureSession();
+      
+      try {
+        let query = `
+          SELECT 
+            strftime('%Y-%m-%d', created_at) as date,
+            strftime('%H', created_at) as hour,
+            COUNT(*) as count,
+            category
+          FROM context_items
+          WHERE session_id = ?
+        `;
+        const params: any[] = [targetSessionId];
+        
+        if (startDate) {
+          query += ' AND created_at >= ?';
+          params.push(startDate);
+        }
+        if (endDate) {
+          query += ' AND created_at <= ?';
+          params.push(endDate);
+        }
+        
+        if (groupBy === 'hour') {
+          query += ' GROUP BY date, hour, category ORDER BY date, hour';
+        } else if (groupBy === 'week') {
+          query = query.replace("strftime('%Y-%m-%d', created_at)", "strftime('%Y-W%W', created_at)");
+          query += ' GROUP BY date, category ORDER BY date';
+        } else {
+          query += ' GROUP BY date, category ORDER BY date';
+        }
+        
+        const timeline = db.prepare(query).all(...params) as any[];
+        
+        // Get journal entries for the same period
+        let journalQuery = 'SELECT * FROM journal_entries WHERE session_id = ?';
+        const journalParams: any[] = [targetSessionId];
+        
+        if (startDate) {
+          journalQuery += ' AND created_at >= ?';
+          journalParams.push(startDate);
+        }
+        if (endDate) {
+          journalQuery += ' AND created_at <= ?';
+          journalParams.push(endDate);
+        }
+        
+        const journals = db.prepare(journalQuery + ' ORDER BY created_at').all(...journalParams) as any[];
+        
+        // Format timeline
+        let response = `Timeline for session ${targetSessionId.substring(0, 8)}\n`;
+        response += `Period: ${startDate || 'beginning'} to ${endDate || 'now'}\n\n`;
+        
+        // Group by date
+        const dateGroups: Record<string, any> = {};
+        for (const item of timeline) {
+          if (!dateGroups[item.date]) {
+            dateGroups[item.date] = { categories: {}, total: 0 };
+          }
+          dateGroups[item.date].categories[item.category || 'uncategorized'] = item.count;
+          dateGroups[item.date].total += item.count;
+        }
+        
+        // Add timeline data
+        for (const [date, data] of Object.entries(dateGroups)) {
+          response += `\n${date}: ${data.total} items\n`;
+          for (const [category, count] of Object.entries(data.categories)) {
+            response += `  ${category}: ${count}\n`;
+          }
+        }
+        
+        // Add journal entries
+        if (journals.length > 0) {
+          response += '\n## Journal Entries\n';
+          for (const journal of journals) {
+            const tags = JSON.parse(journal.tags || '[]');
+            response += `\n${journal.created_at.substring(0, 10)} - ${journal.mood || 'no mood'}\n`;
+            response += `Tags: ${tags.join(', ') || 'none'}\n`;
+            response += `${journal.entry}\n`;
+          }
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: response,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Timeline generation failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    // Phase 4.4: Progressive Compression
+    case 'context_compress': {
+      const { olderThan, preserveCategories = [], targetSize, sessionId } = args;
+      const targetSessionId = sessionId || ensureSession();
+      
+      try {
+        // Build query for items to compress
+        let query = 'SELECT * FROM context_items WHERE session_id = ?';
+        const params: any[] = [targetSessionId];
+        
+        if (olderThan) {
+          query += ' AND created_at < ?';
+          params.push(olderThan);
+        }
+        
+        if (preserveCategories.length > 0) {
+          query += ` AND category NOT IN (${preserveCategories.map(() => '?').join(',')})`;
+          params.push(...preserveCategories);
+        }
+        
+        const itemsToCompress = db.prepare(query).all(...params) as any[];
+        
+        if (itemsToCompress.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'No items found to compress with given criteria.',
+            }],
+          };
+        }
+        
+        // Group items by category for compression
+        const categoryGroups: Record<string, any[]> = {};
+        for (const item of itemsToCompress) {
+          const category = item.category || 'uncategorized';
+          if (!categoryGroups[category]) {
+            categoryGroups[category] = [];
+          }
+          categoryGroups[category].push(item);
+        }
+        
+        // Compress each category group
+        const compressed: any[] = [];
+        for (const [category, items] of Object.entries(categoryGroups)) {
+          const summary = {
+            category,
+            count: items.length,
+            priorities: { high: 0, normal: 0, low: 0 },
+            keys: items.map((i: any) => i.key),
+            samples: items.slice(0, 3).map((i: any) => ({ key: i.key, value: i.value.substring(0, 100) }))
+          };
+          
+          for (const item of items) {
+            const priority = (item.priority || 'normal') as 'high' | 'normal' | 'low';
+            summary.priorities[priority]++;
+          }
+          
+          compressed.push(summary);
+        }
+        
+        // Calculate compression
+        const originalSize = JSON.stringify(itemsToCompress).length;
+        const compressedData = JSON.stringify(compressed);
+        const compressedSize = compressedData.length;
+        const compressionRatio = 1 - (compressedSize / originalSize);
+        
+        // Store compressed data
+        const compressedId = uuidv4();
+        const dateRange = itemsToCompress.reduce((acc, item) => {
+          const date = new Date(item.created_at);
+          if (!acc.start || date < acc.start) acc.start = date;
+          if (!acc.end || date > acc.end) acc.end = date;
+          return acc;
+        }, { start: null as Date | null, end: null as Date | null });
+        
+        db.prepare(`
+          INSERT INTO compressed_context (id, session_id, original_count, compressed_data, compression_ratio, date_range_start, date_range_end)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          compressedId,
+          targetSessionId,
+          itemsToCompress.length,
+          compressedData,
+          compressionRatio,
+          dateRange.start?.toISOString(),
+          dateRange.end?.toISOString()
+        );
+        
+        // Delete original items
+        const deleteStmt = db.prepare('DELETE FROM context_items WHERE id = ?');
+        for (const item of itemsToCompress) {
+          deleteStmt.run(item.id);
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Compression completed!
+Items compressed: ${itemsToCompress.length}
+Original size: ${(originalSize / 1024).toFixed(2)} KB
+Compressed size: ${(compressedSize / 1024).toFixed(2)} KB
+Compression ratio: ${(compressionRatio * 100).toFixed(1)}%
+Date range: ${dateRange.start?.toISOString().substring(0, 10)} to ${dateRange.end?.toISOString().substring(0, 10)}
+
+Categories compressed:
+${Object.entries(categoryGroups).map(([cat, items]) => `- ${cat}: ${items.length} items`).join('\n')}
+
+Compressed data ID: ${compressedId.substring(0, 8)}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Compression failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    // Phase 4.4: Cross-Tool Integration
+    case 'context_integrate_tool': {
+      const { toolName, eventType, data } = args;
+      const sessionId = ensureSession();
+      
+      try {
+        const id = uuidv4();
+        db.prepare(`
+          INSERT INTO tool_events (id, session_id, tool_name, event_type, data)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(id, sessionId, toolName, eventType, JSON.stringify(data));
+        
+        // Optionally create a context item for important events
+        if (data.important || eventType === 'error' || eventType === 'milestone') {
+          db.prepare(`
+            INSERT INTO context_items (id, session_id, key, value, category, priority)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(
+            uuidv4(),
+            sessionId,
+            `${toolName}_${eventType}_${Date.now()}`,
+            `Tool event: ${toolName} - ${eventType}: ${JSON.stringify(data)}`,
+            'tool_event',
+            data.important ? 'high' : 'normal'
+          );
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Tool event recorded!
+Tool: ${toolName}
+Event: ${eventType}
+Data recorded: ${JSON.stringify(data).length} bytes
+Event ID: ${id.substring(0, 8)}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Tool integration failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -1761,6 +2237,151 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             sessionId: { type: 'string', description: 'Session to analyze (defaults to current)' },
           },
           required: ['taskType', 'input'],
+        },
+      },
+      // Phase 4.4: Advanced Features
+      {
+        name: 'context_branch_session',
+        description: 'Create a branch from current session for exploring alternatives',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            branchName: { 
+              type: 'string', 
+              description: 'Name for the new branch' 
+            },
+            copyDepth: { 
+              type: 'string', 
+              enum: ['shallow', 'deep'],
+              description: 'How much to copy: shallow (high priority only) or deep (everything)',
+              default: 'shallow'
+            },
+          },
+          required: ['branchName'],
+        },
+      },
+      {
+        name: 'context_merge_sessions',
+        description: 'Merge another session into the current one',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sourceSessionId: { 
+              type: 'string', 
+              description: 'ID of the session to merge from' 
+            },
+            conflictResolution: { 
+              type: 'string', 
+              enum: ['keep_current', 'keep_source', 'keep_newest'],
+              description: 'How to resolve conflicts',
+              default: 'keep_current'
+            },
+          },
+          required: ['sourceSessionId'],
+        },
+      },
+      {
+        name: 'context_journal_entry',
+        description: 'Add a timestamped journal entry with optional tags and mood',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            entry: { 
+              type: 'string', 
+              description: 'Journal entry text' 
+            },
+            tags: { 
+              type: 'array', 
+              items: { type: 'string' },
+              description: 'Tags for categorization' 
+            },
+            mood: { 
+              type: 'string', 
+              description: 'Current mood/feeling' 
+            },
+          },
+          required: ['entry'],
+        },
+      },
+      {
+        name: 'context_timeline',
+        description: 'Get timeline of activities with optional grouping',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            startDate: { 
+              type: 'string', 
+              description: 'Start date (ISO format)' 
+            },
+            endDate: { 
+              type: 'string', 
+              description: 'End date (ISO format)' 
+            },
+            groupBy: { 
+              type: 'string', 
+              enum: ['hour', 'day', 'week'],
+              description: 'How to group timeline data',
+              default: 'day'
+            },
+            sessionId: { 
+              type: 'string', 
+              description: 'Session to analyze (defaults to current)' 
+            },
+          },
+        },
+      },
+      {
+        name: 'context_compress',
+        description: 'Intelligently compress old context to save space',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            olderThan: { 
+              type: 'string', 
+              description: 'Compress items older than this date (ISO format)' 
+            },
+            preserveCategories: { 
+              type: 'array', 
+              items: { type: 'string' },
+              description: 'Categories to preserve (not compress)' 
+            },
+            targetSize: { 
+              type: 'number', 
+              description: 'Target size in KB (optional)' 
+            },
+            sessionId: { 
+              type: 'string', 
+              description: 'Session to compress (defaults to current)' 
+            },
+          },
+        },
+      },
+      {
+        name: 'context_integrate_tool',
+        description: 'Track events from other MCP tools',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            toolName: { 
+              type: 'string', 
+              description: 'Name of the tool' 
+            },
+            eventType: { 
+              type: 'string', 
+              description: 'Type of event' 
+            },
+            data: { 
+              type: 'object', 
+              description: 'Event data',
+              properties: {
+                important: { 
+                  type: 'boolean',
+                  description: 'Mark as important to save as context item'
+                }
+              }
+            },
+          },
+          required: ['toolName', 'eventType', 'data'],
         },
       },
     ],

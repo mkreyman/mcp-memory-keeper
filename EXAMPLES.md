@@ -623,6 +623,133 @@ await mcp_context_delegate({
 // First analyzes all patterns, then generates recommendations based on findings
 ```
 
+## Advanced Features Examples (Phase 4.4)
+
+### Branching Workflow
+Use branches to explore different solutions:
+
+```javascript
+// Working on a complex refactor
+await mcp_context_save({
+  key: "refactor_plan",
+  value: "Refactor authentication to use OAuth2",
+  category: "task",
+  priority: "high"
+});
+
+// Create a branch to try one approach
+await mcp_context_branch_session({
+  branchName: "oauth-passport-approach",
+  copyDepth: "deep"
+});
+
+// Work on the branch...
+await mcp_context_save({
+  key: "passport_implementation",
+  value: "Using Passport.js with Google strategy",
+  category: "progress"
+});
+
+// If it doesn't work out, switch back
+await mcp_context_session_list(); // Find original session
+// Or merge if successful
+await mcp_context_merge_sessions({
+  sourceSessionId: "branch-id",
+  conflictResolution: "keep_source"
+});
+```
+
+### Daily Journal Pattern
+Track your daily progress and thoughts:
+
+```javascript
+// Morning entry
+await mcp_context_journal_entry({
+  entry: "Starting work on user dashboard. Goal: complete layout and basic functionality",
+  tags: ["planning", "dashboard"],
+  mood: "motivated"
+});
+
+// Midday reflection
+await mcp_context_journal_entry({
+  entry: "Hit a snag with responsive design. Taking a different approach using grid instead of flexbox",
+  tags: ["challenge", "css", "dashboard"],
+  mood: "frustrated"
+});
+
+// End of day
+await mcp_context_journal_entry({
+  entry: "Dashboard layout complete! Grid approach worked perfectly. Ready for functionality tomorrow",
+  tags: ["success", "dashboard"],
+  mood: "accomplished"
+});
+
+// Review the day
+await mcp_context_timeline({
+  groupBy: "hour",
+  startDate: new Date().toISOString().split('T')[0]
+});
+```
+
+### Space Management with Compression
+Keep your context database lean:
+
+```javascript
+// Check current session size
+await mcp_context_status();
+
+// Compress old low-priority items
+await mcp_context_compress({
+  olderThan: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
+  preserveCategories: ["decision", "task"], // Keep important categories
+});
+
+// Compress everything except recent work
+await mcp_context_compress({
+  olderThan: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+  preserveCategories: ["decision", "critical"],
+});
+```
+
+### Tool Integration Workflow
+Track events from your development tools:
+
+```javascript
+// Linter results
+await mcp_context_integrate_tool({
+  toolName: "eslint",
+  eventType: "lint-complete",
+  data: {
+    errors: 0,
+    warnings: 5,
+    filesChecked: 45
+  }
+});
+
+// Test results
+await mcp_context_integrate_tool({
+  toolName: "jest",
+  eventType: "test-run",
+  data: {
+    passed: 95,
+    failed: 2,
+    coverage: 87.5,
+    important: true // Failed tests are important
+  }
+});
+
+// Build status
+await mcp_context_integrate_tool({
+  toolName: "webpack",
+  eventType: "build-complete",
+  data: {
+    duration: "2m 15s",
+    bundleSize: "1.2MB",
+    success: true
+  }
+});
+```
+
 ## Real-World Example: Full Day Workflow
 
 ```typescript

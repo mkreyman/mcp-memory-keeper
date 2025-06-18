@@ -50,8 +50,10 @@ export class DatabaseManager {
         name TEXT,
         description TEXT,
         branch TEXT,
+        parent_id TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (parent_id) REFERENCES sessions(id)
       );
 
       -- Enhanced context_items table with size tracking
@@ -174,6 +176,41 @@ export class DatabaseManager {
       );
 
       CREATE INDEX IF NOT EXISTS idx_vector_content_id ON vector_embeddings(content_id);
+
+      -- Journal entries table (Phase 4.4)
+      CREATE TABLE IF NOT EXISTS journal_entries (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        entry TEXT NOT NULL,
+        tags TEXT,
+        mood TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      -- Compressed context table (Phase 4.4)
+      CREATE TABLE IF NOT EXISTS compressed_context (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        original_count INTEGER NOT NULL,
+        compressed_data TEXT NOT NULL,
+        compression_ratio REAL NOT NULL,
+        date_range_start TIMESTAMP,
+        date_range_end TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      -- Cross-tool integration events (Phase 4.4)
+      CREATE TABLE IF NOT EXISTS tool_events (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        data TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
     `);
   }
 

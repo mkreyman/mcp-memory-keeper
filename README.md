@@ -546,6 +546,102 @@ Agent Types:
 - **Analyzer Agent**: Detects patterns, analyzes relationships, tracks trends
 - **Synthesizer Agent**: Creates summaries, merges insights, generates recommendations
 
+### Session Branching & Merging (Phase 4.4)
+
+Explore alternatives without losing your original work:
+
+```javascript
+// Create a branch to try something new
+mcp_context_branch_session({
+  branchName: "experimental-refactor",
+  copyDepth: "shallow" // Only copy high-priority items
+})
+
+// Or create a full copy
+mcp_context_branch_session({
+  branchName: "feature-complete-copy",
+  copyDepth: "deep" // Copy everything
+})
+
+// Later, merge changes back
+mcp_context_merge_sessions({
+  sourceSessionId: "branch-session-id",
+  conflictResolution: "keep_newest" // or "keep_current", "keep_source"
+})
+```
+
+### Journal Entries (Phase 4.4)
+
+Track your thoughts and progress with timestamped journal entries:
+
+```javascript
+// Add a journal entry
+mcp_context_journal_entry({
+  entry: "Completed the authentication module. Tests are passing!",
+  tags: ["milestone", "authentication"],
+  mood: "accomplished"
+})
+
+// Entries are included in timeline views
+mcp_context_timeline({
+  groupBy: "day"
+})
+```
+
+### Timeline & Activity Tracking (Phase 4.4)
+
+Visualize your work patterns over time:
+
+```javascript
+// Get activity timeline
+mcp_context_timeline({
+  startDate: "2024-01-01",
+  endDate: "2024-01-31",
+  groupBy: "day" // or "hour", "week"
+})
+
+// Shows:
+// - Context items created per day/hour
+// - Category distribution over time
+// - Journal entries with moods and tags
+```
+
+### Progressive Compression (Phase 4.4)
+
+Save space by intelligently compressing old context:
+
+```javascript
+// Compress items older than 30 days
+mcp_context_compress({
+  olderThan: "2024-01-01",
+  preserveCategories: ["decision", "critical"], // Keep these
+  targetSize: 1000 // Target size in KB (optional)
+})
+
+// Compression summary shows:
+// - Items compressed
+// - Space saved
+// - Compression ratio
+// - Categories affected
+```
+
+### Cross-Tool Integration (Phase 4.4)
+
+Track events from other MCP tools:
+
+```javascript
+// Record events from other tools
+mcp_context_integrate_tool({
+  toolName: "code-analyzer",
+  eventType: "security-scan-complete",
+  data: {
+    vulnerabilities: 0,
+    filesScanned: 150,
+    important: true // Creates high-priority context item
+  }
+})
+```
+
 ## Documentation
 
 - **[Quick Start Examples](./EXAMPLES.md)** - Real-world scenarios and workflows
@@ -641,7 +737,7 @@ Test categories:
 | Semantic Search | ✅ Stable | v0.6+ | Natural language queries |
 | Multi-Agent | ✅ Stable | v0.7+ | Intelligent processing |
 
-### Current Features (v0.7.0)
+### Current Features (v0.8.0)
 - ✅ **Session Management**: Create, list, and continue sessions with branching support
 - ✅ **Context Storage**: Save/retrieve context with categories (task, decision, progress, note) and priorities
 - ✅ **File Caching**: Track file changes with SHA-256 hashing
@@ -655,6 +751,12 @@ Test categories:
 - ✅ **Visualization**: Generate graph, timeline, and heatmap data for context exploration
 - ✅ **Semantic Search**: Natural language search using lightweight vector embeddings
 - ✅ **Multi-Agent System**: Intelligent analysis with specialized analyzer and synthesizer agents
+- ✅ **Session Branching**: Create branches to explore alternatives without losing original context
+- ✅ **Session Merging**: Merge branches back with conflict resolution options
+- ✅ **Journal Entries**: Time-stamped entries with tags and mood tracking
+- ✅ **Timeline View**: Visualize activity patterns by hour, day, or week
+- ✅ **Progressive Compression**: Intelligently compress old context to save space
+- ✅ **Cross-Tool Integration**: Track events from other MCP tools
 
 ### Roadmap
 
