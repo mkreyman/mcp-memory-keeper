@@ -405,6 +405,79 @@ await context_export({
 // (Manual cleanup commands coming in future version)
 ```
 
+## Knowledge Graph Examples
+
+### Understanding Code Relationships
+Extract entities and relationships from your work:
+
+```typescript
+// After working on several files
+await context_save({
+  key: "auth_implementation",
+  value: "The AuthService class uses JWTTokenManager and calls UserRepository.findByEmail",
+  category: "progress"
+});
+
+await context_save({
+  key: "file_changes",
+  value: "Modified auth.service.ts which imports from token.manager.ts and user.repository.ts",
+  category: "note"
+});
+
+// Analyze to build knowledge graph
+await context_analyze();
+// Output: 
+// Entities created: 5 (AuthService, JWTTokenManager, UserRepository, auth.service.ts, etc.)
+// Relations created: 3 (uses, calls, imports)
+
+// Find what's connected to AuthService
+await context_find_related({ 
+  key: "AuthService",
+  maxDepth: 2 
+});
+// Shows: JWTTokenManager, UserRepository, and files that contain them
+
+// Visualize the relationships
+const graph = await context_visualize({ type: "graph" });
+// Returns nodes and edges for visualization
+```
+
+### Tracking Complex Dependencies
+When working on interconnected systems:
+
+```typescript
+// As you explore the codebase
+await context_save({
+  key: "api_structure",
+  value: "The UserController handles /api/users endpoints and uses UserService",
+  category: "note"
+});
+
+await context_save({
+  key: "service_layer",
+  value: "UserService implements IUserService interface and calls UserRepository",
+  category: "note"  
+});
+
+await context_save({
+  key: "data_layer",
+  value: "UserRepository extends BaseRepository and connects to PostgreSQL",
+  category: "note"
+});
+
+// Build the knowledge graph
+await context_analyze();
+
+// Find all database-related entities
+await context_find_related({
+  key: "PostgreSQL",
+  relationTypes: ["connects", "stores_in"]
+});
+
+// Get a timeline of your discoveries
+await context_visualize({ type: "timeline" });
+```
+
 ## Real-World Example: Full Day Workflow
 
 ```typescript

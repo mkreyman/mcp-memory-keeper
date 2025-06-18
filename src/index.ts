@@ -10,12 +10,16 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { simpleGit, SimpleGit } from 'simple-git';
+import { KnowledgeGraphManager } from './utils/knowledge-graph.js';
 
 // Initialize database
 const db = new Database('context.db');
 
 // Initialize git
 const git: SimpleGit = simpleGit();
+
+// Initialize knowledge graph manager
+const knowledgeGraph = new KnowledgeGraphManager(db);
 
 // Create tables with enhanced schema
 db.exec(`
@@ -188,7 +192,7 @@ function createSummary(items: any[], options: { categories?: string[]; maxLength
 const server = new Server(
   {
     name: 'memory-keeper',
-    version: '0.4.0',
+    version: '0.5.0',
   },
   {
     capabilities: {
@@ -968,6 +972,254 @@ Mode: ${merge ? 'Merged' : 'New session'}`,
       }
     }
 
+    // Phase 4.1: Knowledge Graph Tools
+    case 'context_analyze': {
+      const { sessionId, categories } = args;
+      const targetSessionId = sessionId || ensureSession();
+      
+      try {
+        // Get context items to analyze
+        let query = 'SELECT * FROM context_items WHERE session_id = ?';
+        const params: any[] = [targetSessionId];
+        
+        if (categories && categories.length > 0) {
+          query += ` AND category IN (${categories.map(() => '?').join(',')})`;
+          params.push(...categories);
+        }
+        
+        const items = db.prepare(query).all(...params) as any[];
+        
+        let entitiesCreated = 0;
+        let relationsCreated = 0;
+        
+        // Analyze each context item
+        for (const item of items) {
+          const analysis = knowledgeGraph.analyzeContext(targetSessionId, item.value);
+          
+          // Create entities
+          for (const entityData of analysis.entities) {
+            const existing = knowledgeGraph.findEntity(targetSessionId, entityData.name, entityData.type);
+            if (!existing) {
+              knowledgeGraph.createEntity(
+                targetSessionId,
+                entityData.type,
+                entityData.name,
+                { confidence: entityData.confidence, source: item.key }
+              );
+              entitiesCreated++;
+            }
+          }
+          
+          // Create relations
+          for (const relationData of analysis.relations) {
+            const subject = knowledgeGraph.findEntity(targetSessionId, relationData.subject);
+            const object = knowledgeGraph.findEntity(targetSessionId, relationData.object);
+            
+            if (subject && object) {
+              knowledgeGraph.createRelation(
+                targetSessionId,
+                subject.id,
+                relationData.predicate,
+                object.id,
+                relationData.confidence
+              );
+              relationsCreated++;
+            }
+          }
+        }
+        
+        // Get summary statistics
+        const entityStats = db.prepare(`
+          SELECT type, COUNT(*) as count 
+          FROM entities 
+          WHERE session_id = ? 
+          GROUP BY type
+        `).all(targetSessionId) as any[];
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Analysis complete!
+Items analyzed: ${items.length}
+Entities created: ${entitiesCreated}
+Relations created: ${relationsCreated}
+
+Entity breakdown:
+${entityStats.map(s => `- ${s.type}: ${s.count}`).join('\n')}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Analysis failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+    
+    case 'context_find_related': {
+      const { key, relationTypes, maxDepth = 2 } = args;
+      const sessionId = ensureSession();
+      
+      try {
+        // First try to find as entity
+        let entity = knowledgeGraph.findEntity(sessionId, key);
+        
+        // If not found as entity, check if it's a context key
+        if (!entity) {
+          const contextItem = db.prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND key = ?'
+          ).get(sessionId, key) as any;
+          
+          if (contextItem) {
+            // Try to extract entities from the context value
+            const analysis = knowledgeGraph.analyzeContext(sessionId, contextItem.value);
+            if (analysis.entities.length > 0) {
+              entity = knowledgeGraph.findEntity(sessionId, analysis.entities[0].name);
+            }
+          }
+        }
+        
+        if (!entity) {
+          return {
+            content: [{
+              type: 'text',
+              text: `No entity found for key: ${key}`,
+            }],
+          };
+        }
+        
+        // Get connected entities
+        const connectedIds = knowledgeGraph.getConnectedEntities(entity.id, maxDepth);
+        
+        // Get details for connected entities
+        const entities = Array.from(connectedIds).map(id => {
+          const entityData = db.prepare('SELECT * FROM entities WHERE id = ?').get(id) as any;
+          const relations = knowledgeGraph.getRelations(id);
+          const observations = knowledgeGraph.getObservations(id);
+          
+          return {
+            ...entityData,
+            attributes: entityData.attributes ? JSON.parse(entityData.attributes) : {},
+            relations: relations.length,
+            observations: observations.length,
+          };
+        });
+        
+        // Filter by relation types if specified
+        let relevantRelations = knowledgeGraph.getRelations(entity.id);
+        if (relationTypes && relationTypes.length > 0) {
+          relevantRelations = relevantRelations.filter(r => 
+            relationTypes.includes(r.predicate)
+          );
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Related entities for "${key}":
+
+Found ${entities.length} connected entities (max depth: ${maxDepth})
+
+Main entity:
+- Type: ${entity.type}
+- Name: ${entity.name}
+- Direct relations: ${relevantRelations.length}
+
+Connected entities:
+${entities.slice(0, 20).map(e => 
+  `- ${e.type}: ${e.name} (${e.relations} relations, ${e.observations} observations)`
+).join('\n')}
+${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Find related failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+    
+    case 'context_visualize': {
+      const { type = 'graph', entityTypes, sessionId } = args;
+      const targetSessionId = sessionId || ensureSession();
+      
+      try {
+        if (type === 'graph') {
+          const graphData = knowledgeGraph.getGraphData(targetSessionId, entityTypes);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(graphData, null, 2),
+            }],
+          };
+        } else if (type === 'timeline') {
+          // Get time-based data
+          const timeline = db.prepare(`
+            SELECT 
+              strftime('%Y-%m-%d %H:00', created_at) as hour,
+              COUNT(*) as events,
+              GROUP_CONCAT(DISTINCT category) as categories
+            FROM context_items
+            WHERE session_id = ?
+            GROUP BY hour
+            ORDER BY hour DESC
+            LIMIT 24
+          `).all(targetSessionId) as any[];
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                type: 'timeline',
+                data: timeline,
+              }, null, 2),
+            }],
+          };
+        } else if (type === 'heatmap') {
+          // Get category/priority heatmap data
+          const heatmap = db.prepare(`
+            SELECT 
+              category,
+              priority,
+              COUNT(*) as count
+            FROM context_items
+            WHERE session_id = ?
+            GROUP BY category, priority
+          `).all(targetSessionId) as any[];
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                type: 'heatmap',
+                data: heatmap,
+              }, null, 2),
+            }],
+          };
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Unknown visualization type: ${type}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Visualization failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -1206,6 +1458,64 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['filePath'],
+        },
+      },
+      // Phase 4.1: Knowledge Graph
+      {
+        name: 'context_analyze',
+        description: 'Analyze context to extract entities and relationships',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string', description: 'Session ID to analyze (defaults to current)' },
+            categories: { 
+              type: 'array', 
+              items: { type: 'string' },
+              description: 'Categories to analyze' 
+            },
+          },
+        },
+      },
+      {
+        name: 'context_find_related',
+        description: 'Find entities related to a key or entity',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Context key or entity name' },
+            relationTypes: { 
+              type: 'array', 
+              items: { type: 'string' },
+              description: 'Types of relations to include' 
+            },
+            maxDepth: { 
+              type: 'number', 
+              description: 'Maximum graph traversal depth',
+              default: 2 
+            },
+          },
+          required: ['key'],
+        },
+      },
+      {
+        name: 'context_visualize',
+        description: 'Generate visualization data for the knowledge graph',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            type: { 
+              type: 'string', 
+              enum: ['graph', 'timeline', 'heatmap'],
+              description: 'Visualization type',
+              default: 'graph'
+            },
+            entityTypes: { 
+              type: 'array', 
+              items: { type: 'string' },
+              description: 'Entity types to include' 
+            },
+            sessionId: { type: 'string', description: 'Session to visualize (defaults to current)' },
+          },
         },
       },
     ],

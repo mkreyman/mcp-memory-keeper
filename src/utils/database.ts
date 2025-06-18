@@ -120,6 +120,47 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_context_items_priority ON context_items(priority);
       CREATE INDEX IF NOT EXISTS idx_file_cache_session ON file_cache(session_id);
       CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id);
+
+      -- Knowledge Graph tables (Phase 4.1)
+      CREATE TABLE IF NOT EXISTS entities (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        attributes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS relations (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        predicate TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        confidence REAL DEFAULT 1.0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES entities(id) ON DELETE CASCADE,
+        FOREIGN KEY (object_id) REFERENCES entities(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS observations (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL,
+        observation TEXT NOT NULL,
+        source TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+      );
+
+      -- Indexes for knowledge graph
+      CREATE INDEX IF NOT EXISTS idx_entities_session_type ON entities(session_id, type);
+      CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+      CREATE INDEX IF NOT EXISTS idx_relations_subject ON relations(subject_id);
+      CREATE INDEX IF NOT EXISTS idx_relations_object ON relations(object_id);
+      CREATE INDEX IF NOT EXISTS idx_relations_predicate ON relations(predicate);
+      CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
     `);
   }
 

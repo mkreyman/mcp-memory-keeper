@@ -422,6 +422,41 @@ mcp_context_import({
 })
 ```
 
+### Knowledge Graph (Phase 4)
+
+Automatically extract entities and relationships from your context:
+
+```javascript
+// Analyze context to build knowledge graph
+mcp_context_analyze()
+
+// Or analyze specific categories
+mcp_context_analyze({ 
+  categories: ["task", "decision"] 
+})
+
+// Find related entities
+mcp_context_find_related({ 
+  key: "AuthService",
+  maxDepth: 2 
+})
+
+// Generate visualization data
+mcp_context_visualize({ 
+  type: "graph" 
+})
+
+// Timeline view
+mcp_context_visualize({ 
+  type: "timeline" 
+})
+
+// Category/priority heatmap
+mcp_context_visualize({ 
+  type: "heatmap" 
+})
+```
+
 ## Documentation
 
 - **[Quick Start Examples](./EXAMPLES.md)** - Real-world scenarios and workflows
@@ -509,12 +544,12 @@ Test categories:
 | Git Integration | ✅ Stable | v0.3+ | Commit context tracking |
 | Search | ✅ Stable | v0.3+ | Find saved items |
 | Export/Import | ✅ Stable | v0.3+ | Backup & sharing |
-| Knowledge Graph | 🚧 Beta | v0.5+ | Code relationship analysis |
-| Semantic Search | 🚧 Beta | v0.5+ | Natural language queries |
-| Multi-Agent | 📋 Planned | v0.6+ | Intelligent processing |
-| Visualization | 📋 Planned | v0.6+ | Context exploration |
+| Knowledge Graph | ✅ Stable | v0.5+ | Code relationship analysis |
+| Visualization | ✅ Stable | v0.5+ | Context exploration |
+| Semantic Search | 🚧 Beta | v0.6+ | Natural language queries |
+| Multi-Agent | 📋 Planned | v0.7+ | Intelligent processing |
 
-### Current Features (v0.4.0)
+### Current Features (v0.5.0)
 - ✅ **Session Management**: Create, list, and continue sessions with branching support
 - ✅ **Context Storage**: Save/retrieve context with categories (task, decision, progress, note) and priorities
 - ✅ **File Caching**: Track file changes with SHA-256 hashing
@@ -524,6 +559,8 @@ Test categories:
 - ✅ **Search**: Full-text search across all saved context
 - ✅ **Export/Import**: Backup and share context as JSON
 - ✅ **SQLite Storage**: Persistent, reliable data storage with WAL mode
+- ✅ **Knowledge Graph**: Automatic entity and relationship extraction from context
+- ✅ **Visualization**: Generate graph, timeline, and heatmap data for context exploration
 
 ### Roadmap
 
