@@ -1,14 +1,25 @@
-# MCP Memory Keeper
+# MCP Memory Keeper - Claude Code Context Management
 
-A Model Context Protocol (MCP) server that provides persistent context management for AI coding assistants. Never lose context during compaction again!
+A Model Context Protocol (MCP) server that provides persistent context management for Claude AI coding assistants. Never lose context during compaction again! This MCP server helps Claude Code maintain context across sessions, preserving your work history, decisions, and progress.
+
+## Why MCP Memory Keeper?
+
+Claude Code users often face context loss when the conversation window fills up. This MCP server solves that problem by providing a persistent memory layer for Claude AI. Whether you're working on complex refactoring, multi-file changes, or long debugging sessions, Memory Keeper ensures your Claude assistant remembers important context, decisions, and progress.
+
+### Perfect for:
+- Long coding sessions with Claude Code
+- Complex projects requiring context preservation
+- Teams using Claude AI for collaborative development
+- Developers who want persistent context across Claude sessions
 
 ## Features
 
-- 🔄 Save and restore context between sessions
+- 🔄 Save and restore context between Claude Code sessions
 - 📁 File content caching with change detection  
 - 🏷️ Organize context with categories and priorities
-- 💾 SQLite-based persistent storage
-- 🚀 Fast and lightweight
+- 💾 SQLite-based persistent storage for Claude AI assistants
+- 🚀 Fast and lightweight MCP server implementation
+- 🤖 Designed specifically for Claude Code context management
 
 ## Installation
 
@@ -246,3 +257,7 @@ If you encounter any issues or have questions:
 - Open an issue on [GitHub](https://github.com/mkreyman/mcp-memory-keeper/issues)
 - Check the [MCP documentation](https://modelcontextprotocol.io/)
 - Join the Claude Code community discussions
+
+## Keywords
+
+Claude Code context management, MCP server, Claude AI memory, persistent context, Model Context Protocol, Claude assistant memory, AI coding context, Claude Code MCP, context preservation, Claude AI tools
