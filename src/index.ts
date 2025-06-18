@@ -12,6 +12,7 @@ import * as path from 'path';
 import { simpleGit, SimpleGit } from 'simple-git';
 import { KnowledgeGraphManager } from './utils/knowledge-graph.js';
 import { VectorStore } from './utils/vector-store.js';
+import { AgentCoordinator, AnalyzerAgent, SynthesizerAgent, AgentTask } from './utils/agents.js';
 
 // Initialize database
 const db = new Database('context.db');
@@ -24,6 +25,13 @@ const knowledgeGraph = new KnowledgeGraphManager(db);
 
 // Initialize vector store
 const vectorStore = new VectorStore(db);
+
+// Initialize multi-agent system
+const agentCoordinator = new AgentCoordinator();
+const analyzerAgent = new AnalyzerAgent(db, knowledgeGraph, vectorStore);
+const synthesizerAgent = new SynthesizerAgent(db, vectorStore);
+agentCoordinator.registerAgent(analyzerAgent);
+agentCoordinator.registerAgent(synthesizerAgent);
 
 // Create tables with enhanced schema
 db.exec(`
@@ -1307,6 +1315,79 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
       }
     }
 
+    // Phase 4.3: Multi-Agent System
+    case 'context_delegate': {
+      const { taskType, input, sessionId, chain = false } = args;
+      const targetSessionId = sessionId || ensureSession();
+      
+      try {
+        // Create agent task
+        const task: AgentTask = {
+          id: uuidv4(),
+          type: taskType,
+          input: {
+            ...input,
+            sessionId: targetSessionId
+          }
+        };
+        
+        // Process with agents
+        let results;
+        if (chain && Array.isArray(input)) {
+          // Process as a chain of tasks
+          const tasks = input.map((inp, index) => ({
+            id: uuidv4(),
+            type: Array.isArray(taskType) ? taskType[index] : taskType,
+            input: { ...inp, sessionId: targetSessionId }
+          }));
+          results = await agentCoordinator.processChain(tasks);
+        } else {
+          // Single task delegation
+          results = await agentCoordinator.delegate(task);
+        }
+        
+        // Format response
+        let response = `Agent Processing Results:\n\n`;
+        
+        for (const result of results) {
+          response += `## ${result.agentType.toUpperCase()} Agent\n`;
+          response += `Confidence: ${(result.confidence * 100).toFixed(0)}%\n`;
+          response += `Processing Time: ${result.processingTime}ms\n`;
+          
+          if (result.reasoning) {
+            response += `Reasoning: ${result.reasoning}\n`;
+          }
+          
+          response += `\nOutput:\n`;
+          response += JSON.stringify(result.output, null, 2);
+          response += '\n\n---\n\n';
+        }
+        
+        // Get best result if multiple agents processed
+        if (results.length > 1) {
+          const best = agentCoordinator.getBestResult(task.id);
+          if (best) {
+            response += `\n## Best Result (${best.agentType}, ${(best.confidence * 100).toFixed(0)}% confidence):\n`;
+            response += JSON.stringify(best.output, null, 2);
+          }
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: response,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Agent delegation failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -1626,6 +1707,60 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             sessionId: { type: 'string', description: 'Search within specific session (defaults to current)' },
           },
           required: ['query'],
+        },
+      },
+      // Phase 4.3: Multi-Agent System
+      {
+        name: 'context_delegate',
+        description: 'Delegate complex analysis tasks to specialized agents',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            taskType: { 
+              type: 'string', 
+              enum: ['analyze', 'synthesize'],
+              description: 'Type of task to delegate' 
+            },
+            input: {
+              type: 'object',
+              properties: {
+                analysisType: { 
+                  type: 'string', 
+                  enum: ['patterns', 'relationships', 'trends', 'comprehensive'],
+                  description: 'For analyze tasks: type of analysis' 
+                },
+                synthesisType: { 
+                  type: 'string', 
+                  enum: ['summary', 'merge', 'recommendations'],
+                  description: 'For synthesize tasks: type of synthesis' 
+                },
+                categories: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Categories to include in analysis'
+                },
+                timeframe: { 
+                  type: 'string', 
+                  description: 'Time period for analysis (e.g., "-7 days")' 
+                },
+                maxLength: { 
+                  type: 'number', 
+                  description: 'Maximum length for summaries' 
+                },
+                insights: {
+                  type: 'array',
+                  description: 'For merge synthesis: array of insights to merge'
+                },
+              },
+            },
+            chain: { 
+              type: 'boolean', 
+              description: 'Process multiple tasks in sequence',
+              default: false 
+            },
+            sessionId: { type: 'string', description: 'Session to analyze (defaults to current)' },
+          },
+          required: ['taskType', 'input'],
         },
       },
     ],

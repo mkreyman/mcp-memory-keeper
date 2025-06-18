@@ -482,6 +482,70 @@ mcp_context_semantic_search({
 })
 ```
 
+### Multi-Agent System (Phase 4.3)
+
+Delegate complex analysis tasks to specialized agents:
+
+```javascript
+// Analyze patterns in your context
+mcp_context_delegate({
+  taskType: "analyze",
+  input: {
+    analysisType: "patterns",
+    categories: ["task", "decision"]
+  }
+})
+
+// Get comprehensive analysis
+mcp_context_delegate({
+  taskType: "analyze", 
+  input: {
+    analysisType: "comprehensive"
+  }
+})
+
+// Analyze relationships between entities
+mcp_context_delegate({
+  taskType: "analyze",
+  input: {
+    analysisType: "relationships",
+    maxDepth: 3
+  }
+})
+
+// Create intelligent summaries
+mcp_context_delegate({
+  taskType: "synthesize",
+  input: {
+    synthesisType: "summary",
+    maxLength: 1000
+  }
+})
+
+// Get actionable recommendations
+mcp_context_delegate({
+  taskType: "synthesize",
+  input: {
+    synthesisType: "recommendations",
+    analysisResults: {} // Can pass previous analysis results
+  }
+})
+
+// Chain multiple agent tasks
+mcp_context_delegate({
+  chain: true,
+  taskType: ["analyze", "synthesize"],
+  input: [
+    { analysisType: "comprehensive" },
+    { synthesisType: "recommendations" }
+  ]
+})
+```
+
+Agent Types:
+- **Analyzer Agent**: Detects patterns, analyzes relationships, tracks trends
+- **Synthesizer Agent**: Creates summaries, merges insights, generates recommendations
+
 ## Documentation
 
 - **[Quick Start Examples](./EXAMPLES.md)** - Real-world scenarios and workflows
@@ -522,7 +586,10 @@ mcp-memory-keeper/
 │   ├── utils/             # Utility modules
 │   │   ├── database.ts    # Database management
 │   │   ├── validation.ts  # Input validation
-│   │   └── git.ts         # Git operations
+│   │   ├── git.ts         # Git operations
+│   │   ├── knowledge-graph.ts # Knowledge graph management
+│   │   ├── vector-store.ts    # Vector embeddings
+│   │   └── agents.ts      # Multi-agent system
 │   └── __tests__/         # Test files
 ├── dist/                  # Compiled JavaScript (generated)
 ├── context.db             # SQLite database (auto-created)
@@ -572,9 +639,9 @@ Test categories:
 | Knowledge Graph | ✅ Stable | v0.5+ | Code relationship analysis |
 | Visualization | ✅ Stable | v0.5+ | Context exploration |
 | Semantic Search | ✅ Stable | v0.6+ | Natural language queries |
-| Multi-Agent | 📋 Planned | v0.7+ | Intelligent processing |
+| Multi-Agent | ✅ Stable | v0.7+ | Intelligent processing |
 
-### Current Features (v0.6.0)
+### Current Features (v0.7.0)
 - ✅ **Session Management**: Create, list, and continue sessions with branching support
 - ✅ **Context Storage**: Save/retrieve context with categories (task, decision, progress, note) and priorities
 - ✅ **File Caching**: Track file changes with SHA-256 hashing
@@ -587,6 +654,7 @@ Test categories:
 - ✅ **Knowledge Graph**: Automatic entity and relationship extraction from context
 - ✅ **Visualization**: Generate graph, timeline, and heatmap data for context exploration
 - ✅ **Semantic Search**: Natural language search using lightweight vector embeddings
+- ✅ **Multi-Agent System**: Intelligent analysis with specialized analyzer and synthesizer agents
 
 ### Roadmap
 

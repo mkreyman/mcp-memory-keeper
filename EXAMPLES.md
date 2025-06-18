@@ -549,6 +549,80 @@ await context_semantic_search({
 });
 ```
 
+## Multi-Agent Analysis Examples
+
+### Getting Deep Insights
+Use the multi-agent system to analyze your work patterns:
+
+```javascript
+// Analyze your work patterns
+await mcp_context_delegate({
+  taskType: "analyze",
+  input: {
+    analysisType: "patterns"
+  }
+})
+// Shows category distribution, priority patterns, temporal activity, keywords
+
+// Get comprehensive analysis with all insights
+await mcp_context_delegate({
+  taskType: "analyze",
+  input: {
+    analysisType: "comprehensive"
+  }
+})
+// Returns patterns + relationships + trends + overall insights
+```
+
+### Intelligent Summaries
+Generate context-aware summaries:
+
+```javascript
+// Create a focused summary
+await mcp_context_delegate({
+  taskType: "synthesize",
+  input: {
+    synthesisType: "summary",
+    categories: ["task", "decision"],
+    maxLength: 500
+  }
+})
+
+// Get actionable recommendations
+await mcp_context_delegate({
+  taskType: "synthesize",
+  input: {
+    synthesisType: "recommendations",
+    analysisResults: {
+      highPriorityCount: 15,
+      contextSize: 2000
+    }
+  }
+})
+// Returns immediate actions, short-term goals, and warnings
+```
+
+### Advanced Agent Chaining
+Process complex analysis workflows:
+
+```javascript
+// Analyze then synthesize in one command
+await mcp_context_delegate({
+  chain: true,
+  taskType: ["analyze", "synthesize"],
+  input: [
+    { 
+      analysisType: "comprehensive",
+      timeframe: "-7 days"
+    },
+    { 
+      synthesisType: "recommendations"
+    }
+  ]
+})
+// First analyzes all patterns, then generates recommendations based on findings
+```
+
 ## Real-World Example: Full Day Workflow
 
 ```typescript
