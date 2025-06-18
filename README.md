@@ -154,6 +154,29 @@ claude mcp add memory-keeper node /absolute/path/to/mcp-memory-keeper/dist/index
 # The server output will appear in Claude Code's output panel
 ```
 
+### Updating to Latest Version
+
+To get the latest features and bug fixes:
+
+```bash
+# 1. Navigate to your Memory Keeper directory
+cd /path/to/mcp-memory-keeper
+
+# 2. Pull the latest changes
+git pull
+
+# 3. Install any new dependencies (if package.json changed)
+npm install
+
+# 4. Rebuild the project
+npm run build
+
+# 5. Start a new Claude session
+# The updated features will be available immediately
+```
+
+**Note**: You don't need to reconfigure the MCP server in Claude after updating. Just pull, build, and start a new session!
+
 ## Usage
 
 ### Session Management
