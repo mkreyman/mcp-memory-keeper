@@ -1,0 +1,29 @@
+{
+  "name": "mcp-memory-keeper",
+  "version": "0.1.0",
+  "description": "MCP server for persistent context management in AI coding assistants",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["mcp", "claude", "ai", "context", "coding-assistant"],
+  "author": "Mark Kreyman",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mkreyman/mcp-memory-keeper"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.3",
+    "better-sqlite3": "^11.10.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}
