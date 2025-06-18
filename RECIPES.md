@@ -761,6 +761,488 @@ await context_save({
 });
 ```
 
+## Knowledge Graph Patterns
+
+### The Code Architecture Mapping Pattern
+Build a comprehensive understanding of your codebase:
+
+```typescript
+// Start architecture analysis
+await context_session_start({
+  name: "Architecture Analysis",
+  description: "Building knowledge graph of system components"
+});
+
+// Map major components
+const components = [
+  { name: "AuthService", type: "service", purpose: "User authentication and authorization" },
+  { name: "UserRepository", type: "repository", purpose: "User data persistence" },
+  { name: "JWTManager", type: "utility", purpose: "JWT token generation and validation" },
+  { name: "EmailService", type: "service", purpose: "Email notifications" }
+];
+
+for (const component of components) {
+  await context_save({
+    key: `component_${component.name}`,
+    value: `${component.type}: ${component.purpose}`,
+    category: "note",
+    metadata: JSON.stringify(component)
+  });
+}
+
+// Map relationships
+await context_save({
+  key: "relationship_auth_user",
+  value: "AuthService uses UserRepository for user lookup",
+  category: "note"
+});
+
+await context_save({
+  key: "relationship_auth_jwt",
+  value: "AuthService depends on JWTManager for token operations",
+  category: "note"
+});
+
+// Analyze to build graph
+await context_analyze();
+
+// Find all auth-related components
+const authRelated = await context_find_related({
+  key: "AuthService",
+  maxDepth: 2
+});
+
+// Generate visualization
+const graph = await context_visualize({ type: "graph" });
+```
+
+### The Dependency Tracking Pattern
+Track and understand complex dependencies:
+
+```typescript
+// Track package dependencies
+await context_save({
+  key: "dep_express",
+  value: "express@4.18.0 - Web framework, used by API routes",
+  category: "note"
+});
+
+await context_save({
+  key: "dep_bcrypt",
+  value: "bcrypt@5.1.0 - Password hashing, critical for auth security",
+  category: "note",
+  priority: "high"
+});
+
+// Track internal dependencies
+await context_save({
+  key: "module_dependency_chain",
+  value: "OrderController -> OrderService -> OrderRepository -> Database",
+  category: "note"
+});
+
+// Security audit trail
+await context_save({
+  key: "security_dep_review",
+  value: "Reviewed all auth dependencies for vulnerabilities - all clear",
+  category: "decision",
+  priority: "high",
+  metadata: JSON.stringify({ 
+    reviewDate: new Date().toISOString(),
+    nextReview: "2024-04-01" 
+  })
+});
+```
+
+## Semantic Search Patterns
+
+### The Natural Language Documentation Pattern
+Make your context searchable with conversational queries:
+
+```typescript
+// Document in natural language
+await context_save({
+  key: "how_auth_works",
+  value: "Our authentication system uses JWT tokens with 15-minute access tokens and 7-day refresh tokens. Users log in with email/password, receive both tokens, and the access token is included in API requests.",
+  category: "note",
+  priority: "high"
+});
+
+await context_save({
+  key: "deployment_process",
+  value: "To deploy to production: run tests, build Docker image, push to registry, update Kubernetes manifest, apply changes. Rollback by reverting the manifest commit.",
+  category: "note"
+});
+
+// Search naturally
+const authInfo = await context_semantic_search({
+  query: "how does user login work?",
+  topK: 5
+});
+
+const deployInfo = await context_semantic_search({
+  query: "what are the steps to deploy?",
+  topK: 3
+});
+```
+
+### The Problem-Solution Mapping Pattern
+Link problems to their solutions:
+
+```typescript
+// Document problems
+await context_save({
+  key: "problem_slow_api",
+  value: "API responses taking 5+ seconds for user list endpoint",
+  category: "task",
+  priority: "high"
+});
+
+// Document investigation
+await context_save({
+  key: "investigation_slow_api",
+  value: "Found N+1 query problem - fetching permissions for each user separately",
+  category: "note"
+});
+
+// Document solution
+await context_save({
+  key: "solution_slow_api",
+  value: "Implemented eager loading with JOIN query, reduced response time to 200ms",
+  category: "progress"
+});
+
+// Later, find similar issues
+const similar = await context_semantic_search({
+  query: "performance problems with database queries",
+  minSimilarity: 0.4
+});
+```
+
+## Multi-Agent Analysis Patterns
+
+### The Comprehensive Code Review Pattern
+Use agents to analyze your work before review:
+
+```typescript
+// Analyze your changes
+const analysis = await context_delegate({
+  taskType: "analyze",
+  input: {
+    analysisType: "comprehensive",
+    timeframe: "-1 day"
+  }
+});
+
+// Get recommendations
+const recommendations = await context_delegate({
+  taskType: "synthesize",
+  input: {
+    synthesisType: "recommendations",
+    analysisResults: analysis
+  }
+});
+
+// Chain for pre-commit check
+const preCommitCheck = await context_delegate({
+  chain: true,
+  taskType: ["analyze", "synthesize"],
+  input: [
+    { analysisType: "patterns" },
+    { synthesisType: "summary", maxLength: 500 }
+  ]
+});
+```
+
+### The Sprint Retrospective Pattern
+Analyze sprint patterns and generate insights:
+
+```typescript
+// End of sprint analysis
+await context_delegate({
+  taskType: "analyze",
+  input: {
+    analysisType: "trends",
+    timeframe: "-14 days",
+    categories: ["task", "progress", "decision"]
+  }
+});
+
+// Generate sprint summary
+await context_delegate({
+  taskType: "synthesize",
+  input: {
+    synthesisType: "narrative",
+    includeMetrics: true,
+    includeLearnings: true
+  }
+});
+```
+
+## Session Branching Patterns
+
+### The A/B Implementation Pattern
+Try different approaches safely:
+
+```typescript
+// Main implementation
+await context_save({
+  key: "approach_decision",
+  value: "Need to implement caching - considering Redis vs in-memory",
+  category: "decision",
+  priority: "high"
+});
+
+// Branch for Redis approach
+const redissBranchId = await context_branch_session({
+  branchName: "cache-redis-approach",
+  copyDepth: "shallow"
+});
+
+// Work on Redis implementation
+await context_save({
+  key: "redis_implementation",
+  value: "Implemented distributed cache with Redis, 10ms latency",
+  category: "progress"
+});
+
+// Branch for in-memory approach
+await context_session_start({ id: originalSessionId });
+const memoryBranchId = await context_branch_session({
+  branchName: "cache-memory-approach", 
+  copyDepth: "shallow"
+});
+
+// Work on in-memory implementation
+await context_save({
+  key: "memory_implementation",
+  value: "Implemented in-memory LRU cache, 1ms latency but not distributed",
+  category: "progress"
+});
+
+// Compare and decide
+await context_save({
+  key: "cache_decision_final",
+  value: "Chose Redis - distributed nature crucial for multi-instance deployment",
+  category: "decision",
+  priority: "high"
+});
+
+// Merge the chosen approach
+await context_merge_sessions({
+  sourceSessionId: redissBranchId,
+  conflictResolution: "keep_source"
+});
+```
+
+### The Safe Experimentation Pattern
+Experiment without fear of breaking things:
+
+```typescript
+// Before risky changes
+await context_checkpoint({
+  name: "before-experimental-optimization",
+  includeFiles: true,
+  includeGitStatus: true
+});
+
+// Create experimental branch
+await context_branch_session({
+  branchName: "experimental-async-refactor",
+  copyDepth: "deep"
+});
+
+// Document experiments
+await context_journal_entry({
+  entry: "Trying Promise.all for parallel processing - risky but could 10x performance",
+  tags: ["experiment", "performance", "risk"],
+  mood: "curious"
+});
+
+// If experiment fails
+if (experimentFailed) {
+  // Just switch back - no cleanup needed
+  await context_session_start({ id: originalSessionId });
+  
+  await context_journal_entry({
+    entry: "Experiment failed - Promise.all caused race conditions. Good learning though!",
+    tags: ["experiment", "learning", "failed"],
+    mood: "disappointed"
+  });
+}
+```
+
+## Time Management Patterns
+
+### The Pomodoro Tracking Pattern
+Track productivity with time-boxed sessions:
+
+```typescript
+// Start pomodoro
+const pomodoroStart = new Date();
+await context_save({
+  key: `pomodoro_${pomodoroStart.getTime()}_start`,
+  value: "Starting 25min focus: Implement user search",
+  category: "note",
+  metadata: JSON.stringify({ 
+    technique: "pomodoro",
+    duration: 25,
+    startTime: pomodoroStart
+  })
+});
+
+// End pomodoro
+await context_save({
+  key: `pomodoro_${pomodoroStart.getTime()}_end`,
+  value: "Completed: Basic search working, need to add filters",
+  category: "progress"
+});
+
+await context_journal_entry({
+  entry: "Good focus session. Search is 70% done. Need 1 more pomodoro for filters.",
+  tags: ["pomodoro", "productivity"],
+  mood: "focused"
+});
+
+// Daily summary
+const timeline = await context_timeline({
+  startDate: new Date().toISOString().split('T')[0],
+  groupBy: "hour"
+});
+```
+
+### The Energy Level Pattern
+Track when you're most productive:
+
+```typescript
+// Morning check-in
+await context_journal_entry({
+  entry: "Fresh start, tackling the complex refactoring first",
+  tags: ["morning", "energy-high"],
+  mood: "energized"
+});
+
+// Track complex work
+await context_save({
+  key: "morning_complex_work",
+  value: "Refactored authentication module - redesigned token flow",
+  category: "progress",
+  metadata: JSON.stringify({ 
+    energyLevel: "high",
+    complexity: "high",
+    timeOfDay: "morning"
+  })
+});
+
+// Afternoon routine tasks
+await context_journal_entry({
+  entry: "Energy dipping, switching to code reviews and documentation",
+  tags: ["afternoon", "energy-medium"],
+  mood: "tired"
+});
+
+// Analyze patterns
+const energyAnalysis = await context_delegate({
+  taskType: "analyze",
+  input: {
+    analysisType: "patterns",
+    focusOn: "productivity-by-time"
+  }
+});
+```
+
+## Integration Patterns
+
+### The CI/CD Context Pattern
+Track deployment context:
+
+```typescript
+// Pre-deployment checklist
+await context_save({
+  key: "deploy_checklist",
+  value: "✓ Tests passing ✓ Code reviewed ✓ Changelog updated ✓ Rollback plan ready",
+  category: "task",
+  priority: "high"
+});
+
+// Track deployment
+await context_integrate_tool({
+  toolName: "github-actions",
+  eventType: "deployment-started",
+  data: {
+    version: "v2.3.0",
+    environment: "production",
+    commit: "abc123def"
+  }
+});
+
+// Track results
+await context_integrate_tool({
+  toolName: "monitoring",
+  eventType: "deployment-metrics",
+  data: {
+    errorRate: "0.01%",
+    responseTime: "145ms",
+    cpuUsage: "35%",
+    status: "healthy"
+  }
+});
+```
+
+### The Tool Chain Pattern
+Connect your entire tool ecosystem:
+
+```typescript
+// Linting results
+await context_integrate_tool({
+  toolName: "eslint",
+  eventType: "lint-complete",
+  data: {
+    files: 45,
+    errors: 0,
+    warnings: 3,
+    fixable: 2
+  }
+});
+
+// Test coverage
+await context_integrate_tool({
+  toolName: "jest",
+  eventType: "coverage-report",
+  data: {
+    lines: "92%",
+    branches: "87%",
+    functions: "95%",
+    statements: "91%",
+    important: true // Below 95% threshold
+  }
+});
+
+// Security scan
+await context_integrate_tool({
+  toolName: "security-scanner",
+  eventType: "scan-complete",
+  data: {
+    vulnerabilities: {
+      critical: 0,
+      high: 1,
+      medium: 3,
+      low: 12
+    },
+    important: true
+  }
+});
+
+// Generate tool status summary
+const toolStatus = await context_delegate({
+  taskType: "synthesize",
+  input: {
+    synthesisType: "tool-status-report",
+    includeRecommendations: true
+  }
+});
+```
+
 ---
 
 ## Contributing Your Own Recipes
@@ -772,4 +1254,8 @@ Have a useful pattern? Please contribute!
 3. Include realistic examples
 4. Submit a pull request
 
-Remember: Good recipes are specific, practical, and solve real problems.
+Remember: Good recipes should be:
+- **Specific**: Solve a real problem
+- **Practical**: Easy to adapt to similar situations  
+- **Complete**: Include all necessary context
+- **Tested**: Based on actual usage
