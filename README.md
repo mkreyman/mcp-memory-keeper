@@ -422,11 +422,27 @@ mcp_context_import({
 })
 ```
 
+## Documentation
+
+- **[Quick Start Examples](./EXAMPLES.md)** - Real-world scenarios and workflows
+- **[Troubleshooting Guide](./TROUBLESHOOTING.md)** - Common issues and solutions
+- **[API Reference](./API.md)** - Complete tool documentation (coming soon)
+- **[Recipes](./RECIPES.md)** - Common patterns and best practices (coming soon)
+
 ## Development
 
 ### Running in Development Mode
 
 ```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+
 # Run with auto-reload
 npm run dev
 
@@ -442,39 +458,95 @@ npm start
 ```
 mcp-memory-keeper/
 ├── src/
-│   └── index.ts       # Main MCP server implementation
-├── dist/              # Compiled JavaScript (generated)
-├── context.db         # SQLite database (auto-created)
-├── package.json       # Project configuration
-├── tsconfig.json      # TypeScript configuration
-└── README.md          # This file
+│   ├── index.ts           # Main MCP server implementation
+│   ├── utils/             # Utility modules
+│   │   ├── database.ts    # Database management
+│   │   ├── validation.ts  # Input validation
+│   │   └── git.ts         # Git operations
+│   └── __tests__/         # Test files
+├── dist/                  # Compiled JavaScript (generated)
+├── context.db             # SQLite database (auto-created)
+├── EXAMPLES.md            # Quick start examples
+├── TROUBLESHOOTING.md     # Common issues and solutions
+├── package.json           # Project configuration
+├── tsconfig.json          # TypeScript configuration
+├── jest.config.js         # Test configuration
+└── README.md              # This file
 ```
 
-## Roadmap
+### Testing
+
+The project includes comprehensive test coverage:
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Generate coverage report
+npm run test:coverage
+
+# Run specific test file
+npm test -- summarization.test.ts
+```
+
+Test categories:
+- **Unit Tests**: Input validation, database operations, git integration
+- **Integration Tests**: Full tool workflows, error scenarios, edge cases
+- **Coverage**: 97%+ coverage on critical modules
+
+## Feature Status
+
+| Feature | Maturity | Version | Use Case |
+|---------|----------|---------|----------|
+| Basic Save/Get | ✅ Stable | v0.1+ | Daily context management |
+| Sessions | ✅ Stable | v0.2+ | Multi-project work |
+| File Caching | ✅ Stable | v0.2+ | Track file changes |
+| Checkpoints | ✅ Stable | v0.3+ | Context preservation |
+| Smart Compaction | ✅ Stable | v0.3+ | Pre-compaction prep |
+| Git Integration | ✅ Stable | v0.3+ | Commit context tracking |
+| Search | ✅ Stable | v0.3+ | Find saved items |
+| Export/Import | ✅ Stable | v0.3+ | Backup & sharing |
+| Knowledge Graph | 🚧 Beta | v0.5+ | Code relationship analysis |
+| Semantic Search | 🚧 Beta | v0.5+ | Natural language queries |
+| Multi-Agent | 📋 Planned | v0.6+ | Intelligent processing |
+| Visualization | 📋 Planned | v0.6+ | Context exploration |
 
 ### Current Features (v0.4.0)
-- ✅ Session management with branching support
-- ✅ Enhanced context storage with categories and priorities
-- ✅ File caching with change detection
-- ✅ Checkpoint system for named snapshots
-- ✅ Context restore from checkpoints
-- ✅ AI-friendly context summarization
-- ✅ Smart compaction preparation tool
-- ✅ Git integration with auto-save on commits
-- ✅ Context search capabilities
-- ✅ Export/import functionality
-- ✅ Automatic critical context detection
-- ✅ Git status capture in checkpoints
-- ✅ Persistent SQLite storage
+- ✅ **Session Management**: Create, list, and continue sessions with branching support
+- ✅ **Context Storage**: Save/retrieve context with categories (task, decision, progress, note) and priorities
+- ✅ **File Caching**: Track file changes with SHA-256 hashing
+- ✅ **Checkpoints**: Create and restore complete context snapshots
+- ✅ **Smart Compaction**: Never lose critical context when hitting limits
+- ✅ **Git Integration**: Auto-save context on commits with branch tracking
+- ✅ **Search**: Full-text search across all saved context
+- ✅ **Export/Import**: Backup and share context as JSON
+- ✅ **SQLite Storage**: Persistent, reliable data storage with WAL mode
 
-### Future Enhancements
+### Roadmap
+
+#### Phase 4: Advanced Features (In Development)
+- 🚧 **Knowledge Graph**: Entity-relation tracking for code understanding
+- 🚧 **Vector Search**: Semantic search using natural language
+- 📋 **Multi-Agent Processing**: Intelligent analysis and synthesis
+- 📋 **Time-Aware Context**: Timeline views and journal entries
+
+#### Phase 5: Documentation & Polish
+- ✅ **Examples**: Comprehensive quick-start scenarios
+- ✅ **Troubleshooting**: Common issues and solutions
+- 🚧 **Recipes**: Common patterns and workflows
+- 📋 **Video Tutorials**: Visual guides for key features
+
+#### Future Enhancements
 - [ ] Web UI for browsing context history
-- [ ] Multi-user/team support
-- [ ] Context sharing via cloud sync
+- [ ] Multi-user/team collaboration features
+- [ ] Cloud sync and sharing
 - [ ] Integration with other AI assistants
 - [ ] Advanced analytics and insights
 - [ ] Custom context templates
-- [ ] Automatic context pruning policies
+- [ ] Automatic retention policies
 
 ## Contributing
 
