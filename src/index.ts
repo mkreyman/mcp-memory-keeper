@@ -20,8 +20,9 @@ import { MigrationManager } from './utils/migrations.js';
 // Initialize database
 const db = new Database('context.db');
 
-// Initialize git
-const git: SimpleGit = simpleGit();
+// Initialize git - will be updated with project directory
+let git: SimpleGit = simpleGit();
+let projectDirectory: string | null = null;
 
 // Initialize knowledge graph manager
 const knowledgeGraph = new KnowledgeGraphManager(db);
@@ -270,17 +271,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   switch (toolName) {
     // Session Management
     case 'context_session_start': {
-      const { name, description, continueFrom } = args;
+      const { name, description, continueFrom, projectDir } = args;
       const sessionId = uuidv4();
+      
+      // Update project directory if provided
+      if (projectDir) {
+        projectDirectory = projectDir;
+        git = simpleGit(projectDirectory);
+      }
       
       // Get current git branch if available
       let branch = null;
+      let gitDetected = false;
       try {
-        const gitHeadPath = path.join(process.cwd(), '.git', 'HEAD');
-        if (fs.existsSync(gitHeadPath)) {
-          const headContent = fs.readFileSync(gitHeadPath, 'utf8').trim();
-          if (headContent.startsWith('ref: refs/heads/')) {
-            branch = headContent.replace('ref: refs/heads/', '');
+        if (projectDirectory) {
+          // Use simple-git to get branch info
+          const branchInfo = await git.branch();
+          branch = branchInfo.current;
+          gitDetected = true;
+        } else {
+          // Fall back to checking local .git directory
+          const gitHeadPath = path.join(process.cwd(), '.git', 'HEAD');
+          if (fs.existsSync(gitHeadPath)) {
+            const headContent = fs.readFileSync(gitHeadPath, 'utf8').trim();
+            if (headContent.startsWith('ref: refs/heads/')) {
+              branch = headContent.replace('ref: refs/heads/', '');
+            }
           }
         }
       } catch (e) {
@@ -311,10 +327,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       currentSessionId = sessionId;
 
+      let statusMessage = `Started new session: ${sessionId}\nName: ${name || 'Unnamed'}`;
+      
+      if (projectDirectory) {
+        statusMessage += `\nProject directory: ${projectDirectory}`;
+        if (gitDetected) {
+          statusMessage += `\nGit branch: ${branch || 'unknown'}`;
+        } else {
+          statusMessage += `\nGit: No repository found in project directory`;
+        }
+      } else {
+        statusMessage += `\nGit branch: ${branch || 'unknown'}`;
+        statusMessage += `\n\n💡 Tip: To enable git tracking for your project, start a session with:\nmcp_context_session_start({ name: "My Session", projectDir: "/path/to/your/project" })`;
+      }
+      
       return {
         content: [{
           type: 'text',
-          text: `Started new session: ${sessionId}\nName: ${name || 'Unnamed'}\nBranch: ${branch || 'unknown'}`,
+          text: statusMessage,
+        }],
+      };
+    }
+
+    case 'context_set_project_dir': {
+      const { projectDir } = args;
+      
+      if (!projectDir) {
+        throw new Error('Project directory path is required');
+      }
+      
+      // Verify the directory exists
+      if (!fs.existsSync(projectDir)) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Error: Directory not found: ${projectDir}`,
+          }],
+        };
+      }
+      
+      // Update the project directory and git instance
+      projectDirectory = projectDir;
+      git = simpleGit(projectDirectory);
+      
+      // Try to get git info to verify it's a git repo
+      let gitInfo = 'No git repository found';
+      try {
+        const branchInfo = await git.branch();
+        const status = await git.status();
+        gitInfo = `Git repository detected\nBranch: ${branchInfo.current}\nStatus: ${status.modified.length} modified, ${status.created.length} new, ${status.deleted.length} deleted`;
+      } catch (e) {
+        // Not a git repo, that's okay
+      }
+      
+      return {
+        content: [{
+          type: 'text',
+          text: `Project directory set to: ${projectDir}\n\n${gitInfo}`,
         }],
       };
     }
@@ -2671,13 +2740,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Session Management
       {
         name: 'context_session_start',
-        description: 'Start a new context session',
+        description: 'Start a new context session with optional project directory for git tracking',
         inputSchema: {
           type: 'object',
           properties: {
             name: { type: 'string', description: 'Session name' },
             description: { type: 'string', description: 'Session description' },
             continueFrom: { type: 'string', description: 'Session ID to continue from' },
+            projectDir: { type: 'string', description: 'Project directory path for git tracking (e.g., "/path/to/your/project")' },
           },
         },
       },
@@ -2689,6 +2759,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             limit: { type: 'number', description: 'Maximum number of sessions to return', default: 10 },
           },
+        },
+      },
+      {
+        name: 'context_set_project_dir',
+        description: 'Set the project directory for git tracking in the current session',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectDir: { 
+              type: 'string', 
+              description: 'Project directory path for git tracking (e.g., "/path/to/your/project")' 
+            },
+          },
+          required: ['projectDir'],
         },
       },
       // Enhanced Context Storage
