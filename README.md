@@ -645,9 +645,12 @@ mcp_context_integrate_tool({
 ## Documentation
 
 - **[Quick Start Examples](./EXAMPLES.md)** - Real-world scenarios and workflows
+- **[API Reference](./API.md)** - Complete tool documentation with all parameters and examples
+- **[Recipe Book](./RECIPES.md)** - Common patterns and best practices for daily development
 - **[Troubleshooting Guide](./TROUBLESHOOTING.md)** - Common issues and solutions
-- **[Recipe Book](./RECIPES.md)** - Common patterns and best practices
-- **[API Reference](./API.md)** - Complete tool documentation (coming soon)
+- **[Architecture Overview](./ARCHITECTURE.md)** - System design and technical details
+- **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute to the project
+- **[Changelog](./CHANGELOG.md)** - Version history and release notes
 
 ## Development
 
