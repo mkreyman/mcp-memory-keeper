@@ -165,6 +165,18 @@ mcp_context_session_start({
   description: "Working on user authentication" 
 })
 
+// Start a session with project directory for git tracking
+mcp_context_session_start({ 
+  name: "Feature Development", 
+  description: "Working on user authentication",
+  projectDir: "/path/to/your/project"
+})
+
+// Set project directory for current session
+mcp_context_set_project_dir({ 
+  projectDir: "/path/to/your/project"
+})
+
 // List recent sessions
 mcp_context_session_list({ limit: 5 })
 
@@ -363,9 +375,14 @@ mcp_context_prepare_compaction()
 
 ### Git Integration (Phase 3)
 
-Automatically save context with your commits:
+Track git changes in your project directory and save context with commits:
 
 ```javascript
+// First, set your project directory (if not done during session start)
+mcp_context_set_project_dir({ 
+  projectDir: "/path/to/your/project"
+})
+
 // Commit with auto-save
 mcp_context_git_commit({ 
   message: "feat: Add user authentication",
@@ -373,6 +390,8 @@ mcp_context_git_commit({
 })
 
 // Context is automatically linked to the commit
+// Note: If no project directory is set, you'll see a helpful message
+// explaining how to enable git tracking for your project
 ```
 
 ### Context Search (Phase 3)

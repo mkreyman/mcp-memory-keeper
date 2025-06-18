@@ -22,7 +22,7 @@ const db = new Database('context.db');
 
 // Initialize git - will be updated with project directory
 let git: SimpleGit = simpleGit();
-let projectDirectory: string | null = null;
+let projectDirectory: string | undefined = undefined;
 
 // Initialize knowledge graph manager
 const knowledgeGraph = new KnowledgeGraphManager(db);
@@ -254,7 +254,7 @@ function createSummary(items: any[], options: { categories?: string[]; maxLength
 const server = new Server(
   {
     name: 'memory-keeper',
-    version: '0.6.0',
+    version: '0.8.1',
   },
   {
     capabilities: {
@@ -879,6 +879,26 @@ mcp_context_restore_checkpoint({ name: "${checkpointName}" })`,
     case 'context_git_commit': {
       const { message, autoSave = true } = args;
       const sessionId = ensureSession();
+      
+      // Check if project directory is set
+      if (!projectDirectory) {
+        return {
+          content: [{
+            type: 'text',
+            text: `⚠️ No project directory set for git tracking!
+
+To track git changes in your project, please set your project directory using one of these methods:
+
+1. When starting a new session:
+   context_session_start with projectDir: "/path/to/your/project"
+
+2. For the current session:
+   context_set_project_dir with projectDir: "/path/to/your/project"
+
+This allows the MCP server to track git changes in your actual project directory.`,
+          }],
+        };
+      }
       
       if (autoSave) {
         // Save current context state
