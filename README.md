@@ -1,5 +1,9 @@
 # MCP Memory Keeper - Claude Code Context Management
 
+[![CI](https://github.com/mkreyman/mcp-memory-keeper/actions/workflows/ci.yml/badge.svg)](https://github.com/mkreyman/mcp-memory-keeper/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/mkreyman/mcp-memory-keeper/branch/main/graph/badge.svg)](https://codecov.io/gh/mkreyman/mcp-memory-keeper)
+[![npm version](https://badge.fury.io/js/mcp-memory-keeper.svg)](https://badge.fury.io/js/mcp-memory-keeper)
+
 A Model Context Protocol (MCP) server that provides persistent context management for Claude AI coding assistants. Never lose context during compaction again! This MCP server helps Claude Code maintain context across sessions, preserving your work history, decisions, and progress.
 
 ## Why MCP Memory Keeper?
