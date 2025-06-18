@@ -148,40 +148,130 @@ claude mcp add memory-keeper node /absolute/path/to/mcp-memory-keeper/dist/index
 
 ## Usage
 
-### Save context
-```
-mcp_context_save({ key: "current_task", value: "Working on feature X" })
-```
-
-### Retrieve context
-```
-mcp_context_get({ key: "current_task" })
-```
-
-### Example Workflow
+### Session Management
 
 ```javascript
-// At the start of your session
-mcp_context_save({ 
-  key: "project_context", 
-  value: "Working on Settings Stage 8 - Context Propagation" 
+// Start a new session
+mcp_context_session_start({ 
+  name: "Feature Development", 
+  description: "Working on user authentication" 
 })
 
-// Save important decisions
+// List recent sessions
+mcp_context_session_list({ limit: 5 })
+
+// Continue from a previous session
+mcp_context_session_start({ 
+  name: "Feature Dev Continued",
+  continueFrom: "previous-session-id" 
+})
+```
+
+### Enhanced Context Storage
+
+```javascript
+// Save with categories and priorities
 mcp_context_save({ 
-  key: "decision_auth", 
-  value: "Using Mox for mocking instead of Meck" 
+  key: "current_task", 
+  value: "Implement OAuth integration",
+  category: "task",
+  priority: "high"
 })
 
-// Save current progress
+// Save decisions
 mcp_context_save({ 
-  key: "last_file", 
-  value: "lib/intervisio_app/billing.ex:247 - fixing Context.new()" 
+  key: "auth_strategy", 
+  value: "Using JWT tokens with 24h expiry",
+  category: "decision",
+  priority: "high"
 })
 
-// After Claude Code restart, retrieve your context
-mcp_context_get({ key: "project_context" })
-mcp_context_get({ key: "last_file" })
+// Save progress notes
+mcp_context_save({ 
+  key: "progress_auth", 
+  value: "Completed user model, working on token generation",
+  category: "progress",
+  priority: "normal"
+})
+
+// Retrieve by category
+mcp_context_get({ category: "task" })
+
+// Retrieve specific item
+mcp_context_get({ key: "current_task" })
+
+// Get context from specific session
+mcp_context_get({ 
+  sessionId: "session-id-here",
+  category: "decision" 
+})
+```
+
+### File Caching
+
+```javascript
+// Cache file content for change detection
+mcp_context_cache_file({ 
+  filePath: "/src/auth/user.model.ts",
+  content: fileContent 
+})
+
+// Check if file has changed
+mcp_context_file_changed({ 
+  filePath: "/src/auth/user.model.ts",
+  currentContent: newFileContent 
+})
+
+// Get current session status
+mcp_context_status()
+```
+
+### Complete Workflow Example
+
+```javascript
+// 1. Start a new session
+mcp_context_session_start({ 
+  name: "Settings Refactor",
+  description: "Refactoring settings module for better performance" 
+})
+
+// 2. Save high-priority task
+mcp_context_save({ 
+  key: "main_task",
+  value: "Refactor Settings.Context to use behaviors",
+  category: "task",
+  priority: "high"
+})
+
+// 3. Cache important files
+mcp_context_cache_file({ 
+  filePath: "lib/settings/context.ex",
+  content: originalFileContent 
+})
+
+// 4. Save decisions as you work
+mcp_context_save({ 
+  key: "architecture_decision",
+  value: "Split settings into read/write modules",
+  category: "decision",
+  priority: "high"
+})
+
+// 5. Track progress
+mcp_context_save({ 
+  key: "progress_1",
+  value: "Completed behavior definition, 5 modules remaining",
+  category: "progress",
+  priority: "normal"
+})
+
+// 6. Before context window fills up
+mcp_context_status()  // Check what's saved
+
+// 7. After Claude Code restart
+mcp_context_get({ category: "task", priority: "high" })  // Get high priority tasks
+mcp_context_get({ key: "architecture_decision" })       // Get specific decisions
+mcp_context_file_changed({ filePath: "lib/settings/context.ex" })  // Check for changes
 ```
 
 ## Development
@@ -214,18 +304,22 @@ mcp-memory-keeper/
 
 ## Roadmap
 
-### Current Features (v0.1.0)
-- ✅ Basic save/restore functionality
+### Current Features (v0.2.0)
+- ✅ Session management with branching support
+- ✅ Enhanced context storage with categories and priorities
+- ✅ File caching with change detection
 - ✅ Persistent SQLite storage
-- ✅ Simple key-value interface
+- ✅ Git branch awareness
+- ✅ Context status reporting
 
-### Planned Features
-- [ ] Session management
-- [ ] File content caching
-- [ ] Context categories and priorities
-- [ ] Smart summarization
-- [ ] Git integration
-- [ ] Web UI for browsing context
+### Planned Features (Phase 2 & 3)
+- [ ] Checkpoint system for named snapshots
+- [ ] Smart summarization for context compaction
+- [ ] Advanced git integration (auto-save on commits)
+- [ ] Context prepare for compaction tool
+- [ ] Web UI for browsing context history
+- [ ] Context search and filtering
+- [ ] Export/import functionality
 
 ## Contributing
 
