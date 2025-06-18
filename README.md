@@ -274,6 +274,68 @@ mcp_context_get({ key: "architecture_decision" })       // Get specific decision
 mcp_context_file_changed({ filePath: "lib/settings/context.ex" })  // Check for changes
 ```
 
+### Checkpoints (Phase 2)
+
+Create named snapshots of your entire context that can be restored later:
+
+```javascript
+// Create a checkpoint before major changes
+mcp_context_checkpoint({ 
+  name: "before-refactor",
+  description: "State before major settings refactor",
+  includeFiles: true,      // Include cached files
+  includeGitStatus: true   // Capture git status
+})
+
+// Continue working...
+// If something goes wrong, restore from checkpoint
+mcp_context_restore_checkpoint({ 
+  name: "before-refactor",
+  restoreFiles: true  // Restore cached files too
+})
+
+// Or restore the latest checkpoint
+mcp_context_restore_checkpoint({})
+```
+
+### Context Summarization (Phase 2)
+
+Get AI-friendly summaries of your saved context:
+
+```javascript
+// Get a summary of all context
+mcp_context_summarize()
+
+// Get summary of specific categories
+mcp_context_summarize({ 
+  categories: ["task", "decision"],
+  maxLength: 2000 
+})
+
+// Summarize a specific session
+mcp_context_summarize({ 
+  sessionId: "session-id-here",
+  categories: ["progress"] 
+})
+```
+
+Example summary output:
+```markdown
+# Context Summary
+
+## High Priority Items
+- **main_task**: Refactor Settings.Context to use behaviors
+- **critical_bug**: Fix memory leak in subscription handler
+
+## Task
+- implement_auth: Add OAuth2 authentication flow
+- update_tests: Update test suite for new API
+
+## Decision
+- architecture_decision: Split settings into read/write modules
+- db_choice: Use PostgreSQL for better JSON support
+```
+
 ## Development
 
 ### Running in Development Mode
@@ -304,22 +366,25 @@ mcp-memory-keeper/
 
 ## Roadmap
 
-### Current Features (v0.2.0)
+### Current Features (v0.3.0)
 - ✅ Session management with branching support
 - ✅ Enhanced context storage with categories and priorities
 - ✅ File caching with change detection
+- ✅ Checkpoint system for named snapshots
+- ✅ Context restore from checkpoints
+- ✅ AI-friendly context summarization
+- ✅ Git status capture in checkpoints
 - ✅ Persistent SQLite storage
 - ✅ Git branch awareness
-- ✅ Context status reporting
 
-### Planned Features (Phase 2 & 3)
-- [ ] Checkpoint system for named snapshots
-- [ ] Smart summarization for context compaction
+### Planned Features (Phase 3)
 - [ ] Advanced git integration (auto-save on commits)
 - [ ] Context prepare for compaction tool
+- [ ] Automatic context detection before compaction
 - [ ] Web UI for browsing context history
 - [ ] Context search and filtering
 - [ ] Export/import functionality
+- [ ] Multi-user/team support
 
 ## Contributing
 
