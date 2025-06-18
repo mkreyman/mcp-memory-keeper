@@ -13,6 +13,9 @@ import { simpleGit, SimpleGit } from 'simple-git';
 import { KnowledgeGraphManager } from './utils/knowledge-graph.js';
 import { VectorStore } from './utils/vector-store.js';
 import { AgentCoordinator, AnalyzerAgent, SynthesizerAgent, AgentTask } from './utils/agents.js';
+import { RetentionManager } from './utils/retention.js';
+import { FeatureFlagManager } from './utils/feature-flags.js';
+import { MigrationManager } from './utils/migrations.js';
 
 // Initialize database
 const db = new Database('context.db');
@@ -32,6 +35,15 @@ const analyzerAgent = new AnalyzerAgent(db, knowledgeGraph, vectorStore);
 const synthesizerAgent = new SynthesizerAgent(db, vectorStore);
 agentCoordinator.registerAgent(analyzerAgent);
 agentCoordinator.registerAgent(synthesizerAgent);
+
+// Initialize retention manager
+const retentionManager = new RetentionManager({ getDatabase: () => db } as any);
+
+// Initialize feature flag manager
+const featureFlagManager = new FeatureFlagManager({ getDatabase: () => db } as any);
+
+// Initialize migration manager
+const migrationManager = new MigrationManager({ getDatabase: () => db } as any);
 
 // Create tables with enhanced schema
 db.exec(`
@@ -1864,6 +1876,789 @@ Event ID: ${id.substring(0, 8)}`,
       }
     }
 
+    // Phase 5: Retention Management
+    case 'context_retention_create_policy': {
+      try {
+        const { policy } = args;
+        
+        if (!policy || !policy.name) {
+          throw new Error('Policy object with name is required');
+        }
+        
+        const policyId = retentionManager.createPolicy(policy);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Retention policy created successfully. ID: ${policyId}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to create retention policy: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_retention_list_policies': {
+      try {
+        const policies = retentionManager.listPolicies();
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Found ${policies.length} retention policies:\n\n${
+              policies.map(p => 
+                `• ${p.name} (${p.enabled ? 'enabled' : 'disabled'})\n` +
+                `  ID: ${p.id}\n` +
+                `  Action: ${p.action}\n` +
+                `  Schedule: ${p.schedule}\n` +
+                `  Max Age: ${p.maxAge || 'none'}\n` +
+                `  Last Run: ${p.lastRun || 'never'}`
+              ).join('\n\n')
+            }`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to list retention policies: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_retention_get_stats': {
+      try {
+        const { sessionId } = args;
+        const stats = retentionManager.getRetentionStats(sessionId);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Retention Statistics${sessionId ? ` (Session: ${sessionId})` : ' (All Sessions)'}:\n\n` +
+              `📊 Overall:\n` +
+              `  • Total Items: ${stats.totalItems.toLocaleString()}\n` +
+              `  • Total Size: ${(stats.totalSize / 1024).toFixed(1)}KB\n` +
+              `  • Oldest Item: ${stats.oldestItem ? new Date(stats.oldestItem).toLocaleDateString() : 'N/A'}\n` +
+              `  • Newest Item: ${stats.newestItem ? new Date(stats.newestItem).toLocaleDateString() : 'N/A'}\n\n` +
+              `🗂️ By Category:\n${
+                Object.entries(stats.byCategory)
+                  .map(([cat, data]) => `  • ${cat}: ${data.count} items (${(data.size / 1024).toFixed(1)}KB)`)
+                  .join('\n')
+              }\n\n` +
+              `⚡ By Priority:\n${
+                Object.entries(stats.byPriority)
+                  .map(([pri, data]) => `  • ${pri}: ${data.count} items (${(data.size / 1024).toFixed(1)}KB)`)
+                  .join('\n')
+              }\n\n` +
+              `🧹 Retention Eligible:\n` +
+              `  • Items: ${stats.eligibleForRetention.items.toLocaleString()}\n` +
+              `  • Size: ${(stats.eligibleForRetention.size / 1024).toFixed(1)}KB\n` +
+              `  • Potential Savings: ${stats.eligibleForRetention.savings}%`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to get retention stats: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_retention_execute_policy': {
+      try {
+        const { policyId, dryRun = true } = args;
+        
+        if (!policyId) {
+          throw new Error('Policy ID is required');
+        }
+        
+        const result = await retentionManager.executePolicy(policyId, dryRun);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Retention Policy Execution ${dryRun ? '(DRY RUN)' : '(LIVE)'}\n\n` +
+              `Policy: ${result.policyName}\n` +
+              `Action: ${result.action}\n` +
+              `Execution Time: ${result.executionTime}ms\n\n` +
+              `📋 Processed:\n` +
+              `  • Items: ${result.processed.items.toLocaleString()}\n` +
+              `  • Size: ${(result.processed.size / 1024).toFixed(1)}KB\n` +
+              `  • Sessions: ${result.processed.sessions.length}\n\n` +
+              `💾 Saved:\n` +
+              `  • Items: ${result.saved.items.toLocaleString()}\n` +
+              `  • Size: ${(result.saved.size / 1024).toFixed(1)}KB\n\n` +
+              `${result.errors.length > 0 ? `❌ Errors:\n${result.errors.map(e => `  • ${e}`).join('\n')}\n\n` : ''}` +
+              `${result.warnings.length > 0 ? `⚠️ Warnings:\n${result.warnings.map(w => `  • ${w}`).join('\n')}\n\n` : ''}` +
+              `${dryRun ? '🔍 This was a dry run. Use dryRun: false to execute for real.' : '✅ Retention policy executed successfully.'}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to execute retention policy: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_retention_setup_defaults': {
+      try {
+        const defaultPolicies = (retentionManager.constructor as any).getDefaultPolicies();
+        const createdPolicies: string[] = [];
+        
+        for (const policy of defaultPolicies) {
+          const policyId = retentionManager.createPolicy(policy);
+          createdPolicies.push(`${policy.name} (${policyId})`);
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Default retention policies created:\n\n${
+              createdPolicies.map(p => `• ${p}`).join('\n')
+            }\n\nUse context_retention_list_policies to see all policies.`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to setup default policies: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    // Feature Flags Management
+    case 'context_feature_create_flag': {
+      try {
+        const { flag } = args;
+        
+        if (!flag || !flag.name || !flag.key) {
+          throw new Error('Flag object with name and key is required');
+        }
+        
+        const flagId = featureFlagManager.createFlag(flag);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Feature flag created successfully!
+Flag: ${flag.name} (${flag.key})
+ID: ${flagId}
+Status: ${flag.enabled ? 'Enabled' : 'Disabled'}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to create feature flag: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_feature_list_flags': {
+      try {
+        const flags = featureFlagManager.listFlags(args || {});
+        
+        if (flags.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'No feature flags found.',
+            }],
+          };
+        }
+        
+        const flagList = flags.map(flag => {
+          const status = flag.enabled ? '✅ Enabled' : '❌ Disabled';
+          const env = flag.environments ? ` (${flag.environments.join(', ')})` : '';
+          const percentage = flag.percentage ? ` ${flag.percentage}%` : '';
+          return `• ${flag.name} (${flag.key}) - ${status}${env}${percentage}`;
+        }).join('\n');
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Feature Flags (${flags.length}):\n\n${flagList}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to list feature flags: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_feature_get_flag': {
+      try {
+        const { key, id } = args;
+        
+        if (!key && !id) {
+          throw new Error('Either key or id is required');
+        }
+        
+        const flag = key ? featureFlagManager.getFlagByKey(key) : featureFlagManager.getFlag(id);
+        
+        if (!flag) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Feature flag not found: ${key || id}`,
+            }],
+          };
+        }
+        
+        const details = `Feature Flag Details:
+Name: ${flag.name}
+Key: ${flag.key}
+Status: ${flag.enabled ? '✅ Enabled' : '❌ Disabled'}
+Description: ${flag.description || 'No description'}
+Category: ${flag.category || 'uncategorized'}
+Environments: ${flag.environments ? flag.environments.join(', ') : 'All'}
+Users: ${flag.users ? flag.users.join(', ') : 'All'}
+Percentage: ${flag.percentage || 0}%
+Tags: ${flag.tags ? flag.tags.join(', ') : 'None'}
+Created: ${flag.createdAt}
+Updated: ${flag.updatedAt}
+Created by: ${flag.createdBy || 'Unknown'}`;
+        
+        return {
+          content: [{
+            type: 'text',
+            text: details,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to get feature flag: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_feature_update_flag': {
+      try {
+        const { key, id, updates, userId } = args;
+        
+        if (!key && !id) {
+          throw new Error('Either key or id is required');
+        }
+        
+        if (!updates) {
+          throw new Error('Updates object is required');
+        }
+        
+        const flag = key ? featureFlagManager.getFlagByKey(key) : featureFlagManager.getFlag(id);
+        if (!flag) {
+          throw new Error(`Feature flag not found: ${key || id}`);
+        }
+        
+        featureFlagManager.updateFlag(flag.id, updates, userId);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Feature flag updated successfully: ${flag.name} (${flag.key})`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to update feature flag: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_feature_delete_flag': {
+      try {
+        const { key, id, userId } = args;
+        
+        if (!key && !id) {
+          throw new Error('Either key or id is required');
+        }
+        
+        const flag = key ? featureFlagManager.getFlagByKey(key) : featureFlagManager.getFlag(id);
+        if (!flag) {
+          throw new Error(`Feature flag not found: ${key || id}`);
+        }
+        
+        featureFlagManager.deleteFlag(flag.id, userId);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Feature flag deleted successfully: ${flag.name} (${flag.key})`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to delete feature flag: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_feature_evaluate': {
+      try {
+        const { key, context } = args;
+        
+        if (!key) {
+          throw new Error('Flag key is required');
+        }
+        
+        const evaluation = featureFlagManager.evaluateFlag(key, context || {});
+        
+        const result = `Feature Flag Evaluation:
+Flag: ${evaluation.flag.name} (${key})
+Result: ${evaluation.enabled ? '✅ ENABLED' : '❌ DISABLED'}
+Reason: ${evaluation.reason}
+Context: ${JSON.stringify(evaluation.context, null, 2)}`;
+        
+        return {
+          content: [{
+            type: 'text',
+            text: result,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to evaluate feature flag: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_feature_get_stats': {
+      try {
+        const stats = featureFlagManager.getStats();
+        
+        const categoryStats = Object.entries(stats.byCategory)
+          .map(([cat, data]) => `  ${cat}: ${data.enabled}/${data.count} enabled`)
+          .join('\n');
+        
+        const envStats = Object.entries(stats.byEnvironment)
+          .map(([env, data]) => `  ${env}: ${data.enabled}/${data.count} enabled`)
+          .join('\n');
+        
+        const scheduled = [
+          ...stats.scheduledChanges.toEnable.map(s => `  📅 Enable ${s.flag} on ${s.date}`),
+          ...stats.scheduledChanges.toDisable.map(s => `  📅 Disable ${s.flag} on ${s.date}`)
+        ].join('\n');
+        
+        const recent = stats.recentActivity
+          .map(a => `  ${a.action} ${a.flag} - ${a.timestamp} ${a.user ? `by ${a.user}` : ''}`)
+          .join('\n');
+        
+        const result = `Feature Flag Statistics:
+
+📊 Overview:
+  Total flags: ${stats.totalFlags}
+  Enabled: ${stats.enabledFlags}
+  Disabled: ${stats.disabledFlags}
+
+📂 By Category:
+${categoryStats || '  No categories'}
+
+🌍 By Environment:
+${envStats || '  No environments'}
+
+⏰ Scheduled Changes:
+${scheduled || '  No scheduled changes'}
+
+📜 Recent Activity:
+${recent || '  No recent activity'}`;
+        
+        return {
+          content: [{
+            type: 'text',
+            text: result,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to get feature flag stats: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_feature_setup_defaults': {
+      try {
+        const defaultFlags = (featureFlagManager.constructor as any).getDefaultFlags();
+        const createdFlags: string[] = [];
+        
+        for (const flag of defaultFlags) {
+          try {
+            const flagId = featureFlagManager.createFlag(flag);
+            createdFlags.push(`${flag.name} (${flag.key})`);
+          } catch (error: any) {
+            // Skip if flag already exists
+            if (error.message.includes('UNIQUE constraint failed')) {
+              continue;
+            }
+            throw error;
+          }
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Default feature flags setup completed!
+            
+Created flags:
+${createdFlags.map(f => `• ${f}`).join('\n') || '• No new flags created (may already exist)'}
+
+Use context_feature_list_flags to see all flags.`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to setup default flags: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    // Database Migration Management
+    case 'context_migration_create': {
+      try {
+        const { migration } = args;
+        
+        if (!migration || !migration.version || !migration.name || !migration.up) {
+          throw new Error('Migration object with version, name, and up SQL is required');
+        }
+        
+        const migrationId = migrationManager.createMigration(migration);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Database migration created successfully!
+Migration: ${migration.name} (v${migration.version})
+ID: ${migrationId}
+Requires backup: ${migration.requiresBackup ? 'Yes' : 'No'}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to create migration: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_migration_list': {
+      try {
+        const migrations = migrationManager.listMigrations(args || {});
+        
+        if (migrations.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'No migrations found.',
+            }],
+          };
+        }
+        
+        const migrationList = migrations.map(migration => {
+          const status = migration.appliedAt ? '✅ Applied' : '⏳ Pending';
+          const appliedDate = migration.appliedAt ? ` (${migration.appliedAt})` : '';
+          return `• v${migration.version} - ${migration.name} - ${status}${appliedDate}`;
+        }).join('\n');
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Database Migrations (${migrations.length}):\n\n${migrationList}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to list migrations: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_migration_status': {
+      try {
+        const status = migrationManager.getStatus();
+        
+        const pendingList = status.pending.map(m => 
+          `  v${m.version} - ${m.name}${m.requiresBackup ? ' (requires backup)' : ''}`
+        ).join('\n');
+        
+        const appliedList = status.applied.slice(-5).map(m => 
+          `  v${m.version} - ${m.name} (${m.appliedAt})`
+        ).join('\n');
+        
+        const result = `Database Migration Status:
+
+📊 Overview:
+  Current version: v${status.currentVersion}
+  Total migrations: ${status.totalMigrations}
+  Applied: ${status.appliedMigrations}
+  Pending: ${status.pendingMigrations}
+
+⏳ Pending Migrations:
+${pendingList || '  No pending migrations'}
+
+✅ Recent Applied Migrations:
+${appliedList || '  No applied migrations'}
+
+${status.lastMigration ? `📝 Last Migration:
+  v${status.lastMigration.version} - ${status.lastMigration.name}
+  Applied: ${status.lastMigration.appliedAt}` : ''}`;
+        
+        return {
+          content: [{
+            type: 'text',
+            text: result,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to get migration status: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_migration_apply': {
+      try {
+        const { version, dryRun, createBackup } = args;
+        
+        if (!version) {
+          throw new Error('Migration version is required');
+        }
+        
+        const result = await migrationManager.applyMigration(version, {
+          dryRun: dryRun !== false, // Default to dry run
+          createBackup: createBackup === true
+        });
+        
+        const statusIcon = result.success ? '✅' : '❌';
+        const backupInfo = result.backupCreated ? `\nBackup created: ${result.backupCreated}` : '';
+        const errorInfo = result.errors.length > 0 ? `\nErrors: ${result.errors.join(', ')}` : '';
+        const warningInfo = result.warnings.length > 0 ? `\nWarnings: ${result.warnings.join(', ')}` : '';
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `${statusIcon} Migration ${result.success ? 'Applied' : 'Failed'}
+
+Migration: ${result.name} (v${result.version})
+Execution time: ${result.executionTime}ms
+Rows affected: ${result.rowsAffected || 0}${backupInfo}${errorInfo}${warningInfo}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to apply migration: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_migration_rollback': {
+      try {
+        const { version, dryRun, createBackup } = args;
+        
+        if (!version) {
+          throw new Error('Migration version is required');
+        }
+        
+        const result = await migrationManager.rollbackMigration(version, {
+          dryRun: dryRun !== false, // Default to dry run
+          createBackup: createBackup === true
+        });
+        
+        const statusIcon = result.success ? '✅' : '❌';
+        const backupInfo = result.backupCreated ? `\nBackup created: ${result.backupCreated}` : '';
+        const errorInfo = result.errors.length > 0 ? `\nErrors: ${result.errors.join(', ')}` : '';
+        const warningInfo = result.warnings.length > 0 ? `\nWarnings: ${result.warnings.join(', ')}` : '';
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `${statusIcon} Migration ${result.success ? 'Rolled Back' : 'Rollback Failed'}
+
+Migration: ${result.name} (v${result.version})
+Execution time: ${result.executionTime}ms
+Rows affected: ${result.rowsAffected || 0}${backupInfo}${errorInfo}${warningInfo}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to rollback migration: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_migration_apply_all': {
+      try {
+        const { dryRun, createBackups, stopOnError } = args || {};
+        
+        const results = await migrationManager.applyAllPending({
+          dryRun: dryRun !== false, // Default to dry run
+          createBackups: createBackups === true,
+          stopOnError: stopOnError !== false // Default to stop on error
+        });
+        
+        if (results.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'No pending migrations to apply.',
+            }],
+          };
+        }
+        
+        const summary = results.map(result => {
+          const statusIcon = result.success ? '✅' : '❌';
+          return `${statusIcon} v${result.version} - ${result.name} (${result.executionTime}ms)`;
+        }).join('\n');
+        
+        const successCount = results.filter(r => r.success).length;
+        const failureCount = results.length - successCount;
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Migration Batch Complete
+
+Results:
+${summary}
+
+Summary: ${successCount} successful, ${failureCount} failed`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to apply migrations: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_migration_get_log': {
+      try {
+        const { version, limit } = args || {};
+        
+        const logs = migrationManager.getMigrationLog(version, limit || 20);
+        
+        if (logs.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'No migration logs found.',
+            }],
+          };
+        }
+        
+        const logList = logs.map(log => {
+          const statusIcon = log.success ? '✅' : '❌';
+          const action = log.action.charAt(0).toUpperCase() + log.action.slice(1);
+          return `${statusIcon} v${log.version} - ${action} - ${log.timestamp} (${log.execution_time}ms)`;
+        }).join('\n');
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Migration Log${version ? ` for v${version}` : ''}:\n\n${logList}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to get migration log: ${error.message}`,
+          }],
+        };
+      }
+    }
+
+    case 'context_migration_setup_defaults': {
+      try {
+        const defaultMigrations = (migrationManager.constructor as any).getDefaultMigrations();
+        const createdMigrations: string[] = [];
+        
+        for (const migration of defaultMigrations) {
+          try {
+            const migrationId = migrationManager.createMigration(migration);
+            createdMigrations.push(`v${migration.version} - ${migration.name}`);
+          } catch (error: any) {
+            // Skip if migration already exists
+            if (error.message.includes('UNIQUE constraint failed')) {
+              continue;
+            }
+            throw error;
+          }
+        }
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Default migrations setup completed!
+
+Created migrations:
+${createdMigrations.map(m => `• ${m}`).join('\n') || '• No new migrations created (may already exist)'}
+
+Use context_migration_status to see migration status.
+Use context_migration_apply_all to apply pending migrations.`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to setup default migrations: ${error.message}`,
+          }],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -2383,6 +3178,391 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ['toolName', 'eventType', 'data'],
         },
+      },
+
+      // Phase 5: Retention Management
+      {
+        name: 'context_retention_create_policy',
+        description: 'Create a new retention policy for automatic data lifecycle management',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            policy: {
+              type: 'object',
+              description: 'Retention policy configuration',
+              properties: {
+                name: { type: 'string', description: 'Policy name' },
+                enabled: { type: 'boolean', description: 'Whether policy is enabled' },
+                maxAge: { type: 'string', description: 'Maximum age (e.g., "30d", "1y")' },
+                maxSize: { type: 'number', description: 'Maximum size in bytes' },
+                maxItems: { type: 'number', description: 'Maximum number of items' },
+                preserveHighPriority: { type: 'boolean', description: 'Preserve high priority items' },
+                preserveCritical: { type: 'boolean', description: 'Preserve critical items' },
+                action: { 
+                  type: 'string', 
+                  enum: ['delete', 'archive', 'compress'],
+                  description: 'Action to take on eligible items'
+                },
+                schedule: {
+                  type: 'string',
+                  enum: ['daily', 'weekly', 'monthly', 'manual'],
+                  description: 'Execution schedule'
+                },
+                categories: {
+                  type: 'object',
+                  description: 'Category-specific rules',
+                  additionalProperties: {
+                    type: 'object',
+                    properties: {
+                      maxAge: { type: 'string' },
+                      preserve: { type: 'boolean' },
+                      archiveAfter: { type: 'string' }
+                    }
+                  }
+                }
+              },
+              required: ['name', 'action', 'schedule']
+            }
+          },
+          required: ['policy']
+        }
+      },
+      {
+        name: 'context_retention_list_policies',
+        description: 'List all retention policies',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      },
+      {
+        name: 'context_retention_get_stats',
+        description: 'Get retention statistics for database or specific session',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: { 
+              type: 'string', 
+              description: 'Optional session ID to get stats for specific session' 
+            }
+          }
+        }
+      },
+      {
+        name: 'context_retention_execute_policy',
+        description: 'Execute a retention policy (dry run by default)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            policyId: { 
+              type: 'string', 
+              description: 'ID of the policy to execute' 
+            },
+            dryRun: { 
+              type: 'boolean', 
+              description: 'Whether to perform a dry run (default: true)',
+              default: true
+            }
+          },
+          required: ['policyId']
+        }
+      },
+      {
+        name: 'context_retention_setup_defaults',
+        description: 'Create default retention policies (Conservative, Aggressive, Development)',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      },
+
+      // Feature Flags Management
+      {
+        name: 'context_feature_create_flag',
+        description: 'Create a new feature flag',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            flag: {
+              type: 'object',
+              description: 'Feature flag configuration',
+              properties: {
+                name: { type: 'string', description: 'Display name for the flag' },
+                key: { type: 'string', description: 'Unique key for the flag' },
+                enabled: { type: 'boolean', description: 'Whether flag is enabled', default: false },
+                description: { type: 'string', description: 'Flag description' },
+                environments: { 
+                  type: 'array', 
+                  items: { type: 'string' },
+                  description: 'Target environments (e.g., ["development", "staging"])' 
+                },
+                users: { 
+                  type: 'array', 
+                  items: { type: 'string' },
+                  description: 'Target specific users' 
+                },
+                percentage: { 
+                  type: 'number', 
+                  minimum: 0, 
+                  maximum: 100,
+                  description: 'Percentage rollout (0-100)' 
+                },
+                enabledFrom: { type: 'string', description: 'Enable from date (ISO format)' },
+                enabledUntil: { type: 'string', description: 'Enable until date (ISO format)' },
+                category: { type: 'string', description: 'Flag category' },
+                tags: { 
+                  type: 'array', 
+                  items: { type: 'string' },
+                  description: 'Tags for organization' 
+                },
+                createdBy: { type: 'string', description: 'Creator identifier' }
+              },
+              required: ['name', 'key']
+            }
+          },
+          required: ['flag']
+        }
+      },
+      {
+        name: 'context_feature_list_flags',
+        description: 'List feature flags with optional filtering',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            category: { type: 'string', description: 'Filter by category' },
+            enabled: { type: 'boolean', description: 'Filter by enabled status' },
+            environment: { type: 'string', description: 'Filter by environment' },
+            tag: { type: 'string', description: 'Filter by tag' },
+            limit: { type: 'number', description: 'Maximum number of flags to return' }
+          }
+        }
+      },
+      {
+        name: 'context_feature_get_flag',
+        description: 'Get details of a specific feature flag',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Flag key' },
+            id: { type: 'string', description: 'Flag ID (alternative to key)' }
+          }
+        }
+      },
+      {
+        name: 'context_feature_update_flag',
+        description: 'Update an existing feature flag',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Flag key' },
+            id: { type: 'string', description: 'Flag ID (alternative to key)' },
+            updates: {
+              type: 'object',
+              description: 'Updates to apply',
+              properties: {
+                name: { type: 'string' },
+                enabled: { type: 'boolean' },
+                description: { type: 'string' },
+                environments: { type: 'array', items: { type: 'string' } },
+                users: { type: 'array', items: { type: 'string' } },
+                percentage: { type: 'number', minimum: 0, maximum: 100 },
+                enabledFrom: { type: 'string' },
+                enabledUntil: { type: 'string' },
+                category: { type: 'string' },
+                tags: { type: 'array', items: { type: 'string' } }
+              }
+            },
+            userId: { type: 'string', description: 'User making the change' }
+          },
+          required: ['updates']
+        }
+      },
+      {
+        name: 'context_feature_delete_flag',
+        description: 'Delete a feature flag',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Flag key' },
+            id: { type: 'string', description: 'Flag ID (alternative to key)' },
+            userId: { type: 'string', description: 'User making the change' }
+          }
+        }
+      },
+      {
+        name: 'context_feature_evaluate',
+        description: 'Evaluate a feature flag for a given context',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Flag key to evaluate' },
+            context: {
+              type: 'object',
+              description: 'Evaluation context',
+              properties: {
+                environment: { type: 'string', description: 'Current environment' },
+                userId: { type: 'string', description: 'User ID' },
+                timestamp: { type: 'string', description: 'Evaluation timestamp (ISO format)' }
+              }
+            }
+          },
+          required: ['key']
+        }
+      },
+      {
+        name: 'context_feature_get_stats',
+        description: 'Get feature flag usage statistics',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      },
+      {
+        name: 'context_feature_setup_defaults',
+        description: 'Create default feature flags for common features',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      },
+
+      // Database Migration Management
+      {
+        name: 'context_migration_create',
+        description: 'Create a new database migration',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            migration: {
+              type: 'object',
+              description: 'Migration configuration',
+              properties: {
+                version: { type: 'string', description: 'Migration version (e.g., "1.0.0")' },
+                name: { type: 'string', description: 'Migration name' },
+                description: { type: 'string', description: 'Migration description' },
+                up: { type: 'string', description: 'SQL for applying migration' },
+                down: { type: 'string', description: 'SQL for rolling back migration' },
+                dependencies: { 
+                  type: 'array', 
+                  items: { type: 'string' },
+                  description: 'Required migration versions' 
+                },
+                requiresBackup: { 
+                  type: 'boolean', 
+                  description: 'Whether backup is needed before running' 
+                }
+              },
+              required: ['version', 'name', 'up']
+            }
+          },
+          required: ['migration']
+        }
+      },
+      {
+        name: 'context_migration_list',
+        description: 'List database migrations with optional filtering',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            applied: { type: 'boolean', description: 'Filter by applied status' },
+            pending: { type: 'boolean', description: 'Filter by pending status' },
+            limit: { type: 'number', description: 'Maximum number of migrations to return' }
+          }
+        }
+      },
+      {
+        name: 'context_migration_status',
+        description: 'Get database migration status overview',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      },
+      {
+        name: 'context_migration_apply',
+        description: 'Apply a specific migration (dry run by default)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            version: { type: 'string', description: 'Migration version to apply' },
+            dryRun: { 
+              type: 'boolean', 
+              description: 'Whether to perform a dry run (default: true)',
+              default: true
+            },
+            createBackup: { 
+              type: 'boolean', 
+              description: 'Whether to create backup before applying' 
+            }
+          },
+          required: ['version']
+        }
+      },
+      {
+        name: 'context_migration_rollback',
+        description: 'Rollback a specific migration (dry run by default)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            version: { type: 'string', description: 'Migration version to rollback' },
+            dryRun: { 
+              type: 'boolean', 
+              description: 'Whether to perform a dry run (default: true)',
+              default: true
+            },
+            createBackup: { 
+              type: 'boolean', 
+              description: 'Whether to create backup before rollback' 
+            }
+          },
+          required: ['version']
+        }
+      },
+      {
+        name: 'context_migration_apply_all',
+        description: 'Apply all pending migrations (dry run by default)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            dryRun: { 
+              type: 'boolean', 
+              description: 'Whether to perform a dry run (default: true)',
+              default: true
+            },
+            createBackups: { 
+              type: 'boolean', 
+              description: 'Whether to create backups before applying' 
+            },
+            stopOnError: { 
+              type: 'boolean', 
+              description: 'Whether to stop on first error (default: true)',
+              default: true
+            }
+          }
+        }
+      },
+      {
+        name: 'context_migration_get_log',
+        description: 'Get migration execution log',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            version: { type: 'string', description: 'Filter by migration version' },
+            limit: { 
+              type: 'number', 
+              description: 'Maximum number of log entries to return',
+              default: 20
+            }
+          }
+        }
+      },
+      {
+        name: 'context_migration_setup_defaults',
+        description: 'Create default migrations for common schema updates',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
       },
     ],
   };
