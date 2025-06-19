@@ -77,6 +77,7 @@ export class DatabaseManager {
         metadata TEXT,
         size INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
         UNIQUE(session_id, key)
       );
@@ -232,6 +233,17 @@ export class DatabaseManager {
       BEGIN
         UPDATE context_items 
         SET size = LENGTH(NEW.value) 
+        WHERE id = NEW.id;
+      END;
+    `);
+
+    // Update updated_at timestamp when context items are modified
+    this.db.exec(`
+      CREATE TRIGGER IF NOT EXISTS update_context_item_timestamp
+      AFTER UPDATE ON context_items
+      BEGIN
+        UPDATE context_items 
+        SET updated_at = CURRENT_TIMESTAMP 
         WHERE id = NEW.id;
       END;
     `);
