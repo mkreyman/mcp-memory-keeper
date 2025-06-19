@@ -35,24 +35,28 @@ export class DatabaseManager {
     // Enable foreign keys
     this.db.pragma('foreign_keys = ON');
 
+    // Apply any schema migrations BEFORE creating tables
+    this.applyMigrations();
+    
     // Create tables
     this.createTables();
 
     // Set up maintenance triggers
     this.setupMaintenanceTriggers();
-    
-    // Apply any schema migrations
-    this.applyMigrations();
   }
   
   private applyMigrations(): void {
-    // Check if working_directory column exists in sessions table
-    const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
-    const hasWorkingDirectory = columns.some((col: any) => col.name === 'working_directory');
-    
-    if (!hasWorkingDirectory) {
-      // Add working_directory column to existing sessions table
-      this.db.exec('ALTER TABLE sessions ADD COLUMN working_directory TEXT');
+    // First check if sessions table exists
+    const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").all();
+    if (tables.length > 0) {
+      // Table exists, check if working_directory column exists
+      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+      const hasWorkingDirectory = columns.some((col: any) => col.name === 'working_directory');
+      
+      if (!hasWorkingDirectory) {
+        // Add working_directory column to existing sessions table
+        this.db.exec('ALTER TABLE sessions ADD COLUMN working_directory TEXT');
+      }
     }
   }
 

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(sqlite3:*)",
+      "Bash(ls:*)",
+      "Bash(npm run build:*)",
+      "Bash(node:*)",
+      "Bash(npx ts-node:*)",
+      "mcp__memory-keeper__context_save",
+      "Bash(rm:*)",
+      "Bash(npm test)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(rg:*)",
+      "Bash(npm test:*)"
+    ],
+    "deny": []
+  }
+}
