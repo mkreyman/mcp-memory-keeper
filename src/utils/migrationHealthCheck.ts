@@ -178,6 +178,22 @@ export class MigrationHealthCheck {
   }
 
   /**
+   * Generate SQLite-safe ALTER TABLE statement
+   */
+  private generateSafeAlterStatement(tableName: string, columnName: string, columnDef: string): string {
+    // SQLite doesn't support CURRENT_TIMESTAMP as default in ALTER TABLE
+    // Replace with a static timestamp
+    let safeColumnDef = columnDef;
+    
+    if (columnDef.includes('CURRENT_TIMESTAMP')) {
+      const currentTimestamp = new Date().toISOString();
+      safeColumnDef = columnDef.replace(/DEFAULT CURRENT_TIMESTAMP/g, `DEFAULT '${currentTimestamp}'`);
+    }
+    
+    return `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${safeColumnDef}`;
+  }
+
+  /**
    * Check for missing columns by comparing actual DB with expected schema
    */
   checkMissingColumns(): MigrationIssue[] {
@@ -199,7 +215,7 @@ export class MigrationHealthCheck {
             table: tableName,
             issue: `Missing column '${columnName}'`,
             severity: 'error',
-            fix: `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`
+            fix: this.generateSafeAlterStatement(tableName, columnName, columnDef)
           });
         }
       }
