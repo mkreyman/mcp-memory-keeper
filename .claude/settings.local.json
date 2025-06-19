@@ -14,7 +14,15 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(rg:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "mcp__memory-keeper__context_session_start",
+      "Bash(find:*)",
+      "mcp__memory-keeper__context_prepare_compaction",
+      "mcp__memory-keeper__context_status",
+      "mcp__memory-keeper__context_get",
+      "Bash(npm run lint)",
+      "Bash(npx jest:*)",
+      "mcp__memory-keeper__context_set_project_dir"
     ],
     "deny": []
   }

