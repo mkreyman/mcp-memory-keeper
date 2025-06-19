@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2025-01-19
+
+### Fixed
+- Critical fix for "table sessions has no column named working_directory" error
+- Added defensive checks before using working_directory column
+- Gracefully handles existing databases without the new column
+
 ### Added
 - Tiered storage and retention policies (planned)
 - Feature flags system (planned)
