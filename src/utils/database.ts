@@ -40,6 +40,20 @@ export class DatabaseManager {
 
     // Set up maintenance triggers
     this.setupMaintenanceTriggers();
+    
+    // Apply any schema migrations
+    this.applyMigrations();
+  }
+  
+  private applyMigrations(): void {
+    // Check if working_directory column exists in sessions table
+    const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+    const hasWorkingDirectory = columns.some((col: any) => col.name === 'working_directory');
+    
+    if (!hasWorkingDirectory) {
+      // Add working_directory column to existing sessions table
+      this.db.exec('ALTER TABLE sessions ADD COLUMN working_directory TEXT');
+    }
   }
 
   private createTables(): void {
@@ -50,6 +64,7 @@ export class DatabaseManager {
         name TEXT,
         description TEXT,
         branch TEXT,
+        working_directory TEXT,
         parent_id TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

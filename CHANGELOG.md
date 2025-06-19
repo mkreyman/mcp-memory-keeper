@@ -12,6 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Feature flags system (planned)
 - Database migration system (planned)
 
+## [0.8.3] - 2025-01-19
+
+### Added
+- **Smart Project Directory Management**
+  - `context_session_start` provides intelligent suggestions when no project directory is set
+  - Detects git repositories in current directory and subdirectories
+  - Suggests appropriate project paths based on directory structure
+  - Working directory is stored in the sessions table when explicitly provided
+  - Git-dependent tools now prompt for project directory setup when needed
+  
+### Changed
+- Sessions table now includes a `working_directory` column
+- Improved user guidance for setting up git tracking
+- More helpful messages when project directory is not set
+
+### Fixed
+- Automatic schema migration for existing databases to add the `working_directory` column
+
 ## [0.8.0] - 2024-01-18
 
 ### Added

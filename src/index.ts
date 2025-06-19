@@ -178,8 +178,27 @@ function calculateFileHash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
+// Helper to get project directory setup message
+function getProjectDirectorySetupMessage(): string {
+  return `⚠️ No project directory set for git tracking!
+
+To enable git tracking for your project, use one of these methods:
+
+1. For the current session:
+   context_set_project_dir({ projectDir: "/path/to/your/project" })
+
+2. When starting a new session:
+   context_session_start({ name: "My Session", projectDir: "/path/to/your/project" })
+
+This allows the MCP server to track git changes in your actual project directory.`;
+}
+
 // Helper to get git status
 async function getGitStatus(): Promise<{ status: string; branch: string }> {
+  if (!projectDirectory) {
+    return { status: 'No project directory set', branch: 'none' };
+  }
+  
   try {
     const status = await git.status();
     const branch = await git.branch();
@@ -290,7 +309,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           branch = branchInfo.current;
           gitDetected = true;
         } else {
-          // Fall back to checking local .git directory
+          // Try to detect if current directory has git
           const gitHeadPath = path.join(process.cwd(), '.git', 'HEAD');
           if (fs.existsSync(gitHeadPath)) {
             const headContent = fs.readFileSync(gitHeadPath, 'utf8').trim();
@@ -303,11 +322,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Ignore git errors
       }
 
-      db.prepare('INSERT INTO sessions (id, name, description, branch) VALUES (?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO sessions (id, name, description, branch, working_directory) VALUES (?, ?, ?, ?, ?)').run(
         sessionId,
         name || `Session ${new Date().toISOString()}`,
         description || '',
-        branch
+        branch,
+        projectDir || null
       );
 
       // Copy context from previous session if specified
@@ -338,7 +358,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       } else {
         statusMessage += `\nGit branch: ${branch || 'unknown'}`;
-        statusMessage += `\n\n💡 Tip: To enable git tracking for your project, start a session with:\nmcp_context_session_start({ name: "My Session", projectDir: "/path/to/your/project" })`;
+        
+        // Provide helpful guidance about setting project directory
+        const cwdHasGit = fs.existsSync(path.join(process.cwd(), '.git'));
+        if (cwdHasGit) {
+          statusMessage += `\n\n💡 Tip: Your current directory has a git repository. To enable full git tracking, start a session with:\ncontext_session_start({ name: "${name || 'My Session'}", projectDir: "${process.cwd()}" })`;
+        } else {
+          // Check for git repos in immediate subdirectories
+          const subdirs = fs.readdirSync(process.cwd(), { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name)
+            .filter(name => !name.startsWith('.'));
+          
+          const gitSubdirs = subdirs.filter(dir => {
+            try {
+              return fs.existsSync(path.join(process.cwd(), dir, '.git'));
+            } catch {
+              return false;
+            }
+          });
+          
+          if (gitSubdirs.length > 0) {
+            statusMessage += `\n\n💡 Found git repositories in: ${gitSubdirs.join(', ')}`;
+            statusMessage += `\nTo enable git tracking, start a session with your project directory:`;
+            statusMessage += `\ncontext_session_start({ name: "${name || 'My Session'}", projectDir: "${path.join(process.cwd(), gitSubdirs[0])}" })`;
+          } else {
+            statusMessage += `\n\n💡 To enable git tracking, start a session with your project directory:`;
+            statusMessage += `\ncontext_session_start({ name: "${name || 'My Session'}", projectDir: "/path/to/your/project" })`;
+          }
+        }
       }
       
       return {
@@ -620,15 +668,23 @@ ${recentList || '  None'}`,
         }
       }
 
-      return {
-        content: [{
-          type: 'text',
-          text: `Created checkpoint: ${name}
+      let statusText = `Created checkpoint: ${name}
 ID: ${checkpointId.substring(0, 8)}
 Context items: ${contextItems.length}
 Cached files: ${fileCount}
 Git branch: ${gitBranch || 'none'}
-Git status: ${gitStatus ? 'captured' : 'not captured'}`,
+Git status: ${gitStatus ? 'captured' : 'not captured'}`;
+
+      // Add helpful message if git status was requested but no project directory is set
+      if (includeGitStatus && !projectDirectory) {
+        statusText += `\n\n💡 Note: Git status was requested but no project directory is set.
+To enable git tracking, use context_set_project_dir with your project path.`;
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: statusText,
         }],
       };
     }
@@ -885,17 +941,7 @@ mcp_context_restore_checkpoint({ name: "${checkpointName}" })`,
         return {
           content: [{
             type: 'text',
-            text: `⚠️ No project directory set for git tracking!
-
-To track git changes in your project, please set your project directory using one of these methods:
-
-1. When starting a new session:
-   context_session_start with projectDir: "/path/to/your/project"
-
-2. For the current session:
-   context_set_project_dir with projectDir: "/path/to/your/project"
-
-This allows the MCP server to track git changes in your actual project directory.`,
+            text: getProjectDirectorySetupMessage(),
           }],
         };
       }
