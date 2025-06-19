@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import Database from 'better-sqlite3';
-import { DatabaseManager } from '../../utils/database.js';
+import { DatabaseManager } from '../../utils/database';
 
 describe('Database Initialization Tests', () => {
   let tempDir: string;

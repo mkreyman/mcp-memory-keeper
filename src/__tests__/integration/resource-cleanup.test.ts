@@ -31,7 +31,7 @@ describe('Resource Cleanup Tests', () => {
     // Verify database is closed
     expect(() => {
       db.prepare('SELECT 1').get();
-    }).toThrow(/Database .* is not open/);
+    }).toThrow('The database connection is not open');
   });
 
   it('should release file locks after closing', () => {
