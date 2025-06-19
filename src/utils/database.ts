@@ -46,17 +46,24 @@ export class DatabaseManager {
   }
   
   private applyMigrations(): void {
-    // First check if sessions table exists
-    const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").all();
-    if (tables.length > 0) {
-      // Table exists, check if working_directory column exists
-      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
-      const hasWorkingDirectory = columns.some((col: any) => col.name === 'working_directory');
-      
-      if (!hasWorkingDirectory) {
-        // Add working_directory column to existing sessions table
-        this.db.exec('ALTER TABLE sessions ADD COLUMN working_directory TEXT');
+    try {
+      // First check if sessions table exists
+      const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").all();
+      if (tables.length > 0) {
+        // Table exists, check if working_directory column exists
+        const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+        const hasWorkingDirectory = columns.some((col: any) => col.name === 'working_directory');
+        
+        if (!hasWorkingDirectory) {
+          console.log('Adding working_directory column to sessions table...');
+          // Add working_directory column to existing sessions table
+          this.db.exec('ALTER TABLE sessions ADD COLUMN working_directory TEXT');
+          console.log('Successfully added working_directory column');
+        }
       }
+    } catch (error) {
+      console.error('Error applying migrations:', error);
+      // Don't throw - let the app continue with potential issues
     }
   }
 
@@ -307,6 +314,11 @@ export class DatabaseManager {
 
   getDatabase(): Database.Database {
     return this.db;
+  }
+  
+  // Public method to force migrations if needed
+  runMigrations(): void {
+    this.applyMigrations();
   }
 
   close(): void {

@@ -322,34 +322,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Ignore git errors
       }
 
-      // Check if working_directory column exists
-      const columns = db.prepare("PRAGMA table_info(sessions)").all() as any[];
-      const hasWorkingDirectory = columns.some((col: any) => col.name === 'working_directory');
-      
-      if (hasWorkingDirectory) {
-        db.prepare('INSERT INTO sessions (id, name, description, branch, working_directory) VALUES (?, ?, ?, ?, ?)').run(
-          sessionId,
-          name || `Session ${new Date().toISOString()}`,
-          description || '',
-          branch,
-          projectDir || null
-        );
-      } else {
-        // Fallback for old schema
-        db.prepare('INSERT INTO sessions (id, name, description, branch) VALUES (?, ?, ?, ?)').run(
-          sessionId,
-          name || `Session ${new Date().toISOString()}`,
-          description || '',
-          branch
-        );
-        
-        // Try to add the column now
-        try {
-          db.exec('ALTER TABLE sessions ADD COLUMN working_directory TEXT');
-        } catch (e) {
-          // Column might already exist or other error
-        }
-      }
+      // Always use the new schema - the migration in database.ts should have already run
+      db.prepare('INSERT INTO sessions (id, name, description, branch, working_directory) VALUES (?, ?, ?, ?, ?)').run(
+        sessionId,
+        name || `Session ${new Date().toISOString()}`,
+        description || '',
+        branch,
+        projectDir || null
+      );
 
       // Copy context from previous session if specified
       if (continueFrom) {
