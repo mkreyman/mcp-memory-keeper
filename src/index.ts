@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { simpleGit, SimpleGit } from 'simple-git';
+import { DatabaseManager } from './utils/database.js';
 import { KnowledgeGraphManager } from './utils/knowledge-graph.js';
 import { VectorStore } from './utils/vector-store.js';
 import { AgentCoordinator, AnalyzerAgent, SynthesizerAgent, AgentTask } from './utils/agents.js';
@@ -17,8 +18,9 @@ import { RetentionManager } from './utils/retention.js';
 import { FeatureFlagManager } from './utils/feature-flags.js';
 import { MigrationManager } from './utils/migrations.js';
 
-// Initialize database
-const db = new Database('context.db');
+// Initialize database with migrations
+const dbManager = new DatabaseManager({ filename: 'context.db' });
+const db = dbManager.getDatabase();
 
 // Initialize git - will be updated with project directory
 let git: SimpleGit = simpleGit();
@@ -38,118 +40,15 @@ agentCoordinator.registerAgent(analyzerAgent);
 agentCoordinator.registerAgent(synthesizerAgent);
 
 // Initialize retention manager
-const retentionManager = new RetentionManager({ getDatabase: () => db } as any);
+const retentionManager = new RetentionManager(dbManager);
 
 // Initialize feature flag manager
-const featureFlagManager = new FeatureFlagManager({ getDatabase: () => db } as any);
+const featureFlagManager = new FeatureFlagManager(dbManager);
 
 // Initialize migration manager
-const migrationManager = new MigrationManager({ getDatabase: () => db } as any);
+const migrationManager = new MigrationManager(dbManager);
 
-// Create tables with enhanced schema
-db.exec(`
-  -- Sessions table
-  CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    description TEXT,
-    branch TEXT,
-    parent_id TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (parent_id) REFERENCES sessions(id)
-  );
-
-  -- Enhanced context_items table with session support
-  CREATE TABLE IF NOT EXISTS context_items (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    category TEXT,
-    priority TEXT DEFAULT 'normal',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sessions(id),
-    UNIQUE(session_id, key)
-  );
-
-  -- File cache table
-  CREATE TABLE IF NOT EXISTS file_cache (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    content TEXT,
-    hash TEXT,
-    last_read TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sessions(id),
-    UNIQUE(session_id, file_path)
-  );
-
-  -- Checkpoints table (Phase 2)
-  CREATE TABLE IF NOT EXISTS checkpoints (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    git_status TEXT,
-    git_branch TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sessions(id)
-  );
-
-  -- Checkpoint items table (Phase 2)
-  CREATE TABLE IF NOT EXISTS checkpoint_items (
-    id TEXT PRIMARY KEY,
-    checkpoint_id TEXT NOT NULL,
-    context_item_id TEXT NOT NULL,
-    FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id),
-    FOREIGN KEY (context_item_id) REFERENCES context_items(id)
-  );
-
-  -- Checkpoint files table (Phase 2)
-  CREATE TABLE IF NOT EXISTS checkpoint_files (
-    id TEXT PRIMARY KEY,
-    checkpoint_id TEXT NOT NULL,
-    file_cache_id TEXT NOT NULL,
-    FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id),
-    FOREIGN KEY (file_cache_id) REFERENCES file_cache(id)
-  );
-
-  -- Journal entries table (Phase 4.4)
-  CREATE TABLE IF NOT EXISTS journal_entries (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    entry TEXT NOT NULL,
-    tags TEXT,
-    mood TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sessions(id)
-  );
-
-  -- Compressed context table (Phase 4.4)
-  CREATE TABLE IF NOT EXISTS compressed_context (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    original_count INTEGER NOT NULL,
-    compressed_data TEXT NOT NULL,
-    compression_ratio REAL NOT NULL,
-    date_range_start TIMESTAMP,
-    date_range_end TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sessions(id)
-  );
-
-  -- Cross-tool integration events (Phase 4.4)
-  CREATE TABLE IF NOT EXISTS tool_events (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    tool_name TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    data TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sessions(id)
-  );
-`);
+// Tables are now created by DatabaseManager in utils/database.ts
 
 // Track current session
 let currentSessionId: string | null = null;
@@ -163,10 +62,12 @@ function ensureSession(): string {
     } else {
       // Create default session
       currentSessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name, description) VALUES (?, ?, ?)').run(
+      db.prepare('INSERT INTO sessions (id, name, description, branch, working_directory) VALUES (?, ?, ?, ?, ?)').run(
         currentSessionId,
         'Default Session',
-        'Auto-created default session'
+        'Auto-created default session',
+        null,
+        null
       );
     }
   }
@@ -719,13 +620,14 @@ To enable git tracking, use context_set_project_dir with your project path.`;
       // Start new session from checkpoint
       const newSessionId = uuidv4();
       db.prepare(`
-        INSERT INTO sessions (id, name, description, branch)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO sessions (id, name, description, branch, working_directory)
+        VALUES (?, ?, ?, ?, ?)
       `).run(
         newSessionId,
         `Restored from: ${cp.name}`,
         `Checkpoint ${cp.id.substring(0, 8)} created at ${cp.created_at}`,
-        cp.git_branch
+        cp.git_branch,
+        null
       );
 
       // Restore context items
@@ -1109,13 +1011,14 @@ Files: ${fileCache.length}`,
           targetSessionId = uuidv4();
           const importedSession = importData.session;
           db.prepare(`
-            INSERT INTO sessions (id, name, description, branch, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sessions (id, name, description, branch, working_directory, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
           `).run(
             targetSessionId,
             `Imported: ${importedSession.name}`,
             `Imported from ${filePath} on ${new Date().toISOString()}`,
             importedSession.branch,
+            null,
             new Date().toISOString()
           );
           currentSessionId = targetSessionId;
@@ -1588,13 +1491,14 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
         // Create new branch session
         const branchId = uuidv4();
         db.prepare(`
-          INSERT INTO sessions (id, name, description, branch, parent_id)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO sessions (id, name, description, branch, working_directory, parent_id)
+          VALUES (?, ?, ?, ?, ?, ?)
         `).run(
           branchId,
           branchName,
           `Branch of ${sourceSession.name} created at ${new Date().toISOString()}`,
           sourceSession.branch,
+          null,
           sourceSessionId
         );
         
