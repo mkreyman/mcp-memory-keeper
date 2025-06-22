@@ -14,11 +14,50 @@ describe('Server Initialization Tests', () => {
 
   afterEach(async () => {
     if (serverProcess && !serverProcess.killed) {
-      serverProcess.kill();
-      // Wait a bit for process to terminate
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // First try graceful shutdown
+      serverProcess.kill('SIGTERM');
+      
+      // Wait for process to actually exit
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          // Force kill if still running
+          if (serverProcess && !serverProcess.killed) {
+            serverProcess.kill('SIGKILL');
+          }
+          resolve();
+        }, 5000);
+        
+        serverProcess?.on('exit', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        
+        serverProcess?.on('error', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+      
+      // Remove event listeners to prevent leaks
+      serverProcess?.removeAllListeners();
+      
+      // Track for global cleanup
+      if ((global as any).testProcesses) {
+        const index = (global as any).testProcesses.indexOf(serverProcess);
+        if (index > -1) {
+          (global as any).testProcesses.splice(index, 1);
+        }
+      }
     }
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    
+    serverProcess = null;
+    
+    // Clean up temp directory
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch (error) {
+      console.warn('Error cleaning up temp directory:', error);
+    }
   });
 
   it('should start server and respond to initialize request', (done) => {
@@ -32,6 +71,18 @@ describe('Server Initialization Tests', () => {
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    
+    // Track for global cleanup
+    if (!(global as any).testProcesses) {
+      (global as any).testProcesses = [];
+    }
+    (global as any).testProcesses.push(serverProcess);
+    
+    // Track for global cleanup
+    if (!(global as any).testProcesses) {
+      (global as any).testProcesses = [];
+    }
+    (global as any).testProcesses.push(serverProcess);
 
     let output = '';
     let initialized = false;
@@ -96,6 +147,12 @@ describe('Server Initialization Tests', () => {
     serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    
+    // Track for global cleanup
+    if (!(global as any).testProcesses) {
+      (global as any).testProcesses = [];
+    }
+    (global as any).testProcesses.push(serverProcess);
 
     // Wait for server to start
     setTimeout(() => {
@@ -121,6 +178,12 @@ describe('Server Initialization Tests', () => {
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    
+    // Track for global cleanup
+    if (!(global as any).testProcesses) {
+      (global as any).testProcesses = [];
+    }
+    (global as any).testProcesses.push(serverProcess);
 
     let output = '';
     let errorReceived = false;
@@ -189,6 +252,12 @@ describe('Server Initialization Tests', () => {
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    
+    // Track for global cleanup
+    if (!(global as any).testProcesses) {
+      (global as any).testProcesses = [];
+    }
+    (global as any).testProcesses.push(serverProcess);
 
     let serverStarted = false;
     let timeout: NodeJS.Timeout;

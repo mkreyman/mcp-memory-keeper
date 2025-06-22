@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { DatabaseManager } from '../../utils/database.js';
+import { TestDatabaseHelper } from '../../test-helpers/database-helper.js';
 
 describe('Concurrent Access Tests', () => {
   let tempDir: string;
@@ -12,12 +13,22 @@ describe('Concurrent Access Tests', () => {
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
     tempDbPath = path.join(tempDir, 'test.db');
-    dbManager = new DatabaseManager({ filename: tempDbPath });
+    dbManager = TestDatabaseHelper.createTestDatabase();
   });
 
-  afterEach(() => {
-    dbManager.close();
-    fs.rmSync(tempDir, { recursive: true, force: true });
+  afterEach(async () => {
+    // Clean up all tracked databases
+    await TestDatabaseHelper.cleanupAll();
+    
+    // Clean up temp directory
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch (error) {
+      console.warn('Error cleaning up temp directory:', error);
+    }
+    
+    // Clean up any WAL/SHM files
+    TestDatabaseHelper.cleanupDbFiles(tempDbPath);
   });
 
   it('should handle concurrent session writes without corruption', async () => {

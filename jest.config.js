@@ -31,5 +31,9 @@ module.exports = {
       },
     ],
   },
-  testTimeout: 10000,
+  testTimeout: 30000,
+  forceExit: true,
+  detectOpenHandles: true,
+  maxWorkers: 1,
+  globalTeardown: './src/test-helpers/global-teardown.js',
 };

@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { simpleGit } from 'simple-git';
+import { TestDatabaseHelper } from '../../test-helpers/database-helper.js';
 
 describe('Git Integration Tests', () => {
   let dbManager: DatabaseManager;
@@ -12,21 +13,18 @@ describe('Git Integration Tests', () => {
   let tempDbPath: string;
   let tempRepoPath: string;
   let db: any;
+  let git: any; // Track git instance for cleanup
 
   beforeEach(async () => {
     tempDbPath = path.join(os.tmpdir(), `test-git-${Date.now()}.db`);
     tempRepoPath = path.join(os.tmpdir(), `test-repo-${Date.now()}`);
     
-    dbManager = new DatabaseManager({
-      filename: tempDbPath,
-      maxSize: 10 * 1024 * 1024,
-      walMode: true,
-    });
+    dbManager = TestDatabaseHelper.createTestDatabase();
     db = dbManager.getDatabase();
     
     // Create and initialize a real git repo for testing
     fs.mkdirSync(tempRepoPath, { recursive: true });
-    const git = simpleGit(tempRepoPath);
+    git = simpleGit(tempRepoPath);
     await git.init();
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');
@@ -39,16 +37,29 @@ describe('Git Integration Tests', () => {
     gitOps = new GitOperations(tempRepoPath);
   });
 
-  afterEach(() => {
-    dbManager.close();
-    try {
-      fs.unlinkSync(tempDbPath);
-      fs.unlinkSync(`${tempDbPath}-wal`);
-      fs.unlinkSync(`${tempDbPath}-shm`);
-      fs.rmSync(tempRepoPath, { recursive: true, force: true });
-    } catch (e) {
-      // Ignore
+  afterEach(async () => {
+    // Clean up git processes first
+    if (git) {
+      try {
+        // Clear any pending git operations
+        git.removeAllListeners?.();
+      } catch (error) {
+        console.warn('Error cleaning up git:', error);
+      }
     }
+    
+    // Clean up databases
+    await TestDatabaseHelper.cleanupAll();
+    
+    // Clean up temp directories and files
+    try {
+      TestDatabaseHelper.cleanupDbFiles(tempDbPath);
+      fs.rmSync(tempRepoPath, { recursive: true, force: true });
+    } catch (error) {
+      console.warn('Error cleaning up temp files:', error);
+    }
+    
+    git = null;
   });
 
   describe('context_git_commit', () => {
