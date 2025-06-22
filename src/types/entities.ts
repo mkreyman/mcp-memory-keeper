@@ -20,6 +20,8 @@ export interface ContextItem {
   priority: 'high' | 'normal' | 'low';
   metadata?: string;
   size: number;
+  shared: boolean;
+  shared_with_sessions?: string;
   created_at: string;
   updated_at: string;
 }

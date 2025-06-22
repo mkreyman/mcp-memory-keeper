@@ -2692,6 +2692,120 @@ Use context_migration_apply_all to apply pending migrations.`,
       }
     }
 
+    // Cross-Session Collaboration Tools
+    case 'context_share': {
+      const { key, targetSessions, makePublic = false } = args;
+      const sessionId = ensureSession();
+      
+      try {
+        // Get the item to share
+        const item = repositories.contexts.getByKey(sessionId, key);
+        if (!item) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Item not found: ${key}`,
+            }],
+          };
+        }
+        
+        // Share with specific sessions or make public
+        const targetSessionIds = makePublic ? [] : (targetSessions || []);
+        repositories.contexts.shareByKey(sessionId, key, targetSessionIds);
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Shared "${key}" ${makePublic ? 'publicly' : `with ${targetSessionIds.length} session(s)`}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to share context: ${error.message}`,
+          }],
+        };
+      }
+    }
+    
+    case 'context_get_shared': {
+      const { includeAll = false } = args;
+      const sessionId = ensureSession();
+      
+      try {
+        const items = includeAll 
+          ? repositories.contexts.getAllSharedItems()
+          : repositories.contexts.getSharedItems(sessionId);
+        
+        if (items.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'No shared context items found',
+            }],
+          };
+        }
+        
+        const itemsList = items.map((item: any) => {
+          const sharedWith = item.shared_with_sessions 
+            ? JSON.parse(item.shared_with_sessions).length 
+            : 'all';
+          return `• [${item.priority}] ${item.key} (from session: ${item.session_id.substring(0, 8)}, shared with: ${sharedWith})\n  ${item.value.substring(0, 100)}${item.value.length > 100 ? '...' : ''}`;
+        }).join('\n\n');
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Found ${items.length} shared items:\n\n${itemsList}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Failed to get shared context: ${error.message}`,
+          }],
+        };
+      }
+    }
+    
+    case 'context_search_all': {
+      const { query, sessions = [], includeShared = true } = args;
+      
+      try {
+        // Search across specified sessions or all if none specified
+        const results = repositories.contexts.searchAcrossSessions(query, sessions.length > 0 ? sessions : undefined);
+        
+        if (results.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: `No results found for: "${query}"`,
+            }],
+          };
+        }
+        
+        const resultsList = results.map((item: any) => 
+          `• [${item.session_id.substring(0, 8)}] ${item.key}: ${item.value.substring(0, 100)}${item.value.length > 100 ? '...' : ''}`
+        ).join('\n');
+        
+        return {
+          content: [{
+            type: 'text',
+            text: `Found ${results.length} results across sessions:\n\n${resultsList}`,
+          }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Search failed: ${error.message}`,
+          }],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -2910,6 +3024,63 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               default: ['key', 'value']
             },
             sessionId: { type: 'string', description: 'Session to search (defaults to current)' },
+          },
+          required: ['query'],
+        },
+      },
+      // Cross-Session Collaboration
+      {
+        name: 'context_share',
+        description: 'Share a context item with other sessions for cross-session collaboration',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Key of the item to share' },
+            targetSessions: { 
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Session IDs to share with (empty for public sharing)'
+            },
+            makePublic: { 
+              type: 'boolean', 
+              description: 'Share with all sessions',
+              default: false 
+            },
+          },
+          required: ['key'],
+        },
+      },
+      {
+        name: 'context_get_shared',
+        description: 'Get shared context items from other sessions',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            includeAll: { 
+              type: 'boolean', 
+              description: 'Include all shared items from all sessions',
+              default: false 
+            },
+          },
+        },
+      },
+      {
+        name: 'context_search_all',
+        description: 'Search across multiple or all sessions',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query' },
+            sessions: { 
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Session IDs to search (empty for all sessions)'
+            },
+            includeShared: { 
+              type: 'boolean', 
+              description: 'Include shared items in search',
+              default: true 
+            },
           },
           required: ['query'],
         },

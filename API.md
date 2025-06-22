@@ -874,6 +874,85 @@ try {
 4. **Indexed Searches**: Search by key is faster than full-text
 5. **Limit Results**: Always specify reasonable limits
 
+## Pre-built Query Library
+
+Common queries optimized for performance:
+
+### Development Queries
+```typescript
+// Recent high-priority tasks
+{
+  category: "task",
+  priority: "high",
+  limit: 10
+}
+
+// Today's decisions
+{
+  category: "decision",
+  afterDate: new Date().toISOString().split('T')[0]
+}
+
+// Recent errors with context
+{
+  category: "error",
+  limit: 20,
+  includeMetadata: true
+}
+```
+
+### Analysis Queries
+```typescript
+// Find related code changes
+await context_semantic_search({
+  query: "authentication refactor",
+  minSimilarity: 0.7,
+  categories: ["task", "decision"]
+});
+
+// Track feature progress
+await context_search({
+  query: "feature:user-management status:*",
+  searchIn: ["value"],
+  categories: ["progress"]
+});
+```
+
+### Team Queries
+```typescript
+// Blockers and impediments
+{
+  query: "blocked OR waiting OR impediment",
+  categories: ["task", "warning"],
+  priority: "high"
+}
+
+// Recent decisions by area
+{
+  category: "decision",
+  query: "area:frontend OR area:backend",
+  groupBy: "metadata.area"
+}
+```
+
+### Performance Queries
+```typescript
+// Slow operations
+{
+  query: "duration:>1000ms",
+  categories: ["progress"],
+  sortBy: "metadata.duration",
+  order: "desc"
+}
+
+// Memory usage patterns
+{
+  query: "memory usage",
+  categories: ["progress", "warning"],
+  timeRange: "-7d"
+}
+```
+
 ---
 
 For more examples and patterns, see [RECIPES.md](./RECIPES.md)

@@ -125,21 +125,105 @@ export class ContextRepository extends BaseRepository {
 
   copyBetweenSessions(fromSessionId: string, toSessionId: string): number {
     const stmt = this.db.prepare(`
-      INSERT INTO context_items (id, session_id, key, value, category, priority, metadata, size)
-      SELECT ?, ?, key, value, category, priority, metadata, size
-      FROM context_items
-      WHERE session_id = ?
+      INSERT OR IGNORE INTO context_items (id, session_id, key, value, category, priority, metadata, size, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
     
     const items = this.getBySessionId(fromSessionId);
     let copied = 0;
     
     for (const item of items) {
-      stmt.run(this.generateId(), toSessionId, fromSessionId);
-      copied++;
+      try {
+        stmt.run(
+          this.generateId(),
+          toSessionId,
+          item.key,
+          item.value,
+          item.category,
+          item.priority,
+          item.metadata,
+          item.size,
+          item.created_at
+        );
+        copied++;
+      } catch (error) {
+        // Skip items that would cause unique constraint violations
+        console.warn(`Skipping duplicate key '${item.key}' when copying to session ${toSessionId}`);
+      }
     }
     
     return copied;
+  }
+
+  shareItem(itemId: string, targetSessionIds: string[]): void {
+    const stmt = this.db.prepare(`
+      UPDATE context_items 
+      SET shared = 1, 
+          shared_with_sessions = ?
+      WHERE id = ?
+    `);
+    
+    stmt.run(JSON.stringify(targetSessionIds), itemId);
+  }
+  
+  shareByKey(sessionId: string, key: string, targetSessionIds: string[]): void {
+    const item = this.getByKey(sessionId, key);
+    if (item) {
+      this.shareItem(item.id, targetSessionIds);
+    }
+  }
+  
+  getSharedItems(sessionId: string): ContextItem[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM context_items 
+      WHERE shared = 1 
+        AND (session_id = ? OR shared_with_sessions LIKE ?)
+      ORDER BY priority DESC, created_at DESC
+    `);
+    
+    const items = stmt.all(sessionId, `%"${sessionId}"%`) as ContextItem[];
+    
+    // Filter out items with invalid shared_with_sessions JSON
+    return items.filter(item => {
+      if (!item.shared_with_sessions) return true; // null/empty is valid
+      
+      try {
+        const parsed = JSON.parse(item.shared_with_sessions);
+        // Check if it's an array
+        return Array.isArray(parsed);
+      } catch (error) {
+        // Invalid JSON - skip this item
+        return false;
+      }
+    });
+  }
+  
+  getAllSharedItems(): ContextItem[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM context_items 
+      WHERE shared = 1
+      ORDER BY priority DESC, created_at DESC
+    `);
+    
+    return stmt.all() as ContextItem[];
+  }
+  
+  searchAcrossSessions(query: string, sessionIds?: string[]): ContextItem[] {
+    let sql = `
+      SELECT * FROM context_items 
+      WHERE (key LIKE ? OR value LIKE ?)
+    `;
+    const params: any[] = [`%${query}%`, `%${query}%`];
+    
+    if (sessionIds && sessionIds.length > 0) {
+      sql += ` AND session_id IN (${sessionIds.map(() => '?').join(',')})`;
+      params.push(...sessionIds);
+    }
+    
+    sql += ' ORDER BY priority DESC, created_at DESC';
+    
+    const stmt = this.db.prepare(sql);
+    return stmt.all(...params) as ContextItem[];
   }
 
   getStatsBySession(sessionId: string): { count: number; totalSize: number; byCategory: Record<string, number>; byPriority: Record<string, number> } {

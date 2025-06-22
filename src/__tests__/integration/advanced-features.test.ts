@@ -564,10 +564,11 @@ describe('Advanced Features Integration Tests', () => {
       });
       
       const id = uuidv4();
+      const now = new Date().toISOString();
       db.prepare(`
-        INSERT INTO compressed_context (id, session_id, original_count, compressed_data, compression_ratio)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(id, testSessionId, 2, compressedData, 0.75);
+        INSERT INTO compressed_context (id, session_id, original_count, compressed_data, compression_ratio, date_range_start, date_range_end)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, testSessionId, 2, compressedData, 0.75, now, now);
       
       const saved = db.prepare('SELECT * FROM compressed_context WHERE id = ?').get(id) as any;
       

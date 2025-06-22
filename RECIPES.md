@@ -389,17 +389,66 @@ await context_checkpoint({
 
 ## Team Collaboration Patterns
 
-### The Handoff Pattern
-Smooth work transitions between team members:
+### Cross-Session Knowledge Sharing (v0.9.0+)
+Share discoveries and solutions across different AI sessions:
+
+```
+# Developer A discovers a tricky bug fix
+context_save
+{
+  "key": "elixir_genserver_timeout_fix",
+  "value": "Set :infinity timeout for long-running GenServer calls to prevent crashes",
+  "category": "solution",
+  "priority": "high"
+}
+
+# Share with the team
+context_share
+{
+  "key": "elixir_genserver_timeout_fix",
+  "makePublic": true
+}
+
+# Developer B in another session can find it
+context_get_shared
+{}
+
+# Or search for it
+context_search_all
+{ 
+  "query": "elixir timeout" 
+}
+```
+
+### The Enhanced Handoff Pattern (v0.9.0+)
+Smooth work transitions between team members with cross-session sharing:
 
 ```typescript
-// Prepare handoff
+// Prepare handoff with structured data
 await context_save({
-  key: "handoff_summary",
-  value: "Completed user auth, started on permissions. See handoff_details for specifics",
-  category: "note",
+  key: "handoff_status",
+  value: JSON.stringify({
+    completed: ["user auth module", "password reset"],
+    inProgress: "email verification - 80% done",
+    nextSteps: ["finish email templates", "add rate limiting"],
+    blockers: ["need SMTP credentials from DevOps"],
+    sessionId: currentSessionId
+  }),
+  category: "progress",
   priority: "high"
 });
+
+// Share with next developer's session
+await context_share({
+  key: "handoff_status",
+  targetSessions: [nextDeveloperSessionId]
+});
+
+// Next developer retrieves handoff
+const handoff = await context_get_shared({});
+const status = JSON.parse(
+  handoff.find(item => item.key === "handoff_status").value
+);
 
 // Document current state
 const handoffDetails = {
@@ -497,6 +546,144 @@ await context_save({
   key: "pair_session_summary",
   value: "Refactored 3 payment providers, found and fixed race condition",
   category: "progress"
+});
+```
+
+### Team Knowledge Base Pattern (v0.9.0+)
+Build a shared knowledge base across all sessions:
+
+```typescript
+// Create reusable team patterns
+const patterns = {
+  "error_handling": "Always use Result<T, E> for fallible operations",
+  "testing_strategy": "Use property-based testing for data transformations",
+  "api_versioning": "Version all APIs with /v1, /v2 prefixes",
+  "code_review": "Require 2 approvals for database migrations"
+};
+
+// Save and share team standards
+for (const [key, value] of Object.entries(patterns)) {
+  await context_save({
+    key: `team_standard_${key}`,
+    value: value,
+    category: "standard",
+    priority: "normal"
+  });
+  
+  await context_share({
+    key: `team_standard_${key}`,
+    makePublic: true
+  });
+}
+
+// Any team member can search standards
+const apiStandards = await context_search_all({
+  query: "api_versioning"
+});
+```
+
+### Multi-Agent Collaboration Pattern (v0.9.0+)
+Different specialized agents work together on complex tasks:
+
+```typescript
+// Security audit agent session
+await context_session_start({ 
+  name: "Security Audit - Sprint 15",
+  description: "Automated security scan"
+});
+
+const securityFindings = {
+  high: [
+    { file: "auth.js", line: 45, issue: "SQL injection risk", cwe: "CWE-89" },
+    { file: "upload.js", line: 102, issue: "Path traversal", cwe: "CWE-22" }
+  ],
+  medium: [
+    { file: "api.js", line: 78, issue: "Missing rate limiting", cwe: "CWE-770" }
+  ]
+};
+
+await context_save({
+  key: "security_audit_results",
+  value: JSON.stringify(securityFindings),
+  category: "security",
+  priority: "high"
+});
+
+// Share with development and QA sessions
+await context_share({
+  key: "security_audit_results",
+  targetSessions: ["dev-session-id", "qa-session-id"]
+});
+
+// Development agent addresses issues
+await context_session_start({ 
+  name: "Security Fixes - Sprint 15"
+});
+
+const audit = await context_get_shared({});
+const findings = JSON.parse(
+  audit.find(item => item.key === "security_audit_results").value
+);
+
+// Fix each high-priority issue
+for (const issue of findings.high) {
+  await context_save({
+    key: `security_fix_${issue.file}_line${issue.line}`,
+    value: `Fixed ${issue.issue} (${issue.cwe}) with parameterized queries`,
+    category: "progress",
+    priority: "high"
+  });
+}
+
+// Share fixes back
+await context_share({
+  key: "security_fixes_complete",
+  targetSessions: ["security-audit-session-id", "qa-session-id"]
+});
+```
+
+### Cross-Team Learning Pattern (v0.9.0+)
+Share lessons learned across different teams:
+
+```typescript
+// After resolving a complex bug
+const lesson = {
+  problem: "Users randomly logged out after deployment",
+  rootCause: "Redis session store key prefix changed",
+  solution: "Added migration to update existing session keys",
+  prevention: "Add session persistence tests to deployment checklist",
+  timeToResolve: "4 hours",
+  impact: "2000 users affected"
+};
+
+await context_save({
+  key: `lesson_learned_${Date.now()}`,
+  value: JSON.stringify(lesson),
+  category: "lesson",
+  priority: "high",
+  metadata: JSON.stringify({
+    team: "platform",
+    severity: "high",
+    tags: ["redis", "sessions", "deployment"]
+  })
+});
+
+// Share with all teams
+await context_share({
+  key: `lesson_learned_${Date.now()}`,
+  makePublic: true
+});
+
+// Other teams can learn from this
+const redisLessons = await context_search_all({
+  query: "redis session"
+});
+
+// QA team updates their checklist
+await context_save({
+  key: "qa_checklist_update",
+  value: "Added: Verify session persistence across deployments",
+  category: "process"
 });
 ```
 

@@ -88,8 +88,8 @@ describe('DatabaseManager', () => {
       
       // Add some context items
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run('item1', sessionId, 'key1', 'value1');
+        'INSERT INTO context_items (id, session_id, key, value, size) VALUES (?, ?, ?, ?, ?)'
+      ).run('item1', sessionId, 'key1', 'value1', 6); // 'value1'.length = 6
       
       const size = dbManager.getSessionSize(sessionId);
       expect(size.items).toBe(1);
@@ -107,8 +107,8 @@ describe('DatabaseManager', () => {
       oldDate.setDate(oldDate.getDate() - 31);
       
       db.prepare(
-        'INSERT INTO sessions (id, name, created_at) VALUES (?, ?, ?)'
-      ).run('old-session', 'Old Session', oldDate.toISOString());
+        'INSERT INTO sessions (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)'
+      ).run('old-session', 'Old Session', oldDate.toISOString(), oldDate.toISOString());
       
       // Create recent session
       db.prepare(

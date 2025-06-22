@@ -83,7 +83,7 @@ describe('Database Migration Integration Tests', () => {
       
       // Apply one migration
       const appliedMigration = migrationManager.getMigration('2.0.0')!;
-      db.prepare('UPDATE schema_migrations SET applied_at = CURRENT_TIMESTAMP WHERE id = ?')
+      db.prepare('UPDATE migrations SET applied_at = CURRENT_TIMESTAMP WHERE id = ?')
         .run(appliedMigration.id);
       
       const appliedMigrations = migrationManager.listMigrations({ applied: true });
@@ -132,7 +132,7 @@ describe('Database Migration Integration Tests', () => {
       
       // Apply first migration
       const appliedMigration = migrationManager.getMigration('5.0.0')!;
-      db.prepare('UPDATE schema_migrations SET applied_at = CURRENT_TIMESTAMP WHERE id = ?')
+      db.prepare('UPDATE migrations SET applied_at = CURRENT_TIMESTAMP WHERE id = ?')
         .run(appliedMigration.id);
     });
 
@@ -160,7 +160,7 @@ describe('Database Migration Integration Tests', () => {
 
     it('should handle empty migration state', () => {
       // Clear all migrations
-      db.prepare('DELETE FROM schema_migrations').run();
+      db.prepare('DELETE FROM migrations').run();
       
       const status = migrationManager.getStatus();
       
@@ -604,7 +604,7 @@ describe('Database Migration Integration Tests', () => {
 
     it('should handle empty migration list for batch operations', async () => {
       // Clear all migrations
-      db.prepare('DELETE FROM schema_migrations').run();
+      db.prepare('DELETE FROM migrations').run();
       
       const results = await migrationManager.applyAllPending({ dryRun: false });
       expect(results.length).toBe(0);

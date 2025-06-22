@@ -8,19 +8,48 @@
 
 ## Quick Start Scenarios
 
-### Scenario 1: "I'm about to hit context limit"
+### Scenario 1: "I need to share my findings with another session" (v0.9.0+)
+Share important discoveries or solutions:
+
+```
+# Found a solution to a tricky bug
+context_save
+{
+  "key": "websocket_reconnect_fix",
+  "value": "Use exponential backoff with max 30s delay to prevent server overload",
+  "category": "solution",
+  "priority": "high"
+}
+
+# Share it publicly for any session to use
+context_share
+{
+  "key": "websocket_reconnect_fix",
+  "makePublic": true
+}
+
+# Or share with specific session
+context_share
+{
+  "key": "websocket_reconnect_fix",
+  "targetSessions": ["colleague-session-id"]
+}
+```
+
+### Scenario 2: "I'm about to hit context limit"
 When you feel the Claude conversation getting long and might hit the context limit:
 
-```typescript
-// Quick save everything important
-await context_prepare_compaction();
+```
+# Quick save everything important
+context_prepare_compaction
+{}
 
-// This automatically:
-// - Creates a checkpoint of current state
-// - Identifies critical context items (high priority)
-// - Saves recent file changes
-// - Generates a summary for easy restoration
-// - Returns instructions for next session
+# This automatically:
+# - Creates a checkpoint of current state
+# - Identifies critical context items (high priority)
+# - Saves recent file changes
+# - Generates a summary for easy restoration
+# - Returns instructions for next session
 ```
 
 **Output example:**
@@ -31,42 +60,64 @@ Files cached: 5
 Summary generated
 
 To restore in new session:
-context_restore_checkpoint({ name: "pre-compaction-2024-01-15-14-30" })
+context_restore_checkpoint
+{ "name": "pre-compaction-2024-01-15-14-30" }
 ```
 
-### Scenario 2: "I need to switch branches"
+### Scenario 3: "I need to switch branches"
 Save your work before switching git branches:
 
-```typescript
-// Save current work state
-await context_checkpoint({ 
-  name: "feature-auth-progress",
-  includeFiles: true,
-  includeGitStatus: true
-});
+```
+# Save current work state
+context_checkpoint
+{ 
+  "name": "feature-auth-progress",
+  "includeFiles": true,
+  "includeGitStatus": true
+}
 
-// Switch branches...
-// git checkout main
+# Switch branches...
+# git checkout main
 
-// Later, restore exactly where you left off
-await context_restore_checkpoint({ 
-  name: "feature-auth-progress",
-  restoreFiles: true 
-});
+# Later, restore exactly where you left off
+context_restore_checkpoint
+{ 
+  "name": "feature-auth-progress",
+  "restoreFiles": true 
+}
 ```
 
-### Scenario 3: "I lost track of what I was doing"
+### Scenario 4: "I'm starting work and want to see what others discovered" (v0.9.0+)
+Check for shared context from other sessions:
+
+```
+# See what's been shared with your session
+context_get_shared
+{}
+
+# See all publicly shared items
+context_get_shared
+{ "includeAll": true }
+
+# Search across all sessions for specific topics
+context_search_all
+{ "query": "authentication" }
+```
+
+### Scenario 5: "I lost track of what I was doing"
 Get a quick summary of recent work:
 
-```typescript
-// Get a summary of recent work
-await context_summarize({ 
-  categories: ["task", "decision"],
-  maxLength: 500 
-});
+```
+# Get a summary of recent work
+context_summarize
+{ 
+  "categories": ["task", "decision"],
+  "maxLength": 500 
+}
 
-// Or get everything from current session
-await context_summarize();
+# Or get everything from current session
+context_summarize
+{}
 ```
 
 **Output example:**

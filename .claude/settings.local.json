@@ -26,7 +26,8 @@
       "mcp__memory-keeper__context_migration_status",
       "Bash(npm run check-migrations:*)",
       "Bash(NODE_ENV=development npm test -- src/__tests__/integration/database-initialization.test.ts --testNamePattern=\"should add working_directory\")",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(git tag:*)"
     ],
     "deny": []
   }

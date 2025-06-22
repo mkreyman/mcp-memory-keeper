@@ -70,7 +70,7 @@ export class MigrationManager {
   
   private initializeMigrationTables(): void {
     this.db.getDatabase().exec(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
+      CREATE TABLE IF NOT EXISTS migrations (
         id TEXT PRIMARY KEY,
         version TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
@@ -97,11 +97,11 @@ export class MigrationManager {
         rows_affected INTEGER,
         backup_path TEXT,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (migration_id) REFERENCES schema_migrations(id)
+        FOREIGN KEY (migration_id) REFERENCES migrations(id)
       );
       
-      CREATE INDEX IF NOT EXISTS idx_migrations_version ON schema_migrations(version);
-      CREATE INDEX IF NOT EXISTS idx_migrations_applied ON schema_migrations(applied_at);
+      CREATE INDEX IF NOT EXISTS idx_migrations_version ON migrations(version);
+      CREATE INDEX IF NOT EXISTS idx_migrations_applied ON migrations(applied_at);
       CREATE INDEX IF NOT EXISTS idx_migration_log_version ON migration_log(version);
       CREATE INDEX IF NOT EXISTS idx_migration_log_timestamp ON migration_log(timestamp);
     `);
@@ -123,7 +123,7 @@ export class MigrationManager {
     };
     
     this.db.getDatabase().prepare(`
-      INSERT INTO schema_migrations (
+      INSERT INTO migrations (
         id, version, name, description, up_sql, down_sql, dependencies,
         requires_backup, checksum, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -140,7 +140,7 @@ export class MigrationManager {
   
   getMigration(version: string): Migration | null {
     const row = this.db.getDatabase().prepare(`
-      SELECT * FROM schema_migrations WHERE version = ?
+      SELECT * FROM migrations WHERE version = ?
     `).get(version) as any;
     
     if (!row) return null;
@@ -152,7 +152,7 @@ export class MigrationManager {
     pending?: boolean;
     limit?: number;
   } = {}): Migration[] {
-    let query = 'SELECT * FROM schema_migrations WHERE 1=1';
+    let query = 'SELECT * FROM migrations WHERE 1=1';
     const params: any[] = [];
     
     if (options.applied === true) {
@@ -283,7 +283,7 @@ export class MigrationManager {
           
           // Mark migration as applied
           db.prepare(`
-            UPDATE schema_migrations 
+            UPDATE migrations 
             SET applied_at = CURRENT_TIMESTAMP 
             WHERE id = ?
           `).run(migration.id);
@@ -370,7 +370,7 @@ export class MigrationManager {
           
           // Mark migration as rolled back
           db.prepare(`
-            UPDATE schema_migrations 
+            UPDATE migrations 
             SET applied_at = NULL, rollback_at = CURRENT_TIMESTAMP 
             WHERE id = ?
           `).run(migration.id);

@@ -156,7 +156,10 @@ export class MigrationHealthCheck {
       ['priority', 'TEXT DEFAULT \'normal\''],
       ['metadata', 'TEXT'],
       ['size', 'INTEGER DEFAULT 0'],
-      ['created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP']
+      ['shared', 'BOOLEAN DEFAULT 0'],
+      ['shared_with_sessions', 'TEXT'],
+      ['created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'],
+      ['updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP']
     ]);
     
     const fileCacheColumns = new Map<string, string>([
