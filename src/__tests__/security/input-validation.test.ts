@@ -12,9 +12,9 @@ describe('Security - Input Validation Tests', () => {
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
     const tempDbPath = path.join(tempDir, 'test.db');
-    dbManager = new DatabaseManager({ 
+    dbManager = new DatabaseManager({
       filename: tempDbPath,
-      walMode: false
+      walMode: false,
     });
   });
 
@@ -27,19 +27,23 @@ describe('Security - Input Validation Tests', () => {
     it('should prevent SQL injection in key parameter', () => {
       const db = dbManager.getDatabase();
       const sessionId = 'test-session';
-      
+
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
-      
+
       const maliciousKey = "key'; DROP TABLE sessions; --";
-      
-      db.prepare(`
+
+      db.prepare(
+        `
         INSERT INTO context_items (id, session_id, key, value, category, priority)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run('item-1', sessionId, maliciousKey, 'value', 'test', 'normal');
-      
-      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").all();
+      `
+      ).run('item-1', sessionId, maliciousKey, 'value', 'test', 'normal');
+
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+        .all();
       expect(tables.length).toBe(1);
-      
+
       const item = db.prepare('SELECT key FROM context_items WHERE id = ?').get('item-1') as any;
       expect(item.key).toBe(maliciousKey);
     });
@@ -47,7 +51,7 @@ describe('Security - Input Validation Tests', () => {
     it('should sanitize search queries', () => {
       const maliciousQuery = "test' OR '1'='1";
       const validatedQuery = validateSearchQuery(maliciousQuery);
-      expect(validatedQuery).toBe("test OR 1=1");
+      expect(validatedQuery).toBe('test OR 1=1');
     });
   });
 
@@ -68,27 +72,29 @@ describe('Security - Input Validation Tests', () => {
     it('should handle small bulk operations', () => {
       const db = dbManager.getDatabase();
       const sessionId = 'test-session';
-      
+
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
-      
+
       const insertStmt = db.prepare(`
         INSERT INTO context_items (id, session_id, key, value, category, priority)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
-      
+
       const insertMany = db.transaction(() => {
         for (let i = 0; i < 5; i++) {
           insertStmt.run(`bulk-${i}`, sessionId, `key-${i}`, `value-${i}`, 'test', 'normal');
         }
       });
-      
+
       const start = Date.now();
       insertMany();
       const elapsed = Date.now() - start;
-      
+
       expect(elapsed).toBeLessThan(1000);
-      
-      const count = db.prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?').get(sessionId) as any;
+
+      const count = db
+        .prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?')
+        .get(sessionId) as any;
       expect(count.count).toBe(5);
     });
   });

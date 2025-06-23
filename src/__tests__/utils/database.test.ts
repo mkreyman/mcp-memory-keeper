@@ -26,7 +26,7 @@ describe('DatabaseManager', () => {
       fs.unlinkSync(tempDbPath);
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
-    } catch (e) {
+    } catch (_e) {
       // Ignore errors if files don't exist
     }
   });
@@ -34,12 +34,12 @@ describe('DatabaseManager', () => {
   describe('Database initialization', () => {
     it('should create all required tables', () => {
       const db = dbManager.getDatabase();
-      
+
       // Check if tables exist
-      const tables = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-      ).all() as any[];
-      
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        .all() as any[];
+
       const tableNames = tables.map(t => t.name);
       expect(tableNames).toContain('sessions');
       expect(tableNames).toContain('context_items');
@@ -72,25 +72,22 @@ describe('DatabaseManager', () => {
     it('should detect when database is full', () => {
       // With a 10MB limit, it should not be full initially
       expect(dbManager.isDatabaseFull()).toBe(false);
-      
+
       // Note: Actually filling the database would be slow, so we'll trust the logic
     });
 
     it('should calculate session size', () => {
       const db = dbManager.getDatabase();
-      
+
       // Create a test session
       const sessionId = 'test-session-123';
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
-        sessionId,
-        'Test Session'
-      );
-      
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test Session');
+
       // Add some context items
       db.prepare(
         'INSERT INTO context_items (id, session_id, key, value, size) VALUES (?, ?, ?, ?, ?)'
       ).run('item1', sessionId, 'key1', 'value1', 6); // 'value1'.length = 6
-      
+
       const size = dbManager.getSessionSize(sessionId);
       expect(size.items).toBe(1);
       expect(size.files).toBe(0);
@@ -101,23 +98,24 @@ describe('DatabaseManager', () => {
   describe('Cleanup operations', () => {
     it('should cleanup old sessions', () => {
       const db = dbManager.getDatabase();
-      
+
       // Create old session (31 days ago)
       const oldDate = new Date();
       oldDate.setDate(oldDate.getDate() - 31);
-      
-      db.prepare(
-        'INSERT INTO sessions (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)'
-      ).run('old-session', 'Old Session', oldDate.toISOString(), oldDate.toISOString());
-      
+
+      db.prepare('INSERT INTO sessions (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(
+        'old-session',
+        'Old Session',
+        oldDate.toISOString(),
+        oldDate.toISOString()
+      );
+
       // Create recent session
-      db.prepare(
-        'INSERT INTO sessions (id, name) VALUES (?, ?)'
-      ).run('new-session', 'New Session');
-      
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run('new-session', 'New Session');
+
       const deleted = dbManager.cleanupOldSessions(30);
       expect(deleted).toBe(1);
-      
+
       // Verify old session was deleted
       const sessions = db.prepare('SELECT id FROM sessions').all();
       expect(sessions).toHaveLength(1);
@@ -126,19 +124,23 @@ describe('DatabaseManager', () => {
 
     it('should not cleanup sessions with checkpoints', () => {
       const db = dbManager.getDatabase();
-      
+
       // Create old session with checkpoint
       const oldDate = new Date();
       oldDate.setDate(oldDate.getDate() - 31);
-      
-      db.prepare(
-        'INSERT INTO sessions (id, name, created_at) VALUES (?, ?, ?)'
-      ).run('old-session', 'Old Session', oldDate.toISOString());
-      
-      db.prepare(
-        'INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)'
-      ).run('checkpoint1', 'old-session', 'Important Checkpoint');
-      
+
+      db.prepare('INSERT INTO sessions (id, name, created_at) VALUES (?, ?, ?)').run(
+        'old-session',
+        'Old Session',
+        oldDate.toISOString()
+      );
+
+      db.prepare('INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)').run(
+        'checkpoint1',
+        'old-session',
+        'Important Checkpoint'
+      );
+
       const deleted = dbManager.cleanupOldSessions(30);
       expect(deleted).toBe(0);
     });
@@ -147,7 +149,7 @@ describe('DatabaseManager', () => {
   describe('Transaction support', () => {
     it('should execute transactions atomically', () => {
       const db = dbManager.getDatabase();
-      
+
       // Successful transaction
       const result = dbManager.transaction(() => {
         db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
@@ -156,22 +158,22 @@ describe('DatabaseManager', () => {
         );
         return 'success';
       });
-      
+
       expect(result).toBe('success');
-      
+
       const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get('trans-session');
       expect(session).toBeTruthy();
     });
 
     it('should rollback failed transactions', () => {
       const db = dbManager.getDatabase();
-      
+
       // Insert a session first
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
         'existing-session',
         'Existing Session'
       );
-      
+
       // Failed transaction (duplicate key)
       expect(() => {
         dbManager.transaction(() => {
@@ -186,7 +188,7 @@ describe('DatabaseManager', () => {
           );
         });
       }).toThrow();
-      
+
       // Verify the first insert was rolled back
       const newSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get('new-session');
       expect(newSession).toBeFalsy();

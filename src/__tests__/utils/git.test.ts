@@ -3,7 +3,7 @@ import { simpleGit } from 'simple-git';
 
 // Mock simple-git
 jest.mock('simple-git', () => ({
-  simpleGit: jest.fn()
+  simpleGit: jest.fn(),
 }));
 
 describe('GitOperations', () => {
@@ -91,14 +91,14 @@ describe('GitOperations', () => {
       // Mock fs.existsSync to prevent fallback to .git/HEAD
       const originalExistsSync = require('fs').existsSync;
       require('fs').existsSync = jest.fn().mockReturnValue(false);
-      
+
       mockGit.branch.mockResolvedValue({ current: '' });
 
       const branch = await gitOps.getCurrentBranch();
-      
+
       // Restore original
       require('fs').existsSync = originalExistsSync;
-      
+
       // Empty string should return null
       expect(branch).toBeNull();
     });

@@ -25,7 +25,8 @@ export class TestDatabaseHelper {
    * Create a raw database connection with automatic cleanup tracking
    */
   static createRawDatabase(filename?: string): Database.Database {
-    const tempDbPath = filename || path.join(os.tmpdir(), `test-raw-db-${Date.now()}-${Math.random()}.db`);
+    const tempDbPath =
+      filename || path.join(os.tmpdir(), `test-raw-db-${Date.now()}-${Math.random()}.db`);
     const db = new Database(tempDbPath);
     this.rawDatabases.push(db);
     return db;
@@ -36,13 +37,15 @@ export class TestDatabaseHelper {
    */
   static async cleanupAll(): Promise<void> {
     // Close DatabaseManager instances
-    await Promise.all(this.instances.map(async (db) => {
-      try {
-        db.close();
-      } catch (error) {
-        console.warn('Error closing DatabaseManager:', error);
-      }
-    }));
+    await Promise.all(
+      this.instances.map(async db => {
+        try {
+          db.close();
+        } catch (error) {
+          console.warn('Error closing DatabaseManager:', error);
+        }
+      })
+    );
 
     // Close raw Database instances
     for (const db of this.rawDatabases) {

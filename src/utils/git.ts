@@ -23,15 +23,12 @@ export class GitOperations {
         return {
           status: 'Not a git repository',
           branch: 'none',
-          isGitRepo: false
+          isGitRepo: false,
         };
       }
 
       // Get status and branch info
-      const [status, branch] = await Promise.all([
-        this.git.status(),
-        this.git.branch()
-      ]);
+      const [status, branch] = await Promise.all([this.git.status(), this.git.branch()]);
 
       return {
         status: JSON.stringify({
@@ -39,19 +36,19 @@ export class GitOperations {
           created: status.created,
           deleted: status.deleted,
           staged: status.staged,
-          not_added: status.not_added,  // untracked files
+          not_added: status.not_added, // untracked files
           ahead: status.ahead,
           behind: status.behind,
         }),
         branch: branch.current,
-        isGitRepo: true
+        isGitRepo: true,
       };
-    } catch (error) {
+    } catch (_error) {
       // Handle any git errors gracefully
       return {
-        status: `Git error: ${error instanceof Error ? error.message : String(error)}`,
+        status: `Git error: ${_error instanceof Error ? _error.message : String(_error)}`,
         branch: 'error',
-        isGitRepo: false
+        isGitRepo: false,
       };
     }
   }
@@ -74,19 +71,21 @@ export class GitOperations {
       }
 
       return null;
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }
 
-  async safeCommit(message: string): Promise<{ success: boolean; commit?: string; error?: string }> {
+  async safeCommit(
+    message: string
+  ): Promise<{ success: boolean; commit?: string; error?: string }> {
     try {
       // Check if we're in a git repository
       const isRepo = await this.isGitRepository();
       if (!isRepo) {
         return {
           success: false,
-          error: 'Not a git repository'
+          error: 'Not a git repository',
         };
       }
 
@@ -95,7 +94,7 @@ export class GitOperations {
       if (status.files.length === 0) {
         return {
           success: false,
-          error: 'No changes to commit'
+          error: 'No changes to commit',
         };
       }
 
@@ -105,12 +104,12 @@ export class GitOperations {
 
       return {
         success: true,
-        commit: commitResult.commit
+        commit: commitResult.commit,
       };
-    } catch (error) {
+    } catch (_error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: _error instanceof Error ? _error.message : String(_error),
       };
     }
   }

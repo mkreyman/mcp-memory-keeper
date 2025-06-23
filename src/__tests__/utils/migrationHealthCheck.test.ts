@@ -49,12 +49,12 @@ describe('MigrationHealthCheck', () => {
           FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
       `);
-      
+
       // Create health check without initializing DatabaseManager to avoid auto-fix
       const dbManager = new Database(dbPath);
       healthCheck = new MigrationHealthCheck({ getDatabase: () => dbManager } as any);
       const result = healthCheck.runHealthCheck();
-      
+
       db.close();
       dbManager.close();
 
@@ -87,12 +87,12 @@ describe('MigrationHealthCheck', () => {
           FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
       `);
-      
+
       // Create health check without initializing DatabaseManager
       const dbManager = new Database(dbPath);
       healthCheck = new MigrationHealthCheck({ getDatabase: () => dbManager } as any);
       const result = healthCheck.runHealthCheck();
-      
+
       db.close();
       dbManager.close();
 
@@ -104,7 +104,7 @@ describe('MigrationHealthCheck', () => {
         );
         expect(issue).toBeDefined();
       }
-      
+
       // updated_at might exist depending on schema version, check separately
       const hasUpdatedAt = result.issues.some(
         i => i.table === 'context_items' && i.issue.includes('updated_at')
@@ -145,11 +145,11 @@ describe('MigrationHealthCheck', () => {
       const testDb = new Database(dbPath);
       const mockDbManager = {
         getDatabase: () => testDb,
-        close: () => testDb.close()
+        close: () => testDb.close(),
       } as any;
-      
+
       healthCheck = new MigrationHealthCheck(mockDbManager);
-      
+
       // First check what issues exist
       const beforeFix = healthCheck.runHealthCheck();
       expect(beforeFix.issues.length).toBeGreaterThan(0);
@@ -163,7 +163,7 @@ describe('MigrationHealthCheck', () => {
       const afterFix = healthCheck.runHealthCheck();
       expect(afterFix.issues.length).toBe(0);
       expect(afterFix.summary).toContain('Database schema is healthy');
-      
+
       mockDbManager.close();
     });
 
@@ -171,15 +171,15 @@ describe('MigrationHealthCheck', () => {
       // Create a database with correct schema first
       dbManager = new DatabaseManager({ filename: dbPath });
       const db = dbManager.getDatabase();
-      
+
       // Drop a column to simulate missing column
       db.exec(`
         CREATE TABLE temp_context_items AS SELECT id, session_id, key, value, category, priority, created_at FROM context_items;
         DROP TABLE context_items;
         ALTER TABLE temp_context_items RENAME TO context_items;
       `);
-      
-      // Create health check instance  
+
+      // Create health check instance
       healthCheck = new MigrationHealthCheck(dbManager);
       const result = healthCheck.runHealthCheck();
       expect(result.issues.length).toBeGreaterThan(0);
@@ -222,7 +222,7 @@ describe('MigrationHealthCheck', () => {
       // Run health check
       dbManager = new DatabaseManager({ filename: dbPath });
       healthCheck = new MigrationHealthCheck(dbManager);
-      
+
       // Check should pass - tables will be created during initialization
       const result = healthCheck.runHealthCheck();
       expect(result.summary).toContain('Database schema is healthy');
@@ -252,12 +252,12 @@ describe('MigrationHealthCheck', () => {
 
       // Initialize DatabaseManager (should auto-fix)
       dbManager = new DatabaseManager({ filename: dbPath });
-      
+
       // Verify columns were added
       const db2 = dbManager.getDatabase();
-      const columns = db2.prepare("PRAGMA table_info(context_items)").all() as any[];
+      const columns = db2.prepare('PRAGMA table_info(context_items)').all() as any[];
       const columnNames = columns.map((col: any) => col.name);
-      
+
       expect(columnNames).toContain('metadata');
       expect(columnNames).toContain('size');
       expect(columnNames).toContain('category');
@@ -280,26 +280,30 @@ describe('MigrationHealthCheck', () => {
       // Initialize multiple DatabaseManager instances concurrently
       const managers: DatabaseManager[] = [];
       const promises = [];
-      
+
       for (let i = 0; i < 3; i++) {
-        promises.push(new Promise((resolve) => {
-          setTimeout(() => {
-            const manager = new DatabaseManager({ filename: dbPath });
-            managers.push(manager);
-            resolve(manager);
-          }, i * 10); // Stagger slightly
-        }));
+        promises.push(
+          new Promise(resolve => {
+            setTimeout(() => {
+              const manager = new DatabaseManager({ filename: dbPath });
+              managers.push(manager);
+              resolve(manager);
+            }, i * 10); // Stagger slightly
+          })
+        );
       }
 
       return Promise.all(promises).then(() => {
         // All should complete successfully
         expect(managers.length).toBe(3);
-        
+
         // Check that migrations were applied
         const db = managers[0].getDatabase();
-        const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[];
+        const tables = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+          .all() as any[];
         expect(tables.length).toBeGreaterThan(10); // Should have all tables
-        
+
         // Clean up
         managers.forEach(m => m.close());
       });

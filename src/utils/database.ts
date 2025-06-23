@@ -1,6 +1,4 @@
 import Database from 'better-sqlite3';
-import * as fs from 'fs';
-import * as path from 'path';
 import { MigrationHealthCheck } from './migrationHealthCheck';
 
 export interface DatabaseConfig {
@@ -17,7 +15,7 @@ export class DatabaseManager {
     this.config = {
       filename: config.filename,
       maxSize: config.maxSize || 100 * 1024 * 1024, // 100MB default
-      walMode: config.walMode !== false // WAL mode enabled by default
+      walMode: config.walMode !== false, // WAL mode enabled by default
     };
 
     this.db = new Database(this.config.filename);
@@ -37,7 +35,9 @@ export class DatabaseManager {
     this.db.pragma('foreign_keys = ON');
 
     // First, check if this is an existing database that might need migration
-    const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+    const tables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+      .all();
     if (tables.length > 0) {
       // Existing database - run health check first before creating tables
       const healthCheck = new MigrationHealthCheck(this);
@@ -66,7 +66,7 @@ export class DatabaseManager {
         FOREIGN KEY (parent_id) REFERENCES sessions(id)
       );
 
-      -- Enhanced context_items table with size tracking and cross-session sharing
+      -- Enhanced context_items table with size tracking and simplified sharing
       CREATE TABLE IF NOT EXISTS context_items (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
@@ -76,8 +76,7 @@ export class DatabaseManager {
         priority TEXT DEFAULT 'normal',
         metadata TEXT,
         size INTEGER DEFAULT 0,
-        shared BOOLEAN DEFAULT 0,
-        shared_with_sessions TEXT,
+        is_private INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
@@ -133,7 +132,7 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_context_items_session ON context_items(session_id);
       CREATE INDEX IF NOT EXISTS idx_context_items_category ON context_items(category);
       CREATE INDEX IF NOT EXISTS idx_context_items_priority ON context_items(priority);
-      CREATE INDEX IF NOT EXISTS idx_context_items_shared ON context_items(shared);
+      CREATE INDEX IF NOT EXISTS idx_context_items_private ON context_items(is_private);
       CREATE INDEX IF NOT EXISTS idx_file_cache_session ON file_cache(session_id);
       CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id);
 
@@ -362,9 +361,13 @@ export class DatabaseManager {
 
   private addColumnIfNotExists(table: string, column: string, definition: string): string {
     // SQLite doesn't support IF NOT EXISTS for columns, so we need to check first
-    const hasColumn = this.db.prepare(`
+    const hasColumn = this.db
+      .prepare(
+        `
       SELECT COUNT(*) as count FROM pragma_table_info(?) WHERE name = ?
-    `).get(table, column) as any;
+    `
+      )
+      .get(table, column) as any;
 
     if (hasColumn.count === 0) {
       return `ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`;
@@ -410,12 +413,16 @@ export class DatabaseManager {
   }
 
   getDatabaseSize(): number {
-    const result = this.db.prepare('SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()').get() as any;
+    const result = this.db
+      .prepare('SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()')
+      .get() as any;
     return result.size;
   }
 
   getTableSizes(): Record<string, number> {
-    const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as any[];
+    const tables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+      .all() as any[];
     const sizes: Record<string, number> = {};
 
     for (const table of tables) {
@@ -434,48 +441,60 @@ export class DatabaseManager {
     const transaction = this.db.transaction(fn);
     return transaction();
   }
-  
+
   transaction<T>(fn: () => T): T {
     return this.runInTransaction(fn);
   }
-  
+
   isDatabaseFull(): boolean {
     const currentSize = this.getDatabaseSize();
     return currentSize >= this.config.maxSize;
   }
-  
+
   getSessionSize(sessionId: string): { items: number; files: number; totalSize: number } {
-    const itemsResult = this.db.prepare(`
+    const itemsResult = this.db
+      .prepare(
+        `
       SELECT COUNT(*) as count, COALESCE(SUM(size), 0) as totalSize 
       FROM context_items 
       WHERE session_id = ?
-    `).get(sessionId) as any;
-    
-    const filesResult = this.db.prepare(`
+    `
+      )
+      .get(sessionId) as any;
+
+    const filesResult = this.db
+      .prepare(
+        `
       SELECT COUNT(*) as count, COALESCE(SUM(size), 0) as totalSize 
       FROM file_cache 
       WHERE session_id = ?
-    `).get(sessionId) as any;
-    
+    `
+      )
+      .get(sessionId) as any;
+
     return {
       items: itemsResult?.count || 0,
       files: filesResult?.count || 0,
-      totalSize: (itemsResult?.totalSize || 0) + (filesResult?.totalSize || 0)
+      totalSize: (itemsResult?.totalSize || 0) + (filesResult?.totalSize || 0),
     };
   }
-  
+
   cleanupOldSessions(daysToKeep: number = 30): number {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-    
-    const oldSessions = this.db.prepare(`
+
+    const oldSessions = this.db
+      .prepare(
+        `
       SELECT id FROM sessions 
       WHERE updated_at < ? 
       ORDER BY updated_at ASC
-    `).all(cutoffDate.toISOString()) as any[];
-    
+    `
+      )
+      .all(cutoffDate.toISOString()) as any[];
+
     let deletedCount = 0;
-    
+
     for (const session of oldSessions) {
       try {
         this.db.prepare('DELETE FROM sessions WHERE id = ?').run(session.id);
@@ -484,7 +503,7 @@ export class DatabaseManager {
         console.error(`Failed to delete session ${session.id}:`, error);
       }
     }
-    
+
     return deletedCount;
   }
 }

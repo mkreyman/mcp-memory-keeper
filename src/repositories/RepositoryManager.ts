@@ -6,7 +6,7 @@ import { CheckpointRepository } from './CheckpointRepository.js';
 
 export class RepositoryManager {
   private dbManager: DatabaseManager;
-  
+
   public readonly sessions: SessionRepository;
   public readonly contexts: ContextRepository;
   public readonly files: FileRepository;
@@ -14,7 +14,7 @@ export class RepositoryManager {
 
   constructor(dbManager: DatabaseManager) {
     this.dbManager = dbManager;
-    
+
     // Initialize all repositories
     this.sessions = new SessionRepository(dbManager);
     this.contexts = new ContextRepository(dbManager);
@@ -43,13 +43,13 @@ export class RepositoryManager {
     const contextStats = this.contexts.getStatsBySession(sessionId);
     const fileStats = this.files.getStatsBySession(sessionId);
     const checkpointStats = this.checkpoints.getStatsBySession(sessionId);
-    
+
     return {
       session: this.sessions.getById(sessionId),
       contexts: contextStats,
       files: fileStats,
       checkpoints: checkpointStats,
-      totalSize: contextStats.totalSize + fileStats.totalSize
+      totalSize: contextStats.totalSize + fileStats.totalSize,
     };
   }
 
@@ -58,9 +58,9 @@ export class RepositoryManager {
    */
   cleanup(olderThanDays: number): { filesDeleted: number } {
     const filesDeleted = this.files.cleanup(olderThanDays);
-    
+
     return {
-      filesDeleted
+      filesDeleted,
     };
   }
 }

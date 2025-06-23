@@ -21,13 +21,13 @@ describe('Database Initialization Tests', () => {
   it('should create sessions table with working_directory column on fresh database', () => {
     const dbManager = new DatabaseManager({ filename: tempDbPath });
     const db = dbManager.getDatabase();
-    
+
     // Check that sessions table has working_directory column
-    const columns = db.prepare("PRAGMA table_info(sessions)").all() as any[];
+    const columns = db.prepare('PRAGMA table_info(sessions)').all() as any[];
     const columnNames = columns.map((col: any) => col.name);
-    
+
     expect(columnNames).toContain('working_directory');
-    
+
     dbManager.close();
   });
 
@@ -46,24 +46,24 @@ describe('Database Initialization Tests', () => {
       );
     `);
     db.close();
-    
+
     // Now open with DatabaseManager which should run migrations
     const dbManager = new DatabaseManager({ filename: tempDbPath });
     const migratedDb = dbManager.getDatabase();
-    
+
     // Check that working_directory column was added
-    const columns = migratedDb.prepare("PRAGMA table_info(sessions)").all() as any[];
+    const columns = migratedDb.prepare('PRAGMA table_info(sessions)').all() as any[];
     const columnNames = columns.map((col: any) => col.name);
-    
+
     expect(columnNames).toContain('working_directory');
-    
+
     dbManager.close();
   });
 
   it('should handle duplicate table creation gracefully', () => {
     const dbManager = new DatabaseManager({ filename: tempDbPath });
     const db = dbManager.getDatabase();
-    
+
     // Try to create sessions table again (like the bug in index.ts)
     expect(() => {
       db.exec(`
@@ -75,7 +75,7 @@ describe('Database Initialization Tests', () => {
         );
       `);
     }).toThrow(); // Should throw because table already exists
-    
+
     // But CREATE TABLE IF NOT EXISTS should work
     expect(() => {
       db.exec(`
@@ -87,31 +87,33 @@ describe('Database Initialization Tests', () => {
         );
       `);
     }).not.toThrow();
-    
+
     // And the column should still be there
-    const columns = db.prepare("PRAGMA table_info(sessions)").all() as any[];
+    const columns = db.prepare('PRAGMA table_info(sessions)').all() as any[];
     const columnNames = columns.map((col: any) => col.name);
     expect(columnNames).toContain('working_directory');
-    
+
     dbManager.close();
   });
 
   it('should allow INSERT with working_directory column', () => {
     const dbManager = new DatabaseManager({ filename: tempDbPath });
     const db = dbManager.getDatabase();
-    
+
     // This should work
     expect(() => {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO sessions (id, name, description, branch, working_directory)
         VALUES (?, ?, ?, ?, ?)
-      `).run('test-id', 'Test Session', 'Test Description', 'main', '/path/to/project');
+      `
+      ).run('test-id', 'Test Session', 'Test Description', 'main', '/path/to/project');
     }).not.toThrow();
-    
+
     // Verify the data
     const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get('test-id') as any;
     expect(session.working_directory).toBe('/path/to/project');
-    
+
     dbManager.close();
   });
 });

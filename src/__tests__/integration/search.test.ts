@@ -18,10 +18,13 @@ describe('Search Integration Tests', () => {
       walMode: true,
     });
     db = dbManager.getDatabase();
-    
+
     // Create test session
     testSessionId = uuidv4();
-    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(testSessionId, 'Search Test Session');
+    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+      testSessionId,
+      'Search Test Session'
+    );
   });
 
   afterEach(() => {
@@ -30,7 +33,7 @@ describe('Search Integration Tests', () => {
       fs.unlinkSync(tempDbPath);
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -40,17 +43,50 @@ describe('Search Integration Tests', () => {
       // Create test session if not exists
       const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(testSessionId);
       if (!session) {
-        db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(testSessionId, 'Search Test Session');
+        db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+          testSessionId,
+          'Search Test Session'
+        );
       }
-      
+
       // Add diverse test data
       const items = [
-        { key: 'auth_bug', value: 'Fixed authentication bug in login flow', category: 'task', priority: 'high' },
-        { key: 'auth_decision', value: 'Decided to use JWT for authentication', category: 'decision', priority: 'high' },
-        { key: 'api_design', value: 'Design REST API endpoints for user management', category: 'task', priority: 'normal' },
-        { key: 'database_choice', value: 'Selected PostgreSQL for user data storage', category: 'decision', priority: 'normal' },
-        { key: 'security_note', value: 'Remember to implement rate limiting on auth endpoints', category: 'note', priority: 'high' },
-        { key: 'performance', value: 'Optimize database queries for better performance', category: 'task', priority: 'low' },
+        {
+          key: 'auth_bug',
+          value: 'Fixed authentication bug in login flow',
+          category: 'task',
+          priority: 'high',
+        },
+        {
+          key: 'auth_decision',
+          value: 'Decided to use JWT for authentication',
+          category: 'decision',
+          priority: 'high',
+        },
+        {
+          key: 'api_design',
+          value: 'Design REST API endpoints for user management',
+          category: 'task',
+          priority: 'normal',
+        },
+        {
+          key: 'database_choice',
+          value: 'Selected PostgreSQL for user data storage',
+          category: 'decision',
+          priority: 'normal',
+        },
+        {
+          key: 'security_note',
+          value: 'Remember to implement rate limiting on auth endpoints',
+          category: 'note',
+          priority: 'high',
+        },
+        {
+          key: 'performance',
+          value: 'Optimize database queries for better performance',
+          category: 'task',
+          priority: 'low',
+        },
       ];
 
       items.forEach(item => {
@@ -62,12 +98,14 @@ describe('Search Integration Tests', () => {
 
     it('should search by value content', () => {
       // Search for 'authentication'
-      const results = db.prepare(
-        `SELECT * FROM context_items 
+      const results = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND value LIKE ?
          ORDER BY priority DESC, created_at DESC`
-      ).all(testSessionId, '%authentication%') as any[];
+        )
+        .all(testSessionId, '%authentication%') as any[];
 
       expect(results).toHaveLength(2);
       expect(results[0].key).toBe('auth_bug'); // High priority first
@@ -76,12 +114,14 @@ describe('Search Integration Tests', () => {
 
     it('should search by key pattern', () => {
       // Search for keys starting with 'auth'
-      const results = db.prepare(
-        `SELECT * FROM context_items 
+      const results = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND key LIKE ?
          ORDER BY created_at DESC`
-      ).all(testSessionId, 'auth%') as any[];
+        )
+        .all(testSessionId, 'auth%') as any[];
 
       expect(results).toHaveLength(2);
       expect(results.map((r: any) => r.key)).toContain('auth_bug');
@@ -90,8 +130,9 @@ describe('Search Integration Tests', () => {
 
     it('should filter by category', () => {
       // Search for tasks only
-      const results = db.prepare(
-        `SELECT * FROM context_items 
+      const results = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND category = ?
          ORDER BY 
@@ -101,7 +142,8 @@ describe('Search Integration Tests', () => {
              WHEN 'normal' THEN 3
              WHEN 'low' THEN 4
            END`
-      ).all(testSessionId, 'task') as any[];
+        )
+        .all(testSessionId, 'task') as any[];
 
       expect(results).toHaveLength(3);
       expect(results[0].key).toBe('auth_bug'); // High priority
@@ -110,13 +152,15 @@ describe('Search Integration Tests', () => {
 
     it('should combine search criteria', () => {
       // Search for high priority items containing 'auth'
-      const results = db.prepare(
-        `SELECT * FROM context_items 
+      const results = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND priority = ?
          AND (value LIKE ? OR key LIKE ?)
          ORDER BY created_at DESC`
-      ).all(testSessionId, 'high', '%auth%', '%auth%') as any[];
+        )
+        .all(testSessionId, 'high', '%auth%', '%auth%') as any[];
 
       expect(results).toHaveLength(3); // auth_bug, auth_decision, security_note
     });
@@ -125,19 +169,24 @@ describe('Search Integration Tests', () => {
       // Create another session
       const sessionId2 = uuidv4();
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId2, 'Second Session');
-      
-      db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run(uuidv4(), sessionId2, 'auth_other', 'Another auth-related item');
+
+      db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
+        uuidv4(),
+        sessionId2,
+        'auth_other',
+        'Another auth-related item'
+      );
 
       // Search across all sessions
-      const results = db.prepare(
-        `SELECT ci.*, s.name as session_name 
+      const results = db
+        .prepare(
+          `SELECT ci.*, s.name as session_name 
          FROM context_items ci
          JOIN sessions s ON ci.session_id = s.id
          WHERE ci.value LIKE ?
          ORDER BY ci.created_at DESC`
-      ).all('%auth%') as any[];
+        )
+        .all('%auth%') as any[];
 
       expect(results.length).toBeGreaterThanOrEqual(3);
       expect(results.some((r: any) => r.session_name === 'Search Test Session')).toBe(true);
@@ -146,11 +195,13 @@ describe('Search Integration Tests', () => {
 
     it('should handle case-insensitive search', () => {
       // SQLite LIKE is case-insensitive by default
-      const results = db.prepare(
-        `SELECT * FROM context_items 
+      const results = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND value LIKE ?`
-      ).all(testSessionId, '%AUTH%') as any[];
+        )
+        .all(testSessionId, '%AUTH%') as any[];
 
       expect(results).toHaveLength(3); // Should find 'authentication' and 'auth' items
       // auth_bug: "Fixed authentication bug in login flow"
@@ -162,21 +213,29 @@ describe('Search Integration Tests', () => {
       // Add an old item
       const oldDate = new Date();
       oldDate.setDate(oldDate.getDate() - 7);
-      
+
       db.prepare(
         'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(uuidv4(), testSessionId, 'old_item', 'Old authentication method', oldDate.toISOString());
+      ).run(
+        uuidv4(),
+        testSessionId,
+        'old_item',
+        'Old authentication method',
+        oldDate.toISOString()
+      );
 
       // Search for items from last 3 days
       const threeDaysAgo = new Date();
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
-      const results = db.prepare(
-        `SELECT * FROM context_items 
+      const results = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND datetime(created_at) > datetime(?)
          AND value LIKE ?`
-      ).all(testSessionId, threeDaysAgo.toISOString(), '%authentication%') as any[];
+        )
+        .all(testSessionId, threeDaysAgo.toISOString(), '%authentication%') as any[];
 
       expect(results).toHaveLength(2); // Should not include old_item
       expect(results.every((r: any) => r.key !== 'old_item')).toBe(true);
@@ -187,14 +246,15 @@ describe('Search Integration Tests', () => {
       db.prepare(
         'INSERT INTO context_items (id, session_id, key, value, priority) VALUES (?, ?, ?, ?, ?)'
       ).run(uuidv4(), testSessionId, 'exact', 'authentication', 'normal');
-      
+
       db.prepare(
         'INSERT INTO context_items (id, session_id, key, value, priority) VALUES (?, ?, ?, ?, ?)'
       ).run(uuidv4(), testSessionId, 'partial', 'implemented authentication system', 'normal');
 
       // Search with exact match having higher relevance
-      const results = db.prepare(
-        `SELECT *,
+      const results = db
+        .prepare(
+          `SELECT *,
          CASE 
            WHEN value = ? THEN 3
            WHEN value LIKE ? AND value LIKE ? THEN 2
@@ -204,7 +264,15 @@ describe('Search Integration Tests', () => {
          WHERE session_id = ? 
          AND value LIKE ?
          ORDER BY relevance DESC, priority DESC`
-      ).all('authentication', '%authentication%', '%', '%authentication%', testSessionId, '%authentication%') as any[];
+        )
+        .all(
+          'authentication',
+          '%authentication%',
+          '%',
+          '%authentication%',
+          testSessionId,
+          '%authentication%'
+        ) as any[];
 
       expect(results[0].key).toBe('exact'); // Exact match first
     });
@@ -215,15 +283,27 @@ describe('Search Integration Tests', () => {
       // Ensure session exists
       const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(testSessionId);
       if (!session) {
-        db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(testSessionId, 'Search Test Session');
+        db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+          testSessionId,
+          'Search Test Session'
+        );
       }
-      
+
       // Add file cache entries
       const files = [
-        { path: '/src/auth.ts', content: 'export function authenticate(user: User) { /* auth logic */ }' },
+        {
+          path: '/src/auth.ts',
+          content: 'export function authenticate(user: User) { /* auth logic */ }',
+        },
         { path: '/src/api.ts', content: 'router.post("/login", authenticate);' },
-        { path: '/tests/auth.test.ts', content: 'describe("authentication", () => { /* tests */ })' },
-        { path: '/docs/README.md', content: '# Authentication\nThis module handles user authentication.' },
+        {
+          path: '/tests/auth.test.ts',
+          content: 'describe("authentication", () => { /* tests */ })',
+        },
+        {
+          path: '/docs/README.md',
+          content: '# Authentication\nThis module handles user authentication.',
+        },
       ];
 
       files.forEach(file => {
@@ -232,13 +312,13 @@ describe('Search Integration Tests', () => {
           'INSERT INTO file_cache (id, session_id, file_path, content, hash) VALUES (?, ?, ?, ?, ?)'
         ).run(uuidv4(), testSessionId, file.path, file.content, hash);
       });
-      
+
       // Also add context items for the combine test
       const contextItems = [
         { key: 'auth_feature', value: 'Implement authentication system', category: 'task' },
         { key: 'auth_config', value: 'Configure auth middleware', category: 'task' },
       ];
-      
+
       contextItems.forEach(item => {
         db.prepare(
           'INSERT OR IGNORE INTO context_items (id, session_id, key, value, category) VALUES (?, ?, ?, ?, ?)'
@@ -247,12 +327,14 @@ describe('Search Integration Tests', () => {
     });
 
     it('should search file contents', () => {
-      const results = db.prepare(
-        `SELECT * FROM file_cache 
+      const results = db
+        .prepare(
+          `SELECT * FROM file_cache 
          WHERE session_id = ? 
          AND content LIKE ?
          ORDER BY file_path`
-      ).all(testSessionId, '%authenticate%') as any[];
+        )
+        .all(testSessionId, '%authenticate%') as any[];
 
       expect(results).toHaveLength(2); // auth.ts, api.ts only
       // auth.ts: "export function authenticate(user: User) { /* auth logic */ }"
@@ -263,11 +345,13 @@ describe('Search Integration Tests', () => {
     });
 
     it('should search by file path pattern', () => {
-      const results = db.prepare(
-        `SELECT * FROM file_cache 
+      const results = db
+        .prepare(
+          `SELECT * FROM file_cache 
          WHERE session_id = ? 
          AND file_path LIKE ?`
-      ).all(testSessionId, '/src/%') as any[];
+        )
+        .all(testSessionId, '/src/%') as any[];
 
       expect(results).toHaveLength(2);
       expect(results.every((r: any) => r.file_path.startsWith('/src/'))).toBe(true);
@@ -275,20 +359,24 @@ describe('Search Integration Tests', () => {
 
     it('should combine file and context search', () => {
       // Search for 'auth' in both context and files (broader search)
-      const contextResults = db.prepare(
-        `SELECT 'context' as source, key as name, value as content 
+      const contextResults = db
+        .prepare(
+          `SELECT 'context' as source, key as name, value as content 
          FROM context_items 
          WHERE session_id = ? AND (value LIKE ? OR key LIKE ?)`
-      ).all(testSessionId, '%auth%', '%auth%') as any[];
+        )
+        .all(testSessionId, '%auth%', '%auth%') as any[];
 
-      const fileResults = db.prepare(
-        `SELECT 'file' as source, file_path as name, content 
+      const fileResults = db
+        .prepare(
+          `SELECT 'file' as source, file_path as name, content 
          FROM file_cache 
          WHERE session_id = ? AND (content LIKE ? OR file_path LIKE ?)`
-      ).all(testSessionId, '%auth%', '%auth%') as any[];
+        )
+        .all(testSessionId, '%auth%', '%auth%') as any[];
 
       const allResults = [...contextResults, ...fileResults];
-      
+
       expect(allResults.length).toBeGreaterThanOrEqual(4);
       expect(allResults.some((r: any) => r.source === 'context')).toBe(true);
       expect(allResults.some((r: any) => r.source === 'file')).toBe(true);
@@ -301,16 +389,24 @@ describe('Search Integration Tests', () => {
       for (let i = 0; i < 100; i++) {
         db.prepare(
           'INSERT INTO context_items (id, session_id, key, value, category) VALUES (?, ?, ?, ?, ?)'
-        ).run(uuidv4(), testSessionId, `key${i}`, `value ${i} with some text`, i % 2 === 0 ? 'task' : 'note');
+        ).run(
+          uuidv4(),
+          testSessionId,
+          `key${i}`,
+          `value ${i} with some text`,
+          i % 2 === 0 ? 'task' : 'note'
+        );
       }
 
       const start = Date.now();
-      const results = db.prepare(
-        `SELECT * FROM context_items 
+      const results = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND category = ?
          LIMIT 10`
-      ).all(testSessionId, 'task') as any[];
+        )
+        .all(testSessionId, 'task') as any[];
       const duration = Date.now() - start;
 
       expect(results).toHaveLength(10);

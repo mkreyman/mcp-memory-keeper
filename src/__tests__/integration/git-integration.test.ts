@@ -18,22 +18,22 @@ describe('Git Integration Tests', () => {
   beforeEach(async () => {
     tempDbPath = path.join(os.tmpdir(), `test-git-${Date.now()}.db`);
     tempRepoPath = path.join(os.tmpdir(), `test-repo-${Date.now()}`);
-    
+
     dbManager = TestDatabaseHelper.createTestDatabase();
     db = dbManager.getDatabase();
-    
+
     // Create and initialize a real git repo for testing
     fs.mkdirSync(tempRepoPath, { recursive: true });
     git = simpleGit(tempRepoPath);
     await git.init();
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');
-    
+
     // Create initial commit
     fs.writeFileSync(path.join(tempRepoPath, 'README.md'), '# Test Repo');
     await git.add('.');
     await git.commit('Initial commit');
-    
+
     gitOps = new GitOperations(tempRepoPath);
   });
 
@@ -47,10 +47,10 @@ describe('Git Integration Tests', () => {
         console.warn('Error cleaning up git:', error);
       }
     }
-    
+
     // Clean up databases
     await TestDatabaseHelper.cleanupAll();
-    
+
     // Clean up temp directories and files
     try {
       TestDatabaseHelper.cleanupDbFiles(tempDbPath);
@@ -58,14 +58,17 @@ describe('Git Integration Tests', () => {
     } catch (error) {
       console.warn('Error cleaning up temp files:', error);
     }
-    
+
     git = null;
   });
 
   describe('context_git_commit', () => {
     it('should automatically save context on commit', async () => {
       const sessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Git Test Session');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        sessionId,
+        'Git Test Session'
+      );
 
       // Add context items
       const items = [
@@ -88,12 +91,12 @@ describe('Git Integration Tests', () => {
       // Simulate auto-save on commit
       const checkpointId = uuidv4();
       const gitInfo = await gitOps.getGitInfo();
-      
+
       db.prepare(
         'INSERT INTO checkpoints (id, session_id, name, description, git_status, git_branch) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(
-        checkpointId, 
-        sessionId, 
+        checkpointId,
+        sessionId,
         `Git commit: ${commitResult.commit}`,
         'Auto-saved on git commit',
         gitInfo.status,
@@ -101,7 +104,9 @@ describe('Git Integration Tests', () => {
       );
 
       // Link context items
-      const contextItems = db.prepare('SELECT id FROM context_items WHERE session_id = ?').all(sessionId) as any[];
+      const contextItems = db
+        .prepare('SELECT id FROM context_items WHERE session_id = ?')
+        .all(sessionId) as any[];
       contextItems.forEach((item: any) => {
         db.prepare(
           'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
@@ -109,7 +114,9 @@ describe('Git Integration Tests', () => {
       });
 
       // Verify checkpoint was created
-      const checkpoint = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(checkpointId) as any;
+      const checkpoint = db
+        .prepare('SELECT * FROM checkpoints WHERE id = ?')
+        .get(checkpointId) as any;
       expect(checkpoint).toBeDefined();
       expect(checkpoint.name).toContain('Git commit:');
       expect(checkpoint.git_branch).toBeTruthy();
@@ -127,7 +134,7 @@ describe('Git Integration Tests', () => {
 
       // Modify file
       fs.writeFileSync(path.join(tempRepoPath, 'modified.txt'), 'changed');
-      
+
       // Create new file
       fs.writeFileSync(path.join(tempRepoPath, 'new.txt'), 'new content');
 
@@ -136,15 +143,17 @@ describe('Git Integration Tests', () => {
 
       // Get git info
       const gitInfo = await gitOps.getGitInfo();
-      
+
       // Create checkpoint with git status
       const checkpointId = uuidv4();
       db.prepare(
         'INSERT INTO checkpoints (id, session_id, name, git_status, git_branch) VALUES (?, ?, ?, ?, ?)'
       ).run(checkpointId, sessionId, 'Status Checkpoint', gitInfo.status, gitInfo.branch);
 
-      const checkpoint = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(checkpointId) as any;
-      
+      const checkpoint = db
+        .prepare('SELECT * FROM checkpoints WHERE id = ?')
+        .get(checkpointId) as any;
+
       expect(checkpoint.git_status).toContain('modified.txt');
       // Parse the status to check properly
       const status = JSON.parse(checkpoint.git_status);
@@ -154,7 +163,10 @@ describe('Git Integration Tests', () => {
 
     it('should handle commits with message containing context summary', async () => {
       const sessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Commit Message Test');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        sessionId,
+        'Commit Message Test'
+      );
 
       // Add context items that should be in commit message
       const tasks = [
@@ -169,9 +181,9 @@ describe('Git Integration Tests', () => {
       });
 
       // Generate commit message with context
-      const completedTasks = db.prepare(
-        'SELECT value FROM context_items WHERE session_id = ? AND category = ?'
-      ).all(sessionId, 'task') as any[];
+      const completedTasks = db
+        .prepare('SELECT value FROM context_items WHERE session_id = ? AND category = ?')
+        .all(sessionId, 'task') as any[];
 
       const commitMessage = [
         'Feature: User authentication improvements',
@@ -179,7 +191,7 @@ describe('Git Integration Tests', () => {
         'Tasks completed:',
         ...completedTasks.map((t: any) => `- ${t.value}`),
         '',
-        '[Context saved by MCP Memory Keeper]'
+        '[Context saved by MCP Memory Keeper]',
       ].join('\n');
 
       // Make change and commit
@@ -189,7 +201,7 @@ describe('Git Integration Tests', () => {
       const commitResult = await git.commit(commitMessage);
 
       expect(commitResult.commit).toBeTruthy();
-      
+
       // Verify commit message
       const log = await git.log(['-1']);
       expect(log.latest).toBeDefined();
@@ -199,7 +211,10 @@ describe('Git Integration Tests', () => {
 
     it('should link commits to sessions', async () => {
       const sessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Linked Commit Test');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        sessionId,
+        'Linked Commit Test'
+      );
 
       // Make multiple commits
       const git = simpleGit(tempRepoPath);
@@ -215,21 +230,18 @@ describe('Git Integration Tests', () => {
         const checkpointId = uuidv4();
         db.prepare(
           'INSERT INTO checkpoints (id, session_id, name, description) VALUES (?, ?, ?, ?)'
-        ).run(
-          checkpointId,
-          sessionId,
-          `Commit ${i}`,
-          `Commit hash: ${result.commit}`
-        );
+        ).run(checkpointId, sessionId, `Commit ${i}`, `Commit hash: ${result.commit}`);
       }
 
       // Query commits for session - using description field instead of metadata
-      const sessionCommits = db.prepare(
-        `SELECT * FROM checkpoints 
+      const sessionCommits = db
+        .prepare(
+          `SELECT * FROM checkpoints 
          WHERE session_id = ? 
          AND description LIKE 'Commit hash:%'
          ORDER BY created_at`
-      ).all(sessionId) as any[];
+        )
+        .all(sessionId) as any[];
 
       expect(sessionCommits).toHaveLength(3);
       sessionCommits.forEach((checkpoint: any, i: number) => {
@@ -245,20 +257,20 @@ describe('Git Integration Tests', () => {
     it('should handle non-git directories gracefully', async () => {
       const nonGitPath = path.join(os.tmpdir(), `non-git-${Date.now()}`);
       fs.mkdirSync(nonGitPath, { recursive: true });
-      
+
       const nonGitOps = new GitOperations(nonGitPath);
       const info = await nonGitOps.getGitInfo();
-      
+
       expect(info.isGitRepo).toBe(false);
       expect(info.status.toLowerCase()).toContain('not a git repository');
-      
+
       fs.rmSync(nonGitPath, { recursive: true, force: true });
     });
 
     it('should handle git operation failures', async () => {
       // Test with invalid commit (no changes)
       const result = await gitOps.safeCommit('Empty commit');
-      
+
       expect(result.success).toBe(false);
       expect(result.error).toContain('No changes to commit');
     });

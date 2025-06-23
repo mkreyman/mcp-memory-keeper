@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 describe('Smart Compaction Integration Tests', () => {
   let dbManager: DatabaseManager;
-  let gitOps: GitOperations;
+  let _gitOps: GitOperations;
   let tempDbPath: string;
   let tempRepoPath: string;
   let db: any;
@@ -15,17 +15,17 @@ describe('Smart Compaction Integration Tests', () => {
   beforeEach(() => {
     tempDbPath = path.join(os.tmpdir(), `test-compaction-${Date.now()}.db`);
     tempRepoPath = path.join(os.tmpdir(), `test-repo-${Date.now()}`);
-    
+
     dbManager = new DatabaseManager({
       filename: tempDbPath,
       maxSize: 10 * 1024 * 1024,
       walMode: true,
     });
     db = dbManager.getDatabase();
-    
+
     // Create a mock git repo
     fs.mkdirSync(tempRepoPath, { recursive: true });
-    gitOps = new GitOperations(tempRepoPath);
+    _gitOps = new GitOperations(tempRepoPath);
   });
 
   afterEach(() => {
@@ -35,7 +35,7 @@ describe('Smart Compaction Integration Tests', () => {
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
       fs.rmSync(tempRepoPath, { recursive: true, force: true });
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -60,8 +60,9 @@ describe('Smart Compaction Integration Tests', () => {
       });
 
       // Get critical items (critical + high priority)
-      const criticalItems = db.prepare(
-        `SELECT * FROM context_items 
+      const criticalItems = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND priority IN ('critical', 'high')
          ORDER BY 
@@ -69,7 +70,8 @@ describe('Smart Compaction Integration Tests', () => {
              WHEN 'critical' THEN 1 
              WHEN 'high' THEN 2 
            END`
-      ).all(sessionId) as any[];
+        )
+        .all(sessionId) as any[];
 
       expect(criticalItems).toHaveLength(2);
       expect(criticalItems[0].key).toBe('critical1');
@@ -96,12 +98,14 @@ describe('Smart Compaction Integration Tests', () => {
 
       // Get recently modified files (last 2 hours)
       const twoHoursAgo = new Date(now.getTime() - 7200000);
-      const recentFiles = db.prepare(
-        `SELECT * FROM file_cache 
+      const recentFiles = db
+        .prepare(
+          `SELECT * FROM file_cache 
          WHERE session_id = ? 
          AND datetime(last_read) > datetime(?)
          ORDER BY last_read DESC`
-      ).all(sessionId, twoHoursAgo.toISOString()) as any[];
+        )
+        .all(sessionId, twoHoursAgo.toISOString()) as any[];
 
       expect(recentFiles).toHaveLength(2);
       expect(recentFiles[0].file_path).toBe('/recent.ts');
@@ -123,10 +127,17 @@ describe('Smart Compaction Integration Tests', () => {
       const checkpointId = uuidv4();
       db.prepare(
         'INSERT INTO checkpoints (id, session_id, name, description) VALUES (?, ?, ?, ?)'
-      ).run(checkpointId, sessionId, 'Pre-compaction checkpoint', 'Automatic checkpoint before context compaction');
+      ).run(
+        checkpointId,
+        sessionId,
+        'Pre-compaction checkpoint',
+        'Automatic checkpoint before context compaction'
+      );
 
       // Link all items to checkpoint
-      const items = db.prepare('SELECT id FROM context_items WHERE session_id = ?').all(sessionId) as any[];
+      const items = db
+        .prepare('SELECT id FROM context_items WHERE session_id = ?')
+        .all(sessionId) as any[];
       items.forEach((item: any) => {
         db.prepare(
           'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
@@ -134,14 +145,16 @@ describe('Smart Compaction Integration Tests', () => {
       });
 
       // Verify checkpoint was created
-      const checkpoint = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(checkpointId) as any;
+      const checkpoint = db
+        .prepare('SELECT * FROM checkpoints WHERE id = ?')
+        .get(checkpointId) as any;
       expect(checkpoint).toBeDefined();
       expect(checkpoint.name).toContain('Pre-compaction');
 
       // Verify all items are backed up
-      const backedUpCount = db.prepare(
-        'SELECT COUNT(*) as count FROM checkpoint_items WHERE checkpoint_id = ?'
-      ).get(checkpointId) as any;
+      const backedUpCount = db
+        .prepare('SELECT COUNT(*) as count FROM checkpoint_items WHERE checkpoint_id = ?')
+        .get(checkpointId) as any;
       expect(backedUpCount.count).toBe(5);
     });
 
@@ -161,14 +174,14 @@ describe('Smart Compaction Integration Tests', () => {
 
       // Generate summary by category
       const summary = categories.map(category => {
-        const items = db.prepare(
-          'SELECT * FROM context_items WHERE session_id = ? AND category = ?'
-        ).all(sessionId, category) as any[];
-        
+        const items = db
+          .prepare('SELECT * FROM context_items WHERE session_id = ? AND category = ?')
+          .all(sessionId, category) as any[];
+
         return {
           category,
           count: items.length,
-          items: items.map((i: any) => ({ key: i.key, value: i.value }))
+          items: items.map((i: any) => ({ key: i.key, value: i.value })),
         };
       });
 
@@ -185,10 +198,30 @@ describe('Smart Compaction Integration Tests', () => {
 
       // Add tasks with different priorities
       const tasks = [
-        { key: 'task_complete', value: '[COMPLETED] Completed task', category: 'task', priority: 'low' },
-        { key: 'task_pending', value: '[PENDING] Pending task', category: 'task', priority: 'normal' },
-        { key: 'task_inprogress', value: '[IN PROGRESS] In progress task', category: 'task', priority: 'high' },
-        { key: 'task_blocked', value: '[BLOCKED] Blocked task - waiting for review', category: 'task', priority: 'high' },
+        {
+          key: 'task_complete',
+          value: '[COMPLETED] Completed task',
+          category: 'task',
+          priority: 'low',
+        },
+        {
+          key: 'task_pending',
+          value: '[PENDING] Pending task',
+          category: 'task',
+          priority: 'normal',
+        },
+        {
+          key: 'task_inprogress',
+          value: '[IN PROGRESS] In progress task',
+          category: 'task',
+          priority: 'high',
+        },
+        {
+          key: 'task_blocked',
+          value: '[BLOCKED] Blocked task - waiting for review',
+          category: 'task',
+          priority: 'high',
+        },
       ];
 
       tasks.forEach(task => {
@@ -198,13 +231,15 @@ describe('Smart Compaction Integration Tests', () => {
       });
 
       // Get high priority tasks as next steps
-      const nextSteps = db.prepare(
-        `SELECT * FROM context_items 
+      const nextSteps = db
+        .prepare(
+          `SELECT * FROM context_items 
          WHERE session_id = ? 
          AND category = 'task'
          AND priority = 'high'
          ORDER BY created_at DESC`
-      ).all(sessionId) as any[];
+        )
+        .all(sessionId) as any[];
 
       expect(nextSteps).toHaveLength(2);
       // Both high priority tasks should be included

@@ -13,14 +13,14 @@ describe('Export/Import Integration Tests', () => {
   beforeEach(() => {
     tempDbPath = path.join(os.tmpdir(), `test-export-${Date.now()}.db`);
     tempExportPath = path.join(os.tmpdir(), `test-exports-${Date.now()}`);
-    
+
     dbManager = new DatabaseManager({
       filename: tempDbPath,
       maxSize: 10 * 1024 * 1024,
       walMode: true,
     });
     db = dbManager.getDatabase();
-    
+
     // Create export directory
     fs.mkdirSync(tempExportPath, { recursive: true });
   });
@@ -32,7 +32,7 @@ describe('Export/Import Integration Tests', () => {
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
       fs.rmSync(tempExportPath, { recursive: true, force: true });
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -42,13 +42,20 @@ describe('Export/Import Integration Tests', () => {
       // Create test data
       const sessionId = uuidv4();
       db.prepare('INSERT INTO sessions (id, name, description) VALUES (?, ?, ?)').run(
-        sessionId, 'Export Test', 'Test session for export'
+        sessionId,
+        'Export Test',
+        'Test session for export'
       );
 
       // Add context items
       const items = [
         { key: 'task1', value: 'Complete export feature', category: 'task', priority: 'high' },
-        { key: 'note1', value: 'Export format should be JSON', category: 'note', priority: 'normal' },
+        {
+          key: 'note1',
+          value: 'Export format should be JSON',
+          category: 'note',
+          priority: 'normal',
+        },
       ];
 
       items.forEach(item => {
@@ -67,7 +74,9 @@ describe('Export/Import Integration Tests', () => {
         version: '1.0',
         timestamp: new Date().toISOString(),
         session: db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId),
-        context_items: db.prepare('SELECT * FROM context_items WHERE session_id = ?').all(sessionId),
+        context_items: db
+          .prepare('SELECT * FROM context_items WHERE session_id = ?')
+          .all(sessionId),
         file_cache: db.prepare('SELECT * FROM file_cache WHERE session_id = ?').all(sessionId),
         checkpoints: db.prepare('SELECT * FROM checkpoints WHERE session_id = ?').all(sessionId),
       };
@@ -85,23 +94,34 @@ describe('Export/Import Integration Tests', () => {
 
     it('should export with checkpoints and linked items', () => {
       const sessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Checkpoint Export');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        sessionId,
+        'Checkpoint Export'
+      );
 
       // Add context items
       const itemId1 = uuidv4();
       const itemId2 = uuidv4();
-      db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run(itemId1, sessionId, 'item1', 'value1');
-      db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run(itemId2, sessionId, 'item2', 'value2');
+      db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
+        itemId1,
+        sessionId,
+        'item1',
+        'value1'
+      );
+      db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
+        itemId2,
+        sessionId,
+        'item2',
+        'value2'
+      );
 
       // Create checkpoint
       const checkpointId = uuidv4();
-      db.prepare(
-        'INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)'
-      ).run(checkpointId, sessionId, 'Test Checkpoint');
+      db.prepare('INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)').run(
+        checkpointId,
+        sessionId,
+        'Test Checkpoint'
+      );
 
       // Link items to checkpoint
       db.prepare(
@@ -116,13 +136,19 @@ describe('Export/Import Integration Tests', () => {
         version: '1.0',
         timestamp: new Date().toISOString(),
         session: db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId),
-        context_items: db.prepare('SELECT * FROM context_items WHERE session_id = ?').all(sessionId),
+        context_items: db
+          .prepare('SELECT * FROM context_items WHERE session_id = ?')
+          .all(sessionId),
         checkpoints: db.prepare('SELECT * FROM checkpoints WHERE session_id = ?').all(sessionId),
-        checkpoint_items: db.prepare(`
+        checkpoint_items: db
+          .prepare(
+            `
           SELECT cpi.* FROM checkpoint_items cpi
           JOIN checkpoints cp ON cpi.checkpoint_id = cp.id
           WHERE cp.session_id = ?
-        `).all(sessionId),
+        `
+          )
+          .all(sessionId),
       };
 
       const exportPath = path.join(tempExportPath, 'checkpoint-export.json');
@@ -152,15 +178,17 @@ describe('Export/Import Integration Tests', () => {
         version: '1.0',
         timestamp: new Date().toISOString(),
         session: db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId),
-        context_items: db.prepare('SELECT * FROM context_items WHERE session_id = ?').all(sessionId),
+        context_items: db
+          .prepare('SELECT * FROM context_items WHERE session_id = ?')
+          .all(sessionId),
       };
 
       // Test both compressed and uncompressed
       const uncompressedPath = path.join(tempExportPath, 'large-export.json');
       const compressedPath = path.join(tempExportPath, 'large-export.json.gz');
-      
+
       fs.writeFileSync(uncompressedPath, JSON.stringify(exportData, null, 2));
-      
+
       // Simulate compression (using zlib)
       const zlib = require('zlib');
       const compressed = zlib.gzipSync(JSON.stringify(exportData));
@@ -186,11 +214,31 @@ describe('Export/Import Integration Tests', () => {
           created_at: new Date().toISOString(),
         },
         context_items: [
-          { id: uuidv4(), session_id: '', key: 'imported1', value: 'value1', category: 'task', priority: 'high' },
-          { id: uuidv4(), session_id: '', key: 'imported2', value: 'value2', category: 'note', priority: 'normal' },
+          {
+            id: uuidv4(),
+            session_id: '',
+            key: 'imported1',
+            value: 'value1',
+            category: 'task',
+            priority: 'high',
+          },
+          {
+            id: uuidv4(),
+            session_id: '',
+            key: 'imported2',
+            value: 'value2',
+            category: 'note',
+            priority: 'normal',
+          },
         ],
         file_cache: [
-          { id: uuidv4(), session_id: '', file_path: '/imported.ts', content: 'imported content', hash: 'hash456' },
+          {
+            id: uuidv4(),
+            session_id: '',
+            file_path: '/imported.ts',
+            content: 'imported content',
+            hash: 'hash456',
+          },
         ],
       };
 
@@ -199,11 +247,11 @@ describe('Export/Import Integration Tests', () => {
 
       // Import data
       const importedData = JSON.parse(fs.readFileSync(importPath, 'utf-8'));
-      
+
       // Create new session for import
       const newSessionId = uuidv4();
       db.prepare('INSERT INTO sessions (id, name, description) VALUES (?, ?, ?)').run(
-        newSessionId, 
+        newSessionId,
         `${importedData.session.name} (Imported)`,
         importedData.session.description
       );
@@ -226,11 +274,15 @@ describe('Export/Import Integration Tests', () => {
       const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(newSessionId) as any;
       expect(session.name).toContain('Imported');
 
-      const items = db.prepare('SELECT * FROM context_items WHERE session_id = ?').all(newSessionId) as any[];
+      const items = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ?')
+        .all(newSessionId) as any[];
       expect(items).toHaveLength(2);
       expect(items.map((i: any) => i.key)).toContain('imported1');
 
-      const files = db.prepare('SELECT * FROM file_cache WHERE session_id = ?').all(newSessionId) as any[];
+      const files = db
+        .prepare('SELECT * FROM file_cache WHERE session_id = ?')
+        .all(newSessionId) as any[];
       expect(files).toHaveLength(1);
       expect(files[0].file_path).toBe('/imported.ts');
     });
@@ -259,9 +311,12 @@ describe('Export/Import Integration Tests', () => {
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Original');
 
       // Add existing item
-      db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run(uuidv4(), sessionId, 'existing_key', 'original value');
+      db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
+        uuidv4(),
+        sessionId,
+        'existing_key',
+        'original value'
+      );
 
       // Import data with same key
       const importData = {
@@ -273,21 +328,27 @@ describe('Export/Import Integration Tests', () => {
       };
 
       // Strategy 1: Skip duplicates
-      const existingItem = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? AND key = ?'
-      ).get(sessionId, 'existing_key');
+      const existingItem = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? AND key = ?')
+        .get(sessionId, 'existing_key');
 
       if (!existingItem) {
         db.prepare(
           'INSERT INTO context_items (id, session_id, key, value, category, priority) VALUES (?, ?, ?, ?, ?, ?)'
-        ).run(uuidv4(), sessionId, importData.context_items[0].key, importData.context_items[0].value, 
-              importData.context_items[0].category, importData.context_items[0].priority);
+        ).run(
+          uuidv4(),
+          sessionId,
+          importData.context_items[0].key,
+          importData.context_items[0].value,
+          importData.context_items[0].category,
+          importData.context_items[0].priority
+        );
       }
 
       // Verify original was kept
-      const item = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? AND key = ?'
-      ).get(sessionId, 'existing_key') as any;
+      const item = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? AND key = ?')
+        .get(sessionId, 'existing_key') as any;
       expect(item.value).toBe('original value');
 
       // Strategy 2: Replace duplicates
@@ -295,9 +356,9 @@ describe('Export/Import Integration Tests', () => {
         'INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(item.id, sessionId, 'existing_key', 'replaced value', 'task', 'high');
 
-      const replaced = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? AND key = ?'
-      ).get(sessionId, 'existing_key') as any;
+      const replaced = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? AND key = ?')
+        .get(sessionId, 'existing_key') as any;
       expect(replaced.value).toBe('replaced value');
     });
 
@@ -306,9 +367,12 @@ describe('Export/Import Integration Tests', () => {
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Merge Target');
 
       // Add existing items
-      db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run(uuidv4(), sessionId, 'existing1', 'value1');
+      db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
+        uuidv4(),
+        sessionId,
+        'existing1',
+        'value1'
+      );
 
       // Import additional items
       const importData = {
@@ -327,9 +391,9 @@ describe('Export/Import Integration Tests', () => {
       });
 
       // Verify merge
-      const allItems = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? ORDER BY key'
-      ).all(sessionId) as any[];
+      const allItems = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? ORDER BY key')
+        .all(sessionId) as any[];
 
       expect(allItems).toHaveLength(3);
       expect(allItems.map((i: any) => i.key)).toEqual(['existing1', 'imported1', 'imported2']);
@@ -340,14 +404,21 @@ describe('Export/Import Integration Tests', () => {
     it('should support markdown export format', () => {
       const sessionId = uuidv4();
       db.prepare('INSERT INTO sessions (id, name, description) VALUES (?, ?, ?)').run(
-        sessionId, 'Markdown Export', 'Testing markdown format'
+        sessionId,
+        'Markdown Export',
+        'Testing markdown format'
       );
 
       // Add context items
       const items = [
         { key: 'task1', value: 'Implement feature X', category: 'task', priority: 'high' },
         { key: 'decision1', value: 'Use TypeScript', category: 'decision', priority: 'high' },
-        { key: 'note1', value: 'Remember to test edge cases', category: 'note', priority: 'normal' },
+        {
+          key: 'note1',
+          value: 'Remember to test edge cases',
+          category: 'note',
+          priority: 'normal',
+        },
       ];
 
       items.forEach(item => {
@@ -358,18 +429,13 @@ describe('Export/Import Integration Tests', () => {
 
       // Generate markdown
       const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
-      const contextItems = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? ORDER BY category, priority DESC'
-      ).all(sessionId) as any[];
+      const contextItems = db
+        .prepare(
+          'SELECT * FROM context_items WHERE session_id = ? ORDER BY category, priority DESC'
+        )
+        .all(sessionId) as any[];
 
-      const markdown = [
-        `# ${session.name}`,
-        '',
-        session.description,
-        '',
-        '## Context Items',
-        '',
-      ];
+      const markdown = [`# ${session.name}`, '', session.description, '', '## Context Items', ''];
 
       const itemsByCategory = contextItems.reduce((acc: any, item: any) => {
         if (!acc[item.category]) acc[item.category] = [];

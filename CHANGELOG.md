@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+- **Simplified Sharing Model** (#19)
+  - Context items are now shared across all sessions by default (public)
+  - Removed broken `context_share` and `context_get_shared` commands
+  - Added `private` flag to `context_save` for session-specific items
+  - Database schema updated: replaced `shared` and `shared_with_sessions` columns with `is_private`
+  - Migration included to make ALL existing items public (accessible across sessions)
+
+### Fixed
+- Cross-session collaboration now works reliably
+- Context accessibility is consistent across all retrieval methods
+- Search operations properly respect privacy settings
+
+### Removed
+- `context_share` tool (sharing is now automatic)
+- `context_get_shared` tool (use `context_get` instead)
+- Complex sharing mechanism that was causing inconsistencies
+
 ## [0.8.4] - 2025-01-19
 
 ### Fixed

@@ -97,6 +97,7 @@ Save context information with categories and priorities.
   category?: 'task' | 'decision' | 'progress' | 'note' | 'warning' | 'error';
   priority?: 'critical' | 'high' | 'normal' | 'low';
   metadata?: any;          // Additional JSON metadata
+  private?: boolean;       // If true, item is only visible in current session (default: false - shared across all sessions)
 }
 ```
 
@@ -112,6 +113,7 @@ Save context information with categories and priorities.
 
 **Example:**
 ```typescript
+// Save public context (default - accessible from all sessions)
 await context_save({
   key: "auth_decision",
   value: "Using JWT with 24h expiry and refresh tokens",
@@ -119,11 +121,19 @@ await context_save({
   priority: "high",
   metadata: { reviewedBy: "team", approvedDate: "2024-01-15" }
 });
+
+// Save private context (only visible in current session)
+await context_save({
+  key: "debug_notes",
+  value: "Local testing with mock API keys",
+  category: "note",
+  private: true
+});
 ```
 
 ### context_get
 
-Retrieve context items with flexible filtering.
+Retrieve context items with flexible filtering. By default, returns all accessible items (public items from all sessions + private items from current session).
 
 **Parameters:**
 ```typescript

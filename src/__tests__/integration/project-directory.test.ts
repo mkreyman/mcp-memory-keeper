@@ -14,22 +14,22 @@ describe('Project Directory Feature Tests', () => {
     // Create a temporary project directory with git repo
     tempProjectPath = path.join(os.tmpdir(), `test-project-${Date.now()}`);
     fs.mkdirSync(tempProjectPath, { recursive: true });
-    
+
     // Initialize git repo in the temp project
     const git = simpleGit(tempProjectPath);
     await git.init();
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');
-    
+
     // Create initial commit
     fs.writeFileSync(path.join(tempProjectPath, 'README.md'), '# Test Project');
     await git.add('.');
     await git.commit('Initial commit');
-    
+
     // Create test database
     tempDbPath = path.join(os.tmpdir(), `test-db-${Date.now()}.db`);
     db = new Database(tempDbPath);
-    
+
     // Initialize database schema
     db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
@@ -82,7 +82,7 @@ describe('Project Directory Feature Tests', () => {
     try {
       fs.unlinkSync(tempDbPath);
       fs.rmSync(tempProjectPath, { recursive: true, force: true });
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -92,7 +92,7 @@ describe('Project Directory Feature Tests', () => {
       const git = simpleGit(tempProjectPath);
       const status = await git.status();
       const branch = await git.branch();
-      
+
       expect(branch.current).toBeTruthy();
       expect(status.isClean()).toBe(true);
     });
@@ -100,17 +100,20 @@ describe('Project Directory Feature Tests', () => {
     it('should capture git status for checkpoint', async () => {
       // Create session
       const sessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name, branch) VALUES (?, ?, ?)')
-        .run(sessionId, 'Test Session', 'master');
+      db.prepare('INSERT INTO sessions (id, name, branch) VALUES (?, ?, ?)').run(
+        sessionId,
+        'Test Session',
+        'master'
+      );
 
       // Make changes in repo
       fs.writeFileSync(path.join(tempProjectPath, 'new-file.txt'), 'new content');
-      
+
       // Get git status
       const git = simpleGit(tempProjectPath);
       const status = await git.status();
       const branch = await git.branch();
-      
+
       const gitStatus = JSON.stringify({
         modified: status.modified,
         created: status.created,
@@ -123,58 +126,61 @@ describe('Project Directory Feature Tests', () => {
 
       // Create checkpoint with git status
       const checkpointId = uuidv4();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO checkpoints (id, session_id, name, git_status, git_branch)
         VALUES (?, ?, ?, ?, ?)
-      `).run(checkpointId, sessionId, 'Test Checkpoint', gitStatus, branch.current);
+      `
+      ).run(checkpointId, sessionId, 'Test Checkpoint', gitStatus, branch.current);
 
       // Verify checkpoint
-      const checkpoint = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(checkpointId) as any;
+      const checkpoint = db
+        .prepare('SELECT * FROM checkpoints WHERE id = ?')
+        .get(checkpointId) as any;
       expect(checkpoint.git_branch).toBe(branch.current);
-      
+
       const savedStatus = JSON.parse(checkpoint.git_status);
       expect(savedStatus.not_added).toContain('new-file.txt');
     });
 
     it('should handle git commit with context save', async () => {
       const sessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)')
-        .run(sessionId, 'Test Session');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test Session');
 
       // Add context items
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO context_items (id, session_id, key, value, category, priority)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(uuidv4(), sessionId, 'current_task', 'Test git integration', 'task', 'high');
+      `
+      ).run(uuidv4(), sessionId, 'current_task', 'Test git integration', 'task', 'high');
 
       // Make changes and commit
       fs.writeFileSync(path.join(tempProjectPath, 'test.txt'), 'test content');
       const git = simpleGit(tempProjectPath);
       await git.add('.');
-      const commitResult = await git.commit('Test commit');
+      const _commitResult = await git.commit('Test commit');
 
       // Save commit info as context
       const timestamp = new Date().toISOString();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO context_items (id, session_id, key, value, category)
         VALUES (?, ?, ?, ?, ?)
-      `).run(
-        uuidv4(),
-        sessionId,
-        `commit_${timestamp}`,
-        'Test commit',
-        'git'
-      );
+      `
+      ).run(uuidv4(), sessionId, `commit_${timestamp}`, 'Test commit', 'git');
 
       // Create checkpoint for the commit
       const gitStatus = await git.status();
       const gitBranch = await git.branch();
-      
+
       const checkpointId = uuidv4();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO checkpoints (id, session_id, name, description, git_status, git_branch)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
+      `
+      ).run(
         checkpointId,
         sessionId,
         `git-commit-${timestamp}`,
@@ -184,22 +190,32 @@ describe('Project Directory Feature Tests', () => {
       );
 
       // Link context items to checkpoint
-      const contextItems = db.prepare('SELECT id FROM context_items WHERE session_id = ?').all(sessionId);
+      const contextItems = db
+        .prepare('SELECT id FROM context_items WHERE session_id = ?')
+        .all(sessionId);
       contextItems.forEach((item: any) => {
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id)
           VALUES (?, ?, ?)
-        `).run(uuidv4(), checkpointId, item.id);
+        `
+        ).run(uuidv4(), checkpointId, item.id);
       });
 
       // Verify
-      const checkpoint = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(checkpointId) as any;
+      const checkpoint = db
+        .prepare('SELECT * FROM checkpoints WHERE id = ?')
+        .get(checkpointId) as any;
       expect(checkpoint.name).toContain('git-commit-');
       expect(checkpoint.git_branch).toBeTruthy();
-      
-      const linkedItems = db.prepare(`
+
+      const linkedItems = db
+        .prepare(
+          `
         SELECT COUNT(*) as count FROM checkpoint_items WHERE checkpoint_id = ?
-      `).get(checkpointId) as any;
+      `
+        )
+        .get(checkpointId) as any;
       expect(linkedItems.count).toBeGreaterThan(0);
     });
   });
@@ -213,7 +229,7 @@ describe('Project Directory Feature Tests', () => {
         const git = simpleGit(nonGitPath);
         let isGitRepo = true;
         let gitError = '';
-        
+
         try {
           await git.status();
         } catch (error: any) {
@@ -233,15 +249,15 @@ describe('Project Directory Feature Tests', () => {
     it('should handle paths with spaces', async () => {
       const pathWithSpaces = path.join(os.tmpdir(), `test project ${Date.now()}`);
       fs.mkdirSync(pathWithSpaces, { recursive: true });
-      
+
       const git = simpleGit(pathWithSpaces);
       await git.init();
-      
+
       try {
         fs.writeFileSync(path.join(pathWithSpaces, 'test.txt'), 'content');
         await git.add('.');
         await git.commit('Initial commit');
-        
+
         const status = await git.status();
         expect(status.isClean()).toBe(true);
       } finally {
@@ -254,17 +270,14 @@ describe('Project Directory Feature Tests', () => {
     it('should store git branch with session', async () => {
       const git = simpleGit(tempProjectPath);
       const branch = await git.branch();
-      
+
       const sessionId = uuidv4();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO sessions (id, name, description, branch)
         VALUES (?, ?, ?, ?)
-      `).run(
-        sessionId,
-        'Feature Development',
-        'Working on new feature',
-        branch.current
-      );
+      `
+      ).run(sessionId, 'Feature Development', 'Working on new feature', branch.current);
 
       const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
       expect(session.branch).toBe(branch.current);
@@ -272,16 +285,18 @@ describe('Project Directory Feature Tests', () => {
 
     it('should update session when switching branches', async () => {
       const git = simpleGit(tempProjectPath);
-      
+
       // Create and switch to new branch
       await git.checkoutLocalBranch('feature-branch');
       const newBranch = await git.branch();
-      
+
       const sessionId = uuidv4();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO sessions (id, name, branch)
         VALUES (?, ?, ?)
-      `).run(sessionId, 'Feature Work', newBranch.current);
+      `
+      ).run(sessionId, 'Feature Work', newBranch.current);
 
       const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
       expect(session.branch).toBe('feature-branch');

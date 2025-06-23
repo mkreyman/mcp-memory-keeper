@@ -16,9 +16,9 @@ describe('Server Initialization Tests', () => {
     if (serverProcess && !serverProcess.killed) {
       // First try graceful shutdown
       serverProcess.kill('SIGTERM');
-      
+
       // Wait for process to actually exit
-      await new Promise<void>((resolve) => {
+      await new Promise<void>(resolve => {
         const timeout = setTimeout(() => {
           // Force kill if still running
           if (serverProcess && !serverProcess.killed) {
@@ -26,21 +26,21 @@ describe('Server Initialization Tests', () => {
           }
           resolve();
         }, 5000);
-        
+
         serverProcess?.on('exit', () => {
           clearTimeout(timeout);
           resolve();
         });
-        
+
         serverProcess?.on('error', () => {
           clearTimeout(timeout);
           resolve();
         });
       });
-      
+
       // Remove event listeners to prevent leaks
       serverProcess?.removeAllListeners();
-      
+
       // Track for global cleanup
       if ((global as any).testProcesses) {
         const index = (global as any).testProcesses.indexOf(serverProcess);
@@ -49,9 +49,9 @@ describe('Server Initialization Tests', () => {
         }
       }
     }
-    
+
     serverProcess = null;
-    
+
     // Clean up temp directory
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -60,9 +60,9 @@ describe('Server Initialization Tests', () => {
     }
   });
 
-  it('should start server and respond to initialize request', (done) => {
+  it('should start server and respond to initialize request', done => {
     const dbPath = path.join(tempDir, 'test.db');
-    
+
     // Start the server
     serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
       env: {
@@ -71,13 +71,13 @@ describe('Server Initialization Tests', () => {
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    
+
     // Track for global cleanup
     if (!(global as any).testProcesses) {
       (global as any).testProcesses = [];
     }
     (global as any).testProcesses.push(serverProcess);
-    
+
     // Track for global cleanup
     if (!(global as any).testProcesses) {
       (global as any).testProcesses = [];
@@ -87,9 +87,9 @@ describe('Server Initialization Tests', () => {
     let output = '';
     let initialized = false;
 
-    serverProcess.stdout?.on('data', (data) => {
-      output += data.toString();
-      
+    serverProcess.stdout?.on('data', _data => {
+      output += _data.toString();
+
       // Look for initialization response
       const lines = output.split('\n').filter(line => line.trim());
       for (const line of lines) {
@@ -101,31 +101,33 @@ describe('Server Initialization Tests', () => {
             expect(msg.result).toHaveProperty('capabilities');
             done();
           }
-        } catch (e) {
+        } catch (_e) {
           // Not JSON, continue
         }
       }
     });
 
-    serverProcess.stderr?.on('data', (data) => {
-      console.error('Server error:', data.toString());
+    serverProcess.stderr?.on('data', _data => {
+      console.error('Server error:', _data.toString());
     });
 
     // Send initialization request
     setTimeout(() => {
-      serverProcess?.stdin?.write(JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'initialize',
-        params: {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-          clientInfo: {
-            name: 'test-client',
-            version: '1.0.0'
-          }
-        },
-        id: 1
-      }) + '\n');
+      serverProcess?.stdin?.write(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: {
+              name: 'test-client',
+              version: '1.0.0',
+            },
+          },
+          id: 1,
+        }) + '\n'
+      );
     }, 500);
 
     // Timeout after 5 seconds
@@ -136,18 +138,18 @@ describe('Server Initialization Tests', () => {
     }, 5000);
   });
 
-  it('should create database file on startup', (done) => {
+  it('should create database file on startup', done => {
     const dbPath = path.join(tempDir, 'context.db');
-    
+
     // Change to temp directory
     const originalCwd = process.cwd();
     process.chdir(tempDir);
-    
+
     // Start the server
     serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    
+
     // Track for global cleanup
     if (!(global as any).testProcesses) {
       (global as any).testProcesses = [];
@@ -158,19 +160,19 @@ describe('Server Initialization Tests', () => {
     setTimeout(() => {
       // Check if database file was created
       expect(fs.existsSync(dbPath)).toBe(true);
-      
+
       // Check if it's a valid SQLite database
       const header = fs.readFileSync(dbPath).slice(0, 16).toString();
       expect(header).toBe('SQLite format 3\x00');
-      
+
       process.chdir(originalCwd);
       done();
     }, 1000);
   });
 
-  it('should handle invalid requests gracefully', (done) => {
+  it('should handle invalid requests gracefully', done => {
     const dbPath = path.join(tempDir, 'test.db');
-    
+
     serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
       env: {
         ...process.env,
@@ -178,7 +180,7 @@ describe('Server Initialization Tests', () => {
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    
+
     // Track for global cleanup
     if (!(global as any).testProcesses) {
       (global as any).testProcesses = [];
@@ -188,9 +190,9 @@ describe('Server Initialization Tests', () => {
     let output = '';
     let errorReceived = false;
 
-    serverProcess.stdout?.on('data', (data) => {
-      output += data.toString();
-      
+    serverProcess.stdout?.on('data', _data => {
+      output += _data.toString();
+
       const lines = output.split('\n').filter(line => line.trim());
       for (const line of lines) {
         try {
@@ -201,7 +203,7 @@ describe('Server Initialization Tests', () => {
             expect(msg.error).toHaveProperty('message');
             done();
           }
-        } catch (e) {
+        } catch (_e) {
           // Not JSON, continue
         }
       }
@@ -210,27 +212,31 @@ describe('Server Initialization Tests', () => {
     // Send invalid request after initialization
     setTimeout(() => {
       // Initialize first
-      serverProcess?.stdin?.write(JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'initialize',
-        params: {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-        },
-        id: 1
-      }) + '\n');
+      serverProcess?.stdin?.write(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+          },
+          id: 1,
+        }) + '\n'
+      );
 
       // Then send invalid request
       setTimeout(() => {
-        serverProcess?.stdin?.write(JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'tools/call',
-          params: {
-            name: 'non_existent_tool',
-            arguments: {}
-          },
-          id: 2
-        }) + '\n');
+        serverProcess?.stdin?.write(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+              name: 'non_existent_tool',
+              arguments: {},
+            },
+            id: 2,
+          }) + '\n'
+        );
       }, 500);
     }, 500);
 
@@ -242,9 +248,9 @@ describe('Server Initialization Tests', () => {
     }, 5000);
   });
 
-  it('should handle server shutdown gracefully', (done) => {
+  it('should handle server shutdown gracefully', done => {
     const dbPath = path.join(tempDir, 'test.db');
-    
+
     serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
       env: {
         ...process.env,
@@ -252,7 +258,7 @@ describe('Server Initialization Tests', () => {
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    
+
     // Track for global cleanup
     if (!(global as any).testProcesses) {
       (global as any).testProcesses = [];
@@ -266,7 +272,7 @@ describe('Server Initialization Tests', () => {
       if (timeout) clearTimeout(timeout);
     };
 
-    serverProcess.stdout?.on('data', (data) => {
+    serverProcess.stdout?.on('data', _data => {
       serverStarted = true;
       // Server is ready, wait a bit then terminate
       setTimeout(() => {
@@ -274,19 +280,19 @@ describe('Server Initialization Tests', () => {
       }, 100);
     });
 
-    serverProcess.stderr?.on('data', (data) => {
+    serverProcess.stderr?.on('data', _data => {
       // Any stderr output means server is working
       serverStarted = true;
     });
 
-    serverProcess.on('exit', (code) => {
+    serverProcess.on('exit', code => {
       cleanup();
       expect(serverStarted).toBe(true);
       expect(code).toBe(null); // Killed by signal, not error
       done();
     });
 
-    serverProcess.on('error', (err) => {
+    serverProcess.on('error', err => {
       cleanup();
       done(err);
     });

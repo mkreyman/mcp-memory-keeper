@@ -25,7 +25,7 @@ describe('Session Management Integration Tests', () => {
       fs.unlinkSync(tempDbPath);
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -33,9 +33,9 @@ describe('Session Management Integration Tests', () => {
   describe('Session lifecycle', () => {
     it('should create a new session', () => {
       const sessionId = uuidv4();
-      const result = db.prepare(
-        'INSERT INTO sessions (id, name, description, branch) VALUES (?, ?, ?, ?)'
-      ).run(sessionId, 'Test Session', 'Test Description', 'main');
+      const result = db
+        .prepare('INSERT INTO sessions (id, name, description, branch) VALUES (?, ?, ?, ?)')
+        .run(sessionId, 'Test Session', 'Test Description', 'main');
 
       expect(result.changes).toBe(1);
 
@@ -58,15 +58,17 @@ describe('Session Management Integration Tests', () => {
         // Add delay to ensure different timestamps
         const date = new Date();
         date.setSeconds(date.getSeconds() - (sessions.length - index));
-        
-        db.prepare(
-          'INSERT INTO sessions (id, name, created_at) VALUES (?, ?, ?)'
-        ).run(s.id, s.name, date.toISOString());
+
+        db.prepare('INSERT INTO sessions (id, name, created_at) VALUES (?, ?, ?)').run(
+          s.id,
+          s.name,
+          date.toISOString()
+        );
       });
 
-      const results = db.prepare(
-        'SELECT * FROM sessions ORDER BY created_at DESC LIMIT 10'
-      ).all() as any[];
+      const results = db
+        .prepare('SELECT * FROM sessions ORDER BY created_at DESC LIMIT 10')
+        .all() as any[];
 
       expect(results).toHaveLength(3);
       expect(results[0].name).toBe('Session 3');
@@ -95,15 +97,12 @@ describe('Session Management Integration Tests', () => {
 
       // Create new session and copy items
       const newSessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
-        newSessionId,
-        'New Session'
-      );
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(newSessionId, 'New Session');
 
       dbManager.transaction(() => {
-        const sourceItems = db.prepare(
-          'SELECT * FROM context_items WHERE session_id = ?'
-        ).all(sourceSessionId) as any[];
+        const sourceItems = db
+          .prepare('SELECT * FROM context_items WHERE session_id = ?')
+          .all(sourceSessionId) as any[];
 
         sourceItems.forEach((item: any) => {
           db.prepare(
@@ -113,9 +112,9 @@ describe('Session Management Integration Tests', () => {
       });
 
       // Verify items were copied
-      const copiedItems = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? ORDER BY key'
-      ).all(newSessionId) as any[];
+      const copiedItems = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? ORDER BY key')
+        .all(newSessionId) as any[];
 
       expect(copiedItems).toHaveLength(2);
       expect(copiedItems[0].key).toBe('key1');
@@ -137,9 +136,9 @@ describe('Session Management Integration Tests', () => {
       ).run(itemId, sessionId, 'test_key', 'test_value', 'task', 'high');
 
       // Retrieve item
-      const item = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? AND key = ?'
-      ).get(sessionId, 'test_key') as any;
+      const item = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? AND key = ?')
+        .get(sessionId, 'test_key') as any;
 
       expect(item).toBeDefined();
       expect(item.value).toBe('test_value');
@@ -152,18 +151,21 @@ describe('Session Management Integration Tests', () => {
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test Session');
 
       // Insert first item
-      db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run(uuidv4(), sessionId, 'unique_key', 'value1');
+      db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
+        uuidv4(),
+        sessionId,
+        'unique_key',
+        'value1'
+      );
 
       // Try to insert duplicate key - should replace
       db.prepare(
         'INSERT OR REPLACE INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
       ).run(uuidv4(), sessionId, 'unique_key', 'value2');
 
-      const items = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? AND key = ?'
-      ).all(sessionId, 'unique_key') as any[];
+      const items = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? AND key = ?')
+        .all(sessionId, 'unique_key') as any[];
 
       expect(items).toHaveLength(1);
       expect(items[0].value).toBe('value2');
@@ -188,16 +190,16 @@ describe('Session Management Integration Tests', () => {
       });
 
       // Filter by category
-      const tasks = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? AND category = ?'
-      ).all(sessionId, 'task') as any[];
+      const tasks = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? AND category = ?')
+        .all(sessionId, 'task') as any[];
 
       expect(tasks).toHaveLength(2);
 
       // Filter by priority
-      const highPriority = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? AND priority = ?'
-      ).all(sessionId, 'high') as any[];
+      const highPriority = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? AND priority = ?')
+        .all(sessionId, 'high') as any[];
 
       expect(highPriority).toHaveLength(2);
       expect(highPriority.map((i: any) => i.key).sort()).toEqual(['decision1', 'task1']);
@@ -216,9 +218,9 @@ describe('Session Management Integration Tests', () => {
         'INSERT INTO file_cache (id, session_id, file_path, content, hash) VALUES (?, ?, ?, ?, ?)'
       ).run(uuidv4(), sessionId, '/test/file.txt', content, hash);
 
-      const cached = db.prepare(
-        'SELECT * FROM file_cache WHERE session_id = ? AND file_path = ?'
-      ).get(sessionId, '/test/file.txt') as any;
+      const cached = db
+        .prepare('SELECT * FROM file_cache WHERE session_id = ? AND file_path = ?')
+        .get(sessionId, '/test/file.txt') as any;
 
       expect(cached).toBeDefined();
       expect(cached.content).toBe(content);
@@ -230,7 +232,10 @@ describe('Session Management Integration Tests', () => {
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test Session');
 
       const originalContent = 'Original content';
-      const originalHash = require('crypto').createHash('sha256').update(originalContent).digest('hex');
+      const originalHash = require('crypto')
+        .createHash('sha256')
+        .update(originalContent)
+        .digest('hex');
 
       db.prepare(
         'INSERT INTO file_cache (id, session_id, file_path, content, hash) VALUES (?, ?, ?, ?, ?)'
@@ -239,9 +244,9 @@ describe('Session Management Integration Tests', () => {
       const newContent = 'Modified content';
       const newHash = require('crypto').createHash('sha256').update(newContent).digest('hex');
 
-      const cached = db.prepare(
-        'SELECT * FROM file_cache WHERE session_id = ? AND file_path = ?'
-      ).get(sessionId, '/test/file.txt') as any;
+      const cached = db
+        .prepare('SELECT * FROM file_cache WHERE session_id = ? AND file_path = ?')
+        .get(sessionId, '/test/file.txt') as any;
 
       expect(cached.hash).not.toBe(newHash);
       expect(originalHash).not.toBe(newHash);

@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Test artifacts
+*.log
+
+# Package files
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+
+# Generated files
+*.generated.ts
+*.d.ts

@@ -29,8 +29,9 @@ This allows the MCP server to track git changes in your actual project directory
 
   describe('Session start messages', () => {
     it('should generate tip message when no project directory provided', () => {
-      const tipMessage = 'Tip: To enable git tracking, start with projectDir parameter or use context_set_project_dir';
-      
+      const tipMessage =
+        'Tip: To enable git tracking, start with projectDir parameter or use context_set_project_dir';
+
       expect(tipMessage).toContain('To enable git tracking');
       expect(tipMessage).toContain('projectDir parameter');
       expect(tipMessage).toContain('context_set_project_dir');
@@ -80,12 +81,13 @@ Tip: Initialize git with 'git init' to enable git tracking features.`;
 
       expect(nonGitMessage).toContain('Project directory set successfully!');
       expect(nonGitMessage).toContain('Git repository: ✗ Not found');
-      expect(nonGitMessage).toContain('Initialize git with \'git init\'');
+      expect(nonGitMessage).toContain("Initialize git with 'git init'");
     });
 
     it('should show error for missing session', () => {
-      const errorMessage = 'No active session. Please start a session first with context_session_start.';
-      
+      const errorMessage =
+        'No active session. Please start a session first with context_session_start.';
+
       expect(errorMessage).toContain('No active session');
       expect(errorMessage).toContain('context_session_start');
     });
@@ -112,10 +114,10 @@ Tip: Initialize git with 'git init' to enable git tracking features.`;
       fs.writeFileSync(path.join(tempRepoPath, 'README.md'), '# Test');
       await git.add('.');
       await git.commit('Initial commit');
-      
+
       const status = await git.status();
       const statusMessage = `Status: ${status.isClean() ? 'Clean (no uncommitted changes)' : 'Has uncommitted changes'}`;
-      
+
       expect(statusMessage).toBe('Status: Clean (no uncommitted changes)');
     });
 
@@ -123,13 +125,13 @@ Tip: Initialize git with 'git init' to enable git tracking features.`;
       fs.writeFileSync(path.join(tempRepoPath, 'README.md'), '# Test');
       await git.add('.');
       await git.commit('Initial commit');
-      
+
       // Make changes
       fs.writeFileSync(path.join(tempRepoPath, 'new.txt'), 'new content');
-      
+
       const status = await git.status();
       const statusMessage = `Status: ${status.isClean() ? 'Clean (no uncommitted changes)' : 'Has uncommitted changes'}`;
-      
+
       expect(statusMessage).toBe('Status: Has uncommitted changes');
     });
   });
@@ -163,7 +165,7 @@ Git status: not captured`;
   describe('Error handling messages', () => {
     it('should handle git command failures gracefully', () => {
       const errorMessage = 'Git commit failed: No changes to commit';
-      
+
       expect(errorMessage).toContain('Git commit failed:');
       expect(errorMessage).toContain('No changes to commit');
     });

@@ -25,7 +25,7 @@ describe('Checkpoint Integration Tests', () => {
       fs.unlinkSync(tempDbPath);
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -60,14 +60,16 @@ describe('Checkpoint Integration Tests', () => {
       });
 
       // Verify checkpoint was created
-      const checkpoint = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(checkpointId) as any;
+      const checkpoint = db
+        .prepare('SELECT * FROM checkpoints WHERE id = ?')
+        .get(checkpointId) as any;
       expect(checkpoint).toBeDefined();
       expect(checkpoint.name).toBe('Test Checkpoint');
 
       // Verify all items are linked
-      const linkedItems = db.prepare(
-        'SELECT COUNT(*) as count FROM checkpoint_items WHERE checkpoint_id = ?'
-      ).get(checkpointId) as any;
+      const linkedItems = db
+        .prepare('SELECT COUNT(*) as count FROM checkpoint_items WHERE checkpoint_id = ?')
+        .get(checkpointId) as any;
       expect(linkedItems.count).toBe(5);
     });
 
@@ -87,9 +89,11 @@ describe('Checkpoint Integration Tests', () => {
 
       // Create checkpoint
       const checkpointId = uuidv4();
-      db.prepare(
-        'INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)'
-      ).run(checkpointId, sessionId, 'File Checkpoint');
+      db.prepare('INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)').run(
+        checkpointId,
+        sessionId,
+        'File Checkpoint'
+      );
 
       // Link files to checkpoint
       fileIds.forEach(fileId => {
@@ -99,9 +103,9 @@ describe('Checkpoint Integration Tests', () => {
       });
 
       // Verify files are linked
-      const linkedFiles = db.prepare(
-        'SELECT COUNT(*) as count FROM checkpoint_files WHERE checkpoint_id = ?'
-      ).get(checkpointId) as any;
+      const linkedFiles = db
+        .prepare('SELECT COUNT(*) as count FROM checkpoint_files WHERE checkpoint_id = ?')
+        .get(checkpointId) as any;
       expect(linkedFiles.count).toBe(3);
     });
 
@@ -120,7 +124,9 @@ describe('Checkpoint Integration Tests', () => {
         'INSERT INTO checkpoints (id, session_id, name, git_status, git_branch) VALUES (?, ?, ?, ?, ?)'
       ).run(checkpointId, sessionId, 'Git Checkpoint', gitStatus, 'feature/test');
 
-      const checkpoint = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(checkpointId) as any;
+      const checkpoint = db
+        .prepare('SELECT * FROM checkpoints WHERE id = ?')
+        .get(checkpointId) as any;
       expect(checkpoint.git_status).toBe(gitStatus);
       expect(checkpoint.git_branch).toBe('feature/test');
     });
@@ -130,7 +136,10 @@ describe('Checkpoint Integration Tests', () => {
     it('should restore all context items from checkpoint', () => {
       // Create original session
       const originalSessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(originalSessionId, 'Original');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        originalSessionId,
+        'Original'
+      );
 
       // Add context items
       const originalItems = [];
@@ -150,9 +159,11 @@ describe('Checkpoint Integration Tests', () => {
 
       // Create checkpoint
       const checkpointId = uuidv4();
-      db.prepare(
-        'INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)'
-      ).run(checkpointId, originalSessionId, 'Restore Test');
+      db.prepare('INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)').run(
+        checkpointId,
+        originalSessionId,
+        'Restore Test'
+      );
 
       // Link items to checkpoint
       originalItems.forEach(item => {
@@ -166,11 +177,15 @@ describe('Checkpoint Integration Tests', () => {
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(newSessionId, 'Restored');
 
       // Restore items
-      const itemsToRestore = db.prepare(`
+      const itemsToRestore = db
+        .prepare(
+          `
         SELECT ci.* FROM context_items ci
         JOIN checkpoint_items cpi ON ci.id = cpi.context_item_id
         WHERE cpi.checkpoint_id = ?
-      `).all(checkpointId) as any[];
+      `
+        )
+        .all(checkpointId) as any[];
 
       itemsToRestore.forEach((item: any) => {
         db.prepare(
@@ -179,9 +194,9 @@ describe('Checkpoint Integration Tests', () => {
       });
 
       // Verify restoration
-      const restoredItems = db.prepare(
-        'SELECT * FROM context_items WHERE session_id = ? ORDER BY key'
-      ).all(newSessionId) as any[];
+      const restoredItems = db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? ORDER BY key')
+        .all(newSessionId) as any[];
 
       expect(restoredItems).toHaveLength(3);
       expect(restoredItems[0].key).toBe('key0');
@@ -193,7 +208,10 @@ describe('Checkpoint Integration Tests', () => {
     it('should restore file cache from checkpoint', () => {
       // Create original session with files
       const originalSessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(originalSessionId, 'Original');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        originalSessionId,
+        'Original'
+      );
 
       // Add files
       const fileId = uuidv4();
@@ -203,9 +221,11 @@ describe('Checkpoint Integration Tests', () => {
 
       // Create checkpoint
       const checkpointId = uuidv4();
-      db.prepare(
-        'INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)'
-      ).run(checkpointId, originalSessionId, 'File Restore Test');
+      db.prepare('INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)').run(
+        checkpointId,
+        originalSessionId,
+        'File Restore Test'
+      );
 
       db.prepare(
         'INSERT INTO checkpoint_files (id, checkpoint_id, file_cache_id) VALUES (?, ?, ?)'
@@ -215,11 +235,15 @@ describe('Checkpoint Integration Tests', () => {
       const newSessionId = uuidv4();
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(newSessionId, 'Restored');
 
-      const filesToRestore = db.prepare(`
+      const filesToRestore = db
+        .prepare(
+          `
         SELECT fc.* FROM file_cache fc
         JOIN checkpoint_files cpf ON fc.id = cpf.file_cache_id
         WHERE cpf.checkpoint_id = ?
-      `).all(checkpointId) as any[];
+      `
+        )
+        .all(checkpointId) as any[];
 
       filesToRestore.forEach((file: any) => {
         db.prepare(
@@ -228,9 +252,9 @@ describe('Checkpoint Integration Tests', () => {
       });
 
       // Verify restoration
-      const restoredFile = db.prepare(
-        'SELECT * FROM file_cache WHERE session_id = ? AND file_path = ?'
-      ).get(newSessionId, '/test/file.txt') as any;
+      const restoredFile = db
+        .prepare('SELECT * FROM file_cache WHERE session_id = ? AND file_path = ?')
+        .get(newSessionId, '/test/file.txt') as any;
 
       expect(restoredFile).toBeDefined();
       expect(restoredFile.content).toBe('file content');
@@ -248,19 +272,19 @@ describe('Checkpoint Integration Tests', () => {
       for (let i = 0; i < 3; i++) {
         const checkpointId = uuidv4();
         checkpoints.push({ id: checkpointId, name: `Checkpoint ${i}` });
-        
+
         const date = new Date();
         date.setMinutes(date.getMinutes() - (3 - i)); // Different timestamps
-        
+
         db.prepare(
           'INSERT INTO checkpoints (id, session_id, name, created_at) VALUES (?, ?, ?, ?)'
         ).run(checkpointId, sessionId, `Checkpoint ${i}`, date.toISOString());
       }
 
       // List checkpoints
-      const list = db.prepare(
-        'SELECT * FROM checkpoints WHERE session_id = ? ORDER BY created_at DESC'
-      ).all(sessionId) as any[];
+      const list = db
+        .prepare('SELECT * FROM checkpoints WHERE session_id = ? ORDER BY created_at DESC')
+        .all(sessionId) as any[];
 
       expect(list).toHaveLength(3);
       expect(list[0].name).toBe('Checkpoint 2'); // Most recent
@@ -272,13 +296,15 @@ describe('Checkpoint Integration Tests', () => {
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test Session');
 
       const checkpointId = uuidv4();
-      db.prepare(
-        'INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)'
-      ).run(checkpointId, sessionId, 'Named Checkpoint');
+      db.prepare('INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)').run(
+        checkpointId,
+        sessionId,
+        'Named Checkpoint'
+      );
 
-      const found = db.prepare(
-        'SELECT * FROM checkpoints WHERE session_id = ? AND name = ?'
-      ).get(sessionId, 'Named Checkpoint') as any;
+      const found = db
+        .prepare('SELECT * FROM checkpoints WHERE session_id = ? AND name = ?')
+        .get(sessionId, 'Named Checkpoint') as any;
 
       expect(found).toBeDefined();
       expect(found.id).toBe(checkpointId);

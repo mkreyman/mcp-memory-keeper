@@ -1,10 +1,10 @@
-import { 
-  Agent, 
-  AnalyzerAgent, 
-  SynthesizerAgent, 
+import {
+  Agent,
+  AnalyzerAgent,
+  SynthesizerAgent,
   AgentCoordinator,
   AgentTask,
-  AgentResult
+  AgentResult,
 } from '../../utils/agents';
 import { KnowledgeGraphManager } from '../../utils/knowledge-graph';
 import { VectorStore } from '../../utils/vector-store';
@@ -24,7 +24,7 @@ describe('Agents', () => {
   beforeEach(() => {
     tempDbPath = path.join(os.tmpdir(), `test-agents-${Date.now()}.db`);
     db = new Database(tempDbPath);
-    
+
     // Create tables
     db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
@@ -76,10 +76,10 @@ describe('Agents', () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    
+
     knowledgeGraph = new KnowledgeGraphManager(db);
     vectorStore = new VectorStore(db);
-    
+
     // Create test session
     testSessionId = uuidv4();
     db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(testSessionId, 'Test Session');
@@ -89,7 +89,7 @@ describe('Agents', () => {
     db.close();
     try {
       fs.unlinkSync(tempDbPath);
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -99,16 +99,26 @@ describe('Agents', () => {
 
     beforeEach(() => {
       analyzerAgent = new AnalyzerAgent(db, knowledgeGraph, vectorStore);
-      
+
       // Add test data
       const items = [
         { key: 'task_1', value: 'Implement authentication', category: 'task', priority: 'high' },
         { key: 'task_2', value: 'Write unit tests', category: 'task', priority: 'normal' },
         { key: 'decision_1', value: 'Use JWT tokens', category: 'decision', priority: 'high' },
-        { key: 'progress_1', value: 'Completed login form', category: 'progress', priority: 'normal' },
-        { key: 'note_1', value: 'Remember to add rate limiting', category: 'note', priority: 'high' },
+        {
+          key: 'progress_1',
+          value: 'Completed login form',
+          category: 'progress',
+          priority: 'normal',
+        },
+        {
+          key: 'note_1',
+          value: 'Remember to add rate limiting',
+          category: 'note',
+          priority: 'high',
+        },
       ];
-      
+
       for (const item of items) {
         db.prepare(
           'INSERT INTO context_items (id, session_id, key, value, category, priority) VALUES (?, ?, ?, ?, ?, ?)'
@@ -122,8 +132,8 @@ describe('Agents', () => {
         type: 'analyze',
         input: {
           analysisType: 'patterns',
-          sessionId: testSessionId
-        }
+          sessionId: testSessionId,
+        },
       };
 
       const result = await analyzerAgent.process(task);
@@ -148,8 +158,8 @@ describe('Agents', () => {
         type: 'analyze',
         input: {
           analysisType: 'relationships',
-          sessionId: testSessionId
-        }
+          sessionId: testSessionId,
+        },
       };
 
       const result = await analyzerAgent.process(task);
@@ -166,8 +176,8 @@ describe('Agents', () => {
         input: {
           analysisType: 'trends',
           sessionId: testSessionId,
-          timeframe: '-7 days'
-        }
+          timeframe: '-7 days',
+        },
       };
 
       const result = await analyzerAgent.process(task);
@@ -183,8 +193,8 @@ describe('Agents', () => {
         type: 'analyze',
         input: {
           analysisType: 'comprehensive',
-          sessionId: testSessionId
-        }
+          sessionId: testSessionId,
+        },
       };
 
       const result = await analyzerAgent.process(task);
@@ -202,8 +212,8 @@ describe('Agents', () => {
         type: 'analyze',
         input: {
           analysisType: 'unknown',
-          sessionId: testSessionId
-        }
+          sessionId: testSessionId,
+        },
       };
 
       const result = await analyzerAgent.process(task);
@@ -219,8 +229,8 @@ describe('Agents', () => {
         input: {
           analysisType: 'patterns',
           sessionId: testSessionId,
-          categories: ['task']
-        }
+          categories: ['task'],
+        },
       };
 
       const result = await analyzerAgent.process(task);
@@ -235,15 +245,35 @@ describe('Agents', () => {
 
     beforeEach(() => {
       synthesizerAgent = new SynthesizerAgent(db, vectorStore);
-      
+
       // Add test data
       const items = [
-        { key: 'task_1', value: 'Implement authentication with OAuth2', category: 'task', priority: 'high' },
-        { key: 'task_2', value: 'Add rate limiting to API endpoints', category: 'task', priority: 'high' },
-        { key: 'decision_1', value: 'Use Redis for session storage', category: 'decision', priority: 'high' },
-        { key: 'progress_1', value: 'Completed user registration flow', category: 'progress', priority: 'normal' },
+        {
+          key: 'task_1',
+          value: 'Implement authentication with OAuth2',
+          category: 'task',
+          priority: 'high',
+        },
+        {
+          key: 'task_2',
+          value: 'Add rate limiting to API endpoints',
+          category: 'task',
+          priority: 'high',
+        },
+        {
+          key: 'decision_1',
+          value: 'Use Redis for session storage',
+          category: 'decision',
+          priority: 'high',
+        },
+        {
+          key: 'progress_1',
+          value: 'Completed user registration flow',
+          category: 'progress',
+          priority: 'normal',
+        },
       ];
-      
+
       for (const item of items) {
         db.prepare(
           'INSERT INTO context_items (id, session_id, key, value, category, priority) VALUES (?, ?, ?, ?, ?, ?)'
@@ -258,8 +288,8 @@ describe('Agents', () => {
         input: {
           synthesisType: 'summary',
           sessionId: testSessionId,
-          maxLength: 1000
-        }
+          maxLength: 1000,
+        },
       };
 
       const result = await synthesizerAgent.process(task);
@@ -278,8 +308,8 @@ describe('Agents', () => {
         input: {
           synthesisType: 'summary',
           sessionId: testSessionId,
-          categories: ['task']
-        }
+          categories: ['task'],
+        },
       };
 
       const result = await synthesizerAgent.process(task);
@@ -291,7 +321,7 @@ describe('Agents', () => {
     it('should merge insights', async () => {
       const insights = [
         { patterns: { keywords: ['auth', 'security'] }, themes: ['authentication'] },
-        { patterns: { keywords: ['api', 'rate'] }, themes: ['performance'] }
+        { patterns: { keywords: ['api', 'rate'] }, themes: ['performance'] },
       ];
 
       const task: AgentTask = {
@@ -299,8 +329,8 @@ describe('Agents', () => {
         type: 'synthesize',
         input: {
           synthesisType: 'merge',
-          insights
-        }
+          insights,
+        },
       };
 
       const result = await synthesizerAgent.process(task);
@@ -314,7 +344,7 @@ describe('Agents', () => {
       const analysisResults = {
         highPriorityCount: 10,
         staleTasks: true,
-        contextSize: 1500
+        contextSize: 1500,
       };
 
       const task: AgentTask = {
@@ -322,8 +352,8 @@ describe('Agents', () => {
         type: 'synthesize',
         input: {
           synthesisType: 'recommendations',
-          analysisResults
-        }
+          analysisResults,
+        },
       };
 
       const result = await synthesizerAgent.process(task);
@@ -340,8 +370,8 @@ describe('Agents', () => {
         id: uuidv4(),
         type: 'synthesize',
         input: {
-          synthesisType: 'unknown'
-        }
+          synthesisType: 'unknown',
+        },
       };
 
       const result = await synthesizerAgent.process(task);
@@ -360,7 +390,7 @@ describe('Agents', () => {
       coordinator = new AgentCoordinator();
       analyzerAgent = new AnalyzerAgent(db, knowledgeGraph, vectorStore);
       synthesizerAgent = new SynthesizerAgent(db, vectorStore);
-      
+
       coordinator.registerAgent(analyzerAgent);
       coordinator.registerAgent(synthesizerAgent);
     });
@@ -371,8 +401,8 @@ describe('Agents', () => {
         type: 'analyze',
         input: {
           analysisType: 'patterns',
-          sessionId: testSessionId
-        }
+          sessionId: testSessionId,
+        },
       };
 
       const results = await coordinator.delegate(task);
@@ -385,7 +415,7 @@ describe('Agents', () => {
       const task: AgentTask = {
         id: uuidv4(),
         type: 'unknown' as any,
-        input: {}
+        input: {},
       };
 
       const results = await coordinator.delegate(task);
@@ -407,16 +437,16 @@ describe('Agents', () => {
           type: 'analyze',
           input: {
             analysisType: 'patterns',
-            sessionId: testSessionId
-          }
+            sessionId: testSessionId,
+          },
         },
         {
           id: uuidv4(),
           type: 'synthesize',
           input: {
-            synthesisType: 'recommendations'
-          }
-        }
+            synthesisType: 'recommendations',
+          },
+        },
       ];
 
       const results = await coordinator.processChain(tasks);
@@ -433,8 +463,8 @@ describe('Agents', () => {
         type: 'analyze',
         input: {
           analysisType: 'patterns',
-          sessionId: testSessionId
-        }
+          sessionId: testSessionId,
+        },
       };
 
       await coordinator.delegate(task);
@@ -462,7 +492,7 @@ describe('Agents', () => {
           agentType: this.name,
           output: { test: true },
           confidence: 1.0,
-          processingTime: 0
+          processingTime: 0,
         };
       }
     }
@@ -473,8 +503,8 @@ describe('Agents', () => {
           name: 'test_capability',
           description: 'Test capability',
           inputTypes: ['test'],
-          outputTypes: ['result']
-        }
+          outputTypes: ['result'],
+        },
       ]);
 
       expect(agent.canHandle({ id: '1', type: 'test' as any, input: {} })).toBe(true);

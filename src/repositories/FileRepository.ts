@@ -2,18 +2,17 @@ import { BaseRepository } from './BaseRepository.js';
 import { FileCache, CreateFileCacheInput } from '../types/entities.js';
 
 export class FileRepository extends BaseRepository {
-  
   cache(sessionId: string, input: CreateFileCacheInput): FileCache {
     const id = this.generateId();
     const size = this.calculateSize(input.content);
     const timestamp = this.getCurrentTimestamp();
-    
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO file_cache 
       (id, session_id, file_path, content, hash, size, last_read, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    
+
     stmt.run(
       id,
       sessionId,
@@ -24,7 +23,7 @@ export class FileRepository extends BaseRepository {
       timestamp,
       timestamp
     );
-    
+
     return this.getById(id)!;
   }
 
@@ -55,20 +54,20 @@ export class FileRepository extends BaseRepository {
     if (!cached) {
       return true; // No cached version, so it's "changed"
     }
-    
+
     return cached.content !== currentContent;
   }
 
   updateContent(sessionId: string, filePath: string, content: string, hash?: string): void {
     const size = this.calculateSize(content);
     const timestamp = this.getCurrentTimestamp();
-    
+
     const stmt = this.db.prepare(`
       UPDATE file_cache 
       SET content = ?, hash = ?, size = ?, last_read = ?, updated_at = ?
       WHERE session_id = ? AND file_path = ?
     `);
-    
+
     stmt.run(content, hash || null, size, timestamp, timestamp, sessionId, filePath);
   }
 
@@ -94,15 +93,15 @@ export class FileRepository extends BaseRepository {
       FROM file_cache
       WHERE session_id = ?
     `);
-    
+
     const files = this.getBySessionId(fromSessionId);
     let copied = 0;
-    
-    for (const file of files) {
+
+    for (const _file of files) {
       stmt.run(this.generateId(), toSessionId, this.getCurrentTimestamp(), fromSessionId);
       copied++;
     }
-    
+
     return copied;
   }
 
@@ -113,22 +112,22 @@ export class FileRepository extends BaseRepository {
       WHERE session_id = ?
     `);
     const result = stmt.get(sessionId) as any;
-    
+
     return {
       count: result.count || 0,
-      totalSize: result.totalSize || 0
+      totalSize: result.totalSize || 0,
     };
   }
 
   cleanup(olderThanDays: number): number {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
-    
+
     const stmt = this.db.prepare(`
       DELETE FROM file_cache 
       WHERE last_read < ?
     `);
-    
+
     const result = stmt.run(cutoffDate.toISOString());
     return result.changes;
   }

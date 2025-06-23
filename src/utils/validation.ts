@@ -20,7 +20,30 @@ export function validateFilePath(filePath: string, mode: 'read' | 'write'): stri
 
   // Check for common Windows reserved names
   const basename = path.basename(filePath).toLowerCase();
-  const reservedNames = ['con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9'];
+  const reservedNames = [
+    'con',
+    'prn',
+    'aux',
+    'nul',
+    'com1',
+    'com2',
+    'com3',
+    'com4',
+    'com5',
+    'com6',
+    'com7',
+    'com8',
+    'com9',
+    'lpt1',
+    'lpt2',
+    'lpt3',
+    'lpt4',
+    'lpt5',
+    'lpt6',
+    'lpt7',
+    'lpt8',
+    'lpt9',
+  ];
   if (reservedNames.includes(basename.split('.')[0])) {
     throw new ValidationError('File path contains reserved name');
   }
@@ -70,11 +93,11 @@ export function validateSearchQuery(query: string): string {
 
   // Remove potentially dangerous SQL characters
   let sanitized = query
-    .replace(/['"`;\\]/g, '')  // Remove quotes, semicolons, backslashes
-    .replace(/--/g, '')        // Remove SQL comments
-    .replace(/\/\*/g, '')      // Remove block comment starts
-    .replace(/\*\//g, '')      // Remove block comment ends
-    .replace(/[%_]/g, '\\$&')  // Escape wildcards
+    .replace(/['"`;\\]/g, '') // Remove quotes, semicolons, backslashes
+    .replace(/--/g, '') // Remove SQL comments
+    .replace(/\/\*/g, '') // Remove block comment starts
+    .replace(/\*\//g, '') // Remove block comment ends
+    .replace(/[%_]/g, '\\$&') // Escape wildcards
     .trim();
 
   if (sanitized.length === 0) {
@@ -143,7 +166,8 @@ export function validateValue(value: string): string {
   }
 
   // Allow empty values but check size
-  if (value.length > 1000000) { // 1MB limit
+  if (value.length > 1000000) {
+    // 1MB limit
     throw new ValidationError('Value too large (max 1MB)');
   }
 
@@ -153,7 +177,16 @@ export function validateValue(value: string): string {
 export function validateCategory(category?: string): string | undefined {
   if (!category) return undefined;
 
-  const validCategories = ['task', 'decision', 'progress', 'note', 'error', 'warning', 'git', 'system'];
+  const validCategories = [
+    'task',
+    'decision',
+    'progress',
+    'note',
+    'error',
+    'warning',
+    'git',
+    'system',
+  ];
   if (!validCategories.includes(category)) {
     throw new ValidationError(`Invalid category. Must be one of: ${validCategories.join(', ')}`);
   }

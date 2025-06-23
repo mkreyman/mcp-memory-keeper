@@ -21,11 +21,11 @@ describe('Semantic Search Integration Tests', () => {
     });
     db = dbManager.getDatabase();
     vectorStore = new VectorStore(db);
-    
+
     // Create test session
     testSessionId = uuidv4();
     db.prepare('INSERT INTO sessions (id, name, description) VALUES (?, ?, ?)').run(
-      testSessionId, 
+      testSessionId,
       'Semantic Search Test',
       'Testing semantic search integration'
     );
@@ -37,7 +37,7 @@ describe('Semantic Search Integration Tests', () => {
       fs.unlinkSync(tempDbPath);
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -48,52 +48,57 @@ describe('Semantic Search Integration Tests', () => {
       const items = [
         {
           key: 'auth_implementation',
-          value: 'Implemented JWT authentication with refresh tokens. The tokens expire after 24 hours.',
+          value:
+            'Implemented JWT authentication with refresh tokens. The tokens expire after 24 hours.',
           category: 'progress',
-          priority: 'high'
+          priority: 'high',
         },
         {
           key: 'database_decision',
-          value: 'Decided to use PostgreSQL for the main database due to its JSON support and reliability.',
+          value:
+            'Decided to use PostgreSQL for the main database due to its JSON support and reliability.',
           category: 'decision',
-          priority: 'high'
+          priority: 'high',
         },
         {
           key: 'api_design',
           value: 'Designed RESTful API endpoints following OpenAPI 3.0 specification.',
           category: 'task',
-          priority: 'normal'
+          priority: 'normal',
         },
         {
           key: 'security_note',
-          value: 'Remember to implement rate limiting on authentication endpoints to prevent brute force attacks.',
+          value:
+            'Remember to implement rate limiting on authentication endpoints to prevent brute force attacks.',
           category: 'note',
-          priority: 'high'
+          priority: 'high',
         },
         {
           key: 'testing_strategy',
-          value: 'Unit tests for individual functions, integration tests for API endpoints, and e2e tests for user flows.',
+          value:
+            'Unit tests for individual functions, integration tests for API endpoints, and e2e tests for user flows.',
           category: 'decision',
-          priority: 'normal'
+          priority: 'normal',
         },
         {
           key: 'performance_optimization',
           value: 'Added database indexing on user email field to speed up authentication queries.',
           category: 'progress',
-          priority: 'normal'
+          priority: 'normal',
         },
         {
           key: 'bug_fix',
-          value: 'Fixed memory leak in WebSocket connection handler by properly cleaning up event listeners.',
+          value:
+            'Fixed memory leak in WebSocket connection handler by properly cleaning up event listeners.',
           category: 'progress',
-          priority: 'high'
+          priority: 'high',
         },
         {
           key: 'architecture_pattern',
           value: 'Using Repository pattern for data access layer to abstract database operations.',
           category: 'decision',
-          priority: 'normal'
-        }
+          priority: 'normal',
+        },
       ];
 
       for (const item of items) {
@@ -101,13 +106,13 @@ describe('Semantic Search Integration Tests', () => {
         db.prepare(
           'INSERT INTO context_items (id, session_id, key, value, category, priority) VALUES (?, ?, ?, ?, ?, ?)'
         ).run(itemId, testSessionId, item.key, item.value, item.category, item.priority);
-        
+
         // Create embedding
-        await vectorStore.storeDocument(
-          itemId,
-          `${item.key}: ${item.value}`,
-          { key: item.key, category: item.category, priority: item.priority }
-        );
+        await vectorStore.storeDocument(itemId, `${item.key}: ${item.value}`, {
+          key: item.key,
+          category: item.category,
+          priority: item.priority,
+        });
       }
     });
 
@@ -120,11 +125,10 @@ describe('Semantic Search Integration Tests', () => {
       );
 
       expect(results.length).toBeGreaterThan(0);
-      
+
       // Should find auth implementation and security note
-      const authResults = results.filter(r => 
-        r.content.includes('auth_implementation') || 
-        r.content.includes('security_note')
+      const authResults = results.filter(
+        r => r.content.includes('auth_implementation') || r.content.includes('security_note')
       );
       expect(authResults.length).toBeGreaterThanOrEqual(2);
     });
@@ -138,11 +142,11 @@ describe('Semantic Search Integration Tests', () => {
       );
 
       expect(results.length).toBeGreaterThan(0);
-      
+
       // Should find database decision and performance optimization
-      const dbResults = results.filter(r => 
-        r.content.includes('database_decision') || 
-        r.content.includes('performance_optimization')
+      const dbResults = results.filter(
+        r =>
+          r.content.includes('database_decision') || r.content.includes('performance_optimization')
       );
       expect(dbResults.length).toBeGreaterThanOrEqual(1);
     });
@@ -156,14 +160,14 @@ describe('Semantic Search Integration Tests', () => {
       );
 
       expect(results.length).toBeGreaterThan(0);
-      
+
       // First result should be the auth implementation
       expect(results[0].content).toContain('auth_implementation');
       expect(results[0].similarity).toBeGreaterThan(0.5);
-      
+
       // Results should be ordered by similarity
       for (let i = 1; i < results.length; i++) {
-        expect(results[i].similarity).toBeLessThanOrEqual(results[i-1].similarity);
+        expect(results[i].similarity).toBeLessThanOrEqual(results[i - 1].similarity);
       }
     });
 
@@ -188,7 +192,7 @@ describe('Semantic Search Integration Tests', () => {
 
       const resultsWithMetadata = results.filter(r => r.metadata);
       expect(resultsWithMetadata.length).toBeGreaterThan(0);
-      
+
       // Check metadata structure
       const firstWithMeta = resultsWithMetadata[0];
       expect(firstWithMeta.metadata).toHaveProperty('key');
@@ -201,7 +205,7 @@ describe('Semantic Search Integration Tests', () => {
         'what did we decide about the database?',
         'how are we handling user authentication?',
         'what testing approach are we using?',
-        'any security concerns to remember?'
+        'any security concerns to remember?',
       ];
 
       for (const query of naturalQueries) {
@@ -219,9 +223,8 @@ describe('Semantic Search Integration Tests', () => {
       );
 
       // Should find testing strategy and architecture pattern
-      const qualityResults = results.filter(r => 
-        r.content.includes('testing_strategy') || 
-        r.content.includes('architecture_pattern')
+      const qualityResults = results.filter(
+        r => r.content.includes('testing_strategy') || r.content.includes('architecture_pattern')
       );
       expect(qualityResults.length).toBeGreaterThan(0);
     });
@@ -232,37 +235,55 @@ describe('Semantic Search Integration Tests', () => {
       // Create many context items
       const itemCount = 100;
       const promises = [];
-      
+
       for (let i = 0; i < itemCount; i++) {
         const itemId = uuidv4();
         db.prepare(
           'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-        ).run(itemId, testSessionId, `item_${i}`, `This is test content number ${i} with some variation`);
-        
-        promises.push(vectorStore.storeDocument(
+        ).run(
           itemId,
-          `item_${i}: This is test content number ${i} with some variation`
-        ));
+          testSessionId,
+          `item_${i}`,
+          `This is test content number ${i} with some variation`
+        );
+
+        promises.push(
+          vectorStore.storeDocument(
+            itemId,
+            `item_${i}: This is test content number ${i} with some variation`
+          )
+        );
       }
-      
+
       await Promise.all(promises);
-      
+
       const startTime = Date.now();
-      const results = await vectorStore.searchInSession(testSessionId, 'test content variation', 10, 0.1);
+      const results = await vectorStore.searchInSession(
+        testSessionId,
+        'test content variation',
+        10,
+        0.1
+      );
       const endTime = Date.now();
-      
+
       expect(results.length).toBeGreaterThan(0);
       expect(endTime - startTime).toBeLessThan(1000); // Should complete within 1 second
     });
 
     it('should handle special characters in queries', async () => {
       const itemId = uuidv4();
-      db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run(itemId, testSessionId, 'special_chars', 'Using C++ and C# with ASP.NET @decorators');
-      
-      await vectorStore.storeDocument(itemId, 'special_chars: Using C++ and C# with ASP.NET @decorators');
-      
+      db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
+        itemId,
+        testSessionId,
+        'special_chars',
+        'Using C++ and C# with ASP.NET @decorators'
+      );
+
+      await vectorStore.storeDocument(
+        itemId,
+        'special_chars: Using C++ and C# with ASP.NET @decorators'
+      );
+
       const results = await vectorStore.searchInSession(testSessionId, 'C++ C# ASP.NET', 3, 0.1);
       expect(results.length).toBe(1);
       expect(results[0].content).toContain('special_chars');
@@ -270,7 +291,7 @@ describe('Semantic Search Integration Tests', () => {
 
     it('should handle very long queries', async () => {
       const longQuery = 'authentication ' + 'security '.repeat(50) + 'tokens';
-      
+
       const results = await vectorStore.searchInSession(testSessionId, longQuery, 5, 0.05);
       // Long repetitive queries might have lower similarity scores
       // Just verify it doesn't crash and returns an array
@@ -279,8 +300,11 @@ describe('Semantic Search Integration Tests', () => {
 
     it('should handle empty session gracefully', async () => {
       const emptySessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(emptySessionId, 'Empty Session');
-      
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        emptySessionId,
+        'Empty Session'
+      );
+
       const results = await vectorStore.searchInSession(emptySessionId, 'any query', 10, 0.1);
       expect(results).toEqual([]);
     });
@@ -292,26 +316,32 @@ describe('Semantic Search Integration Tests', () => {
     beforeEach(async () => {
       // Create another session with different content
       otherSessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(otherSessionId, 'Other Project');
-      
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        otherSessionId,
+        'Other Project'
+      );
+
       const items = [
-        { key: 'frontend_framework', value: 'Using React with TypeScript for the frontend application' },
-        { key: 'state_management', value: 'Redux Toolkit for global state management' }
+        {
+          key: 'frontend_framework',
+          value: 'Using React with TypeScript for the frontend application',
+        },
+        { key: 'state_management', value: 'Redux Toolkit for global state management' },
       ];
-      
+
       for (const item of items) {
         const itemId = uuidv4();
         db.prepare(
           'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
         ).run(itemId, otherSessionId, item.key, item.value);
-        
+
         await vectorStore.storeDocument(itemId, `${item.key}: ${item.value}`);
       }
     });
 
     it('should search across all sessions when not specified', async () => {
       const results = await vectorStore.search('frontend React TypeScript', 10, 0.1);
-      
+
       // Should find results from other session
       const frontendResults = results.filter(r => r.content.includes('frontend_framework'));
       expect(frontendResults.length).toBe(1);
@@ -324,11 +354,10 @@ describe('Semantic Search Integration Tests', () => {
         10,
         0.1
       );
-      
+
       // Should not find results from other session
-      const frontendResults = results.filter(r => 
-        r.content.includes('frontend_framework') || 
-        r.content.includes('state_management')
+      const frontendResults = results.filter(
+        r => r.content.includes('frontend_framework') || r.content.includes('state_management')
       );
       expect(frontendResults.length).toBe(0);
     });

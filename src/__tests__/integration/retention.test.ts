@@ -1,5 +1,5 @@
 import { DatabaseManager } from '../../utils/database';
-import { RetentionManager, RetentionPolicy } from '../../utils/retention';
+import { RetentionManager } from '../../utils/retention';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -21,11 +21,11 @@ describe('Retention Management Integration Tests', () => {
     });
     db = dbManager.getDatabase();
     retentionManager = new RetentionManager(dbManager);
-    
+
     // Create test session
     testSessionId = uuidv4();
     db.prepare('INSERT INTO sessions (id, name, description) VALUES (?, ?, ?)').run(
-      testSessionId, 
+      testSessionId,
       'Retention Test Session',
       'Testing retention policies'
     );
@@ -37,7 +37,7 @@ describe('Retention Management Integration Tests', () => {
       fs.unlinkSync(tempDbPath);
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -50,14 +50,14 @@ describe('Retention Management Integration Tests', () => {
         maxAge: '30d',
         action: 'archive' as const,
         schedule: 'weekly' as const,
-        preserveHighPriority: true
+        preserveHighPriority: true,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      expect(policyId).toBeDefined();
-      expect(typeof policyId).toBe('string');
+      const _policyId = retentionManager.createPolicy(policy);
+      expect(_policyId).toBeDefined();
+      expect(typeof _policyId).toBe('string');
 
-      const retrieved = retentionManager.getPolicy(policyId);
+      const retrieved = retentionManager.getPolicy(_policyId);
       expect(retrieved).toBeDefined();
       expect(retrieved!.name).toBe(policy.name);
       expect(retrieved!.enabled).toBe(policy.enabled);
@@ -69,15 +69,15 @@ describe('Retention Management Integration Tests', () => {
       const policies = [
         { name: 'Policy 1', action: 'delete' as const, schedule: 'daily' as const },
         { name: 'Policy 2', action: 'archive' as const, schedule: 'weekly' as const },
-        { name: 'Policy 3', action: 'compress' as const, schedule: 'monthly' as const }
+        { name: 'Policy 3', action: 'compress' as const, schedule: 'monthly' as const },
       ];
 
-      const policyIds = policies.map(p => retentionManager.createPolicy(p));
-      
+      const _policyIds = policies.map(p => retentionManager.createPolicy(p));
+
       const allPolicies = retentionManager.listPolicies();
       expect(allPolicies.length).toBeGreaterThanOrEqual(3);
-      
-      const createdPolicies = allPolicies.filter(p => policyIds.includes(p.id));
+
+      const createdPolicies = allPolicies.filter(p => _policyIds.includes(p.id));
       expect(createdPolicies.length).toBe(3);
     });
 
@@ -86,18 +86,18 @@ describe('Retention Management Integration Tests', () => {
         name: 'Original Policy',
         enabled: true,
         action: 'delete' as const,
-        schedule: 'daily' as const
+        schedule: 'daily' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      
-      retentionManager.updatePolicy(policyId, {
+      const _policyId = retentionManager.createPolicy(policy);
+
+      retentionManager.updatePolicy(_policyId, {
         name: 'Updated Policy',
         enabled: false,
-        maxAge: '60d'
+        maxAge: '60d',
       });
 
-      const updated = retentionManager.getPolicy(policyId);
+      const updated = retentionManager.getPolicy(_policyId);
       expect(updated!.name).toBe('Updated Policy');
       expect(updated!.enabled).toBe(false);
       expect(updated!.maxAge).toBe('60d');
@@ -108,14 +108,14 @@ describe('Retention Management Integration Tests', () => {
       const policy = {
         name: 'Temporary Policy',
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      expect(retentionManager.getPolicy(policyId)).toBeDefined();
+      const _policyId = retentionManager.createPolicy(policy);
+      expect(retentionManager.getPolicy(_policyId)).toBeDefined();
 
-      retentionManager.deletePolicy(policyId);
-      expect(retentionManager.getPolicy(policyId)).toBeNull();
+      retentionManager.deletePolicy(_policyId);
+      expect(retentionManager.getPolicy(_policyId)).toBeNull();
     });
   });
 
@@ -123,13 +123,13 @@ describe('Retention Management Integration Tests', () => {
     it('should parse different age formats correctly', () => {
       // Test through policy creation and execution
       const testAges = ['7d', '2w', '3m', '1y'];
-      
+
       for (const age of testAges) {
         const policy = {
           name: `Test ${age}`,
           maxAge: age,
           action: 'delete' as const,
-          schedule: 'manual' as const
+          schedule: 'manual' as const,
         };
 
         expect(() => retentionManager.createPolicy(policy)).not.toThrow();
@@ -142,12 +142,12 @@ describe('Retention Management Integration Tests', () => {
         name: 'Valid Age Test',
         maxAge: '30d',
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(validPolicy);
-      const result = await retentionManager.executePolicy(policyId, true);
-      
+      const _policyId = retentionManager.createPolicy(validPolicy);
+      const result = await retentionManager.executePolicy(_policyId, true);
+
       // Should succeed without errors for valid age format
       expect(result.errors.length).toBe(0);
     });
@@ -158,20 +158,40 @@ describe('Retention Management Integration Tests', () => {
       // Add test data with different ages and categories
       const items = [
         { key: 'old_task_1', value: 'Old task', category: 'task', priority: 'normal', age: 45 },
-        { key: 'old_task_2', value: 'Another old task', category: 'task', priority: 'high', age: 35 },
-        { key: 'old_decision', value: 'Old decision', category: 'decision', priority: 'high', age: 40 },
+        {
+          key: 'old_task_2',
+          value: 'Another old task',
+          category: 'task',
+          priority: 'high',
+          age: 35,
+        },
+        {
+          key: 'old_decision',
+          value: 'Old decision',
+          category: 'decision',
+          priority: 'high',
+          age: 40,
+        },
         { key: 'recent_task', value: 'Recent task', category: 'task', priority: 'normal', age: 5 },
-        { key: 'critical_item', value: 'Critical item', category: 'note', priority: 'critical', age: 50 }
+        {
+          key: 'critical_item',
+          value: 'Critical item',
+          category: 'note',
+          priority: 'critical',
+          age: 50,
+        },
       ];
 
       for (const item of items) {
         const createdAt = new Date();
         createdAt.setDate(createdAt.getDate() - item.age);
-        
-        db.prepare(`
+
+        db.prepare(
+          `
           INSERT INTO context_items (id, session_id, key, value, category, priority, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        `
+        ).run(
           uuidv4(),
           testSessionId,
           item.key,
@@ -185,16 +205,16 @@ describe('Retention Management Integration Tests', () => {
 
     it('should calculate retention statistics correctly', () => {
       const stats = retentionManager.getRetentionStats();
-      
+
       expect(stats.totalItems).toBe(5);
       expect(stats.byCategory.task.count).toBe(3);
       expect(stats.byCategory.decision.count).toBe(1);
       expect(stats.byCategory.note.count).toBe(1);
-      
+
       expect(stats.byPriority.normal.count).toBe(2);
       expect(stats.byPriority.high.count).toBe(2);
       expect(stats.byPriority.critical.count).toBe(1);
-      
+
       // Items older than 30 days should be eligible
       expect(stats.eligibleForRetention.items).toBeGreaterThan(0);
     });
@@ -202,7 +222,7 @@ describe('Retention Management Integration Tests', () => {
     it('should calculate session-specific statistics', () => {
       const sessionStats = retentionManager.getRetentionStats(testSessionId);
       const globalStats = retentionManager.getRetentionStats();
-      
+
       expect(sessionStats.totalItems).toBeLessThanOrEqual(globalStats.totalItems);
       expect(sessionStats.totalItems).toBe(5); // Our test data
     });
@@ -212,21 +232,47 @@ describe('Retention Management Integration Tests', () => {
     beforeEach(() => {
       // Add test data with different ages
       const items = [
-        { key: 'very_old_1', value: 'Very old item 1', category: 'task', priority: 'normal', age: 45 },
-        { key: 'very_old_2', value: 'Very old item 2', category: 'task', priority: 'normal', age: 40 },
-        { key: 'old_high_priority', value: 'Old high priority', category: 'task', priority: 'high', age: 35 },
-        { key: 'old_critical', value: 'Old critical', category: 'decision', priority: 'critical', age: 50 },
-        { key: 'recent_item', value: 'Recent item', category: 'task', priority: 'normal', age: 5 }
+        {
+          key: 'very_old_1',
+          value: 'Very old item 1',
+          category: 'task',
+          priority: 'normal',
+          age: 45,
+        },
+        {
+          key: 'very_old_2',
+          value: 'Very old item 2',
+          category: 'task',
+          priority: 'normal',
+          age: 40,
+        },
+        {
+          key: 'old_high_priority',
+          value: 'Old high priority',
+          category: 'task',
+          priority: 'high',
+          age: 35,
+        },
+        {
+          key: 'old_critical',
+          value: 'Old critical',
+          category: 'decision',
+          priority: 'critical',
+          age: 50,
+        },
+        { key: 'recent_item', value: 'Recent item', category: 'task', priority: 'normal', age: 5 },
       ];
 
       for (const item of items) {
         const createdAt = new Date();
         createdAt.setDate(createdAt.getDate() - item.age);
-        
-        db.prepare(`
+
+        db.prepare(
+          `
           INSERT INTO context_items (id, session_id, key, value, category, priority, size, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        `
+        ).run(
           uuidv4(),
           testSessionId,
           item.key,
@@ -245,18 +291,19 @@ describe('Retention Management Integration Tests', () => {
         enabled: true,
         maxAge: '30d',
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      const result = await retentionManager.executePolicy(policyId, true);
+      const _policyId = retentionManager.createPolicy(policy);
+      const result = await retentionManager.executePolicy(_policyId, true);
 
       expect(result.dryRun).toBe(true);
       expect(result.processed.items).toBeGreaterThan(0);
       expect(result.errors.length).toBe(0);
 
       // Verify no items were actually deleted
-      const remainingItems = db.prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?')
+      const remainingItems = db
+        .prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?')
         .get(testSessionId) as any;
       expect(remainingItems.count).toBe(5); // All items should still exist
     });
@@ -267,18 +314,19 @@ describe('Retention Management Integration Tests', () => {
         enabled: true,
         maxAge: '30d',
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      const result = await retentionManager.executePolicy(policyId, false);
+      const _policyId = retentionManager.createPolicy(policy);
+      const result = await retentionManager.executePolicy(_policyId, false);
 
       expect(result.dryRun).toBe(false);
       expect(result.processed.items).toBeGreaterThan(0);
       expect(result.saved.items).toBe(result.processed.items);
 
       // Verify items were actually deleted
-      const remainingItems = db.prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?')
+      const remainingItems = db
+        .prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?')
         .get(testSessionId) as any;
       expect(remainingItems.count).toBeLessThan(5);
     });
@@ -290,18 +338,22 @@ describe('Retention Management Integration Tests', () => {
         maxAge: '30d',
         preserveHighPriority: true,
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      await retentionManager.executePolicy(policyId, false);
+      const _policyId = retentionManager.createPolicy(policy);
+      await retentionManager.executePolicy(_policyId, false);
 
       // High priority item should still exist
-      const highPriorityItem = db.prepare(`
+      const highPriorityItem = db
+        .prepare(
+          `
         SELECT * FROM context_items 
         WHERE session_id = ? AND priority = 'high'
-      `).get(testSessionId);
-      
+      `
+        )
+        .get(testSessionId);
+
       expect(highPriorityItem).toBeDefined();
     });
 
@@ -312,18 +364,22 @@ describe('Retention Management Integration Tests', () => {
         maxAge: '30d',
         preserveCritical: true,
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      await retentionManager.executePolicy(policyId, false);
+      const _policyId = retentionManager.createPolicy(policy);
+      await retentionManager.executePolicy(_policyId, false);
 
       // Critical item should still exist
-      const criticalItem = db.prepare(`
+      const criticalItem = db
+        .prepare(
+          `
         SELECT * FROM context_items 
         WHERE session_id = ? AND priority = 'critical'
-      `).get(testSessionId);
-      
+      `
+        )
+        .get(testSessionId);
+
       expect(criticalItem).toBeDefined();
     });
 
@@ -333,21 +389,25 @@ describe('Retention Management Integration Tests', () => {
         enabled: true,
         maxAge: '30d',
         categories: {
-          decision: { preserve: true }
+          decision: { preserve: true },
         },
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      await retentionManager.executePolicy(policyId, false);
+      const _policyId = retentionManager.createPolicy(policy);
+      await retentionManager.executePolicy(_policyId, false);
 
       // Decision category items should still exist
-      const decisionItems = db.prepare(`
+      const decisionItems = db
+        .prepare(
+          `
         SELECT * FROM context_items 
         WHERE session_id = ? AND category = 'decision'
-      `).all(testSessionId);
-      
+      `
+        )
+        .all(testSessionId);
+
       expect(decisionItems.length).toBeGreaterThan(0);
     });
 
@@ -357,21 +417,23 @@ describe('Retention Management Integration Tests', () => {
         enabled: true,
         maxAge: '30d',
         action: 'archive' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      const result = await retentionManager.executePolicy(policyId, false);
+      const _policyId = retentionManager.createPolicy(policy);
+      const result = await retentionManager.executePolicy(_policyId, false);
 
       expect(result.processed.items).toBeGreaterThan(0);
 
       // Check that items were moved to archive table
-      const archivedItems = db.prepare('SELECT COUNT(*) as count FROM context_items_archive')
+      const archivedItems = db
+        .prepare('SELECT COUNT(*) as count FROM context_items_archive')
         .get() as any;
       expect(archivedItems.count).toBeGreaterThan(0);
 
       // Check that items were removed from main table
-      const mainItems = db.prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?')
+      const mainItems = db
+        .prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?')
         .get(testSessionId) as any;
       expect(mainItems.count).toBeLessThan(5);
     });
@@ -382,21 +444,23 @@ describe('Retention Management Integration Tests', () => {
         enabled: true,
         maxAge: '30d',
         action: 'compress' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      const result = await retentionManager.executePolicy(policyId, false);
+      const _policyId = retentionManager.createPolicy(policy);
+      const result = await retentionManager.executePolicy(_policyId, false);
 
       expect(result.processed.items).toBeGreaterThan(0);
 
       // Check that compressed data was created
-      const compressedData = db.prepare('SELECT COUNT(*) as count FROM compressed_context WHERE session_id = ?')
+      const compressedData = db
+        .prepare('SELECT COUNT(*) as count FROM compressed_context WHERE session_id = ?')
         .get(testSessionId) as any;
       expect(compressedData.count).toBeGreaterThan(0);
 
       // Check compression metadata
-      const compressed = db.prepare('SELECT * FROM compressed_context WHERE session_id = ? LIMIT 1')
+      const compressed = db
+        .prepare('SELECT * FROM compressed_context WHERE session_id = ? LIMIT 1')
         .get(testSessionId) as any;
       expect(compressed.compression_ratio).toBeGreaterThan(0);
       expect(compressed.original_count).toBeGreaterThan(0);
@@ -408,13 +472,14 @@ describe('Retention Management Integration Tests', () => {
         enabled: false,
         maxAge: '30d',
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      
-      await expect(retentionManager.executePolicy(policyId, false))
-        .rejects.toThrow('Policy is disabled');
+      const _policyId = retentionManager.createPolicy(policy);
+
+      await expect(retentionManager.executePolicy(_policyId, false)).rejects.toThrow(
+        'Policy is disabled'
+      );
     });
 
     it('should respect maxItems limit', async () => {
@@ -424,11 +489,11 @@ describe('Retention Management Integration Tests', () => {
         maxAge: '30d',
         maxItems: 2, // Only process 2 items max
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      const result = await retentionManager.executePolicy(policyId, false);
+      const _policyId = retentionManager.createPolicy(policy);
+      const result = await retentionManager.executePolicy(_policyId, false);
 
       expect(result.processed.items).toBeLessThanOrEqual(2);
     });
@@ -437,7 +502,7 @@ describe('Retention Management Integration Tests', () => {
   describe('Default Policies', () => {
     it('should create default policies', () => {
       const defaultPolicies = (RetentionManager as any).getDefaultPolicies();
-      
+
       expect(defaultPolicies.length).toBeGreaterThan(0);
       expect(defaultPolicies[0]).toHaveProperty('name');
       expect(defaultPolicies[0]).toHaveProperty('action');
@@ -452,7 +517,7 @@ describe('Retention Management Integration Tests', () => {
     it('should have conservative policy that preserves important data', () => {
       const defaultPolicies = (RetentionManager as any).getDefaultPolicies();
       const conservative = defaultPolicies.find((p: any) => p.name.includes('Conservative'));
-      
+
       expect(conservative).toBeDefined();
       expect(conservative.preserveCritical).toBe(true);
       expect(conservative.action).toBe('archive'); // Should archive, not delete
@@ -462,10 +527,12 @@ describe('Retention Management Integration Tests', () => {
   describe('Retention Logs', () => {
     it('should log policy execution results', async () => {
       // Add some test data first
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO context_items (id, session_id, key, value, category, priority, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `
+      ).run(
         uuidv4(),
         testSessionId,
         'test_log_item',
@@ -480,17 +547,17 @@ describe('Retention Management Integration Tests', () => {
         enabled: true,
         maxAge: '30d',
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      await retentionManager.executePolicy(policyId, true);
+      const _policyId = retentionManager.createPolicy(policy);
+      await retentionManager.executePolicy(_policyId, true);
 
-      const logs = retentionManager.getRetentionLogs(policyId);
+      const logs = retentionManager.getRetentionLogs(_policyId);
       expect(logs.length).toBeGreaterThan(0);
-      
+
       const logEntry = JSON.parse(logs[0].result);
-      expect(logEntry.policyId).toBe(policyId);
+      expect(logEntry.policyId).toBe(_policyId);
       expect(logEntry.policyName).toBe('Test Logging');
       expect(logEntry.dryRun).toBe(true);
     });
@@ -500,30 +567,32 @@ describe('Retention Management Integration Tests', () => {
         name: 'Log Limit Test',
         enabled: true,
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      
+      const _policyId = retentionManager.createPolicy(policy);
+
       // Execute multiple times to create logs
       for (let i = 0; i < 5; i++) {
-        await retentionManager.executePolicy(policyId, true);
+        await retentionManager.executePolicy(_policyId, true);
       }
 
-      const limitedLogs = retentionManager.getRetentionLogs(policyId, 3);
+      const limitedLogs = retentionManager.getRetentionLogs(_policyId, 3);
       expect(limitedLogs.length).toBeLessThanOrEqual(3);
     });
   });
 
   describe('Error Handling', () => {
     it('should handle non-existent policy execution', async () => {
-      await expect(retentionManager.executePolicy('non-existent-id', true))
-        .rejects.toThrow('Policy not found');
+      await expect(retentionManager.executePolicy('non-existent-id', true)).rejects.toThrow(
+        'Policy not found'
+      );
     });
 
     it('should handle policy update for non-existent policy', () => {
-      expect(() => retentionManager.updatePolicy('non-existent-id', { name: 'Updated' }))
-        .toThrow('Policy not found');
+      expect(() => retentionManager.updatePolicy('non-existent-id', { name: 'Updated' })).toThrow(
+        'Policy not found'
+      );
     });
 
     it('should handle database errors gracefully during execution', async () => {
@@ -532,15 +601,16 @@ describe('Retention Management Integration Tests', () => {
         enabled: true,
         maxAge: '30d',
         action: 'delete' as const,
-        schedule: 'manual' as const
+        schedule: 'manual' as const,
       };
 
-      const policyId = retentionManager.createPolicy(policy);
-      
+      const _policyId = retentionManager.createPolicy(policy);
+
       // This test is too aggressive - let's test a different error scenario
       // Instead, test with invalid policy configuration
-      await expect(retentionManager.executePolicy('non-existent-id', true))
-        .rejects.toThrow('Policy not found');
+      await expect(retentionManager.executePolicy('non-existent-id', true)).rejects.toThrow(
+        'Policy not found'
+      );
     });
   });
 });

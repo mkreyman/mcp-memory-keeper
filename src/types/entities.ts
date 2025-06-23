@@ -20,8 +20,7 @@ export interface ContextItem {
   priority: 'high' | 'normal' | 'low';
   metadata?: string;
   size: number;
-  shared: boolean;
-  shared_with_sessions?: string;
+  is_private: number; // 0 = public, 1 = private
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +94,7 @@ export interface CreateContextItemInput {
   category?: string;
   priority?: 'high' | 'normal' | 'low';
   metadata?: string;
+  isPrivate?: boolean;
 }
 
 export interface CreateSessionInput {

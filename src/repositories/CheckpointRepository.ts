@@ -1,17 +1,16 @@
 import { BaseRepository } from './BaseRepository.js';
-import { Checkpoint, CreateCheckpointInput, CheckpointItem, CheckpointFile } from '../types/entities.js';
+import { Checkpoint, CreateCheckpointInput } from '../types/entities.js';
 
 export class CheckpointRepository extends BaseRepository {
-  
   create(sessionId: string, input: CreateCheckpointInput): Checkpoint {
     const id = this.generateId();
     const timestamp = this.getCurrentTimestamp();
-    
+
     const stmt = this.db.prepare(`
       INSERT INTO checkpoints (id, session_id, name, description, git_status, git_branch, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    
+
     stmt.run(
       id,
       sessionId,
@@ -21,7 +20,7 @@ export class CheckpointRepository extends BaseRepository {
       input.git_branch || null,
       timestamp
     );
-    
+
     return this.getById(id)!;
   }
 
@@ -51,7 +50,7 @@ export class CheckpointRepository extends BaseRepository {
     // Delete related checkpoint items and files first
     this.db.prepare('DELETE FROM checkpoint_items WHERE checkpoint_id = ?').run(id);
     this.db.prepare('DELETE FROM checkpoint_files WHERE checkpoint_id = ?').run(id);
-    
+
     // Delete the checkpoint
     this.db.prepare('DELETE FROM checkpoints WHERE id = ?').run(id);
   }
@@ -77,7 +76,7 @@ export class CheckpointRepository extends BaseRepository {
       INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id)
       VALUES (?, ?, ?)
     `);
-    
+
     for (const itemId of contextItemIds) {
       stmt.run(this.generateId(), checkpointId, itemId);
     }
@@ -106,7 +105,7 @@ export class CheckpointRepository extends BaseRepository {
       INSERT INTO checkpoint_files (id, checkpoint_id, file_cache_id)
       VALUES (?, ?, ?)
     `);
-    
+
     for (const fileId of fileCacheIds) {
       stmt.run(this.generateId(), checkpointId, fileId);
     }
@@ -123,49 +122,61 @@ export class CheckpointRepository extends BaseRepository {
 
   // Complete checkpoint with items and files
   createComplete(
-    sessionId: string, 
-    input: CreateCheckpointInput, 
-    contextItemIds: string[] = [], 
+    sessionId: string,
+    input: CreateCheckpointInput,
+    contextItemIds: string[] = [],
     fileCacheIds: string[] = []
   ): Checkpoint {
     const checkpoint = this.create(sessionId, input);
-    
+
     if (contextItemIds.length > 0) {
       this.addContextItems(checkpoint.id, contextItemIds);
     }
-    
+
     if (fileCacheIds.length > 0) {
       this.addFiles(checkpoint.id, fileCacheIds);
     }
-    
+
     return checkpoint;
   }
 
   getStatsBySession(sessionId: string): { count: number; totalItems: number; totalFiles: number } {
-    const checkpointCount = this.db.prepare(`
+    const checkpointCount = this.db
+      .prepare(
+        `
       SELECT COUNT(*) as count 
       FROM checkpoints 
       WHERE session_id = ?
-    `).get(sessionId) as any;
-    
-    const itemCount = this.db.prepare(`
+    `
+      )
+      .get(sessionId) as any;
+
+    const itemCount = this.db
+      .prepare(
+        `
       SELECT COUNT(*) as count
       FROM checkpoint_items ci
       JOIN checkpoints c ON ci.checkpoint_id = c.id
       WHERE c.session_id = ?
-    `).get(sessionId) as any;
-    
-    const fileCount = this.db.prepare(`
+    `
+      )
+      .get(sessionId) as any;
+
+    const fileCount = this.db
+      .prepare(
+        `
       SELECT COUNT(*) as count
       FROM checkpoint_files cf
       JOIN checkpoints c ON cf.checkpoint_id = c.id
       WHERE c.session_id = ?
-    `).get(sessionId) as any;
-    
+    `
+      )
+      .get(sessionId) as any;
+
     return {
       count: checkpointCount.count || 0,
       totalItems: itemCount.count || 0,
-      totalFiles: fileCount.count || 0
+      totalFiles: fileCount.count || 0,
     };
   }
 }

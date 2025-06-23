@@ -12,27 +12,23 @@
 Share important discoveries or solutions:
 
 ```
-# Found a solution to a tricky bug
+# Found a solution to a tricky bug - it's automatically shared!
 context_save
 {
   "key": "websocket_reconnect_fix",
   "value": "Use exponential backoff with max 30s delay to prevent server overload",
   "category": "solution",
   "priority": "high"
+  # Note: This is automatically accessible from ALL sessions (public by default)
 }
 
-# Share it publicly for any session to use
-context_share
+# If you want to keep something private to your session only:
+context_save
 {
-  "key": "websocket_reconnect_fix",
-  "makePublic": true
-}
-
-# Or share with specific session
-context_share
-{
-  "key": "websocket_reconnect_fix",
-  "targetSessions": ["colleague-session-id"]
+  "key": "my_debug_notes",
+  "value": "Temporary debugging notes - WebSocket fails on line 234",
+  "category": "note",
+  "private": true  # Only visible in current session
 }
 ```
 
@@ -88,16 +84,16 @@ context_restore_checkpoint
 ```
 
 ### Scenario 4: "I'm starting work and want to see what others discovered" (v0.9.0+)
-Check for shared context from other sessions:
+All public context is automatically accessible:
 
 ```
-# See what's been shared with your session
-context_get_shared
+# Get all accessible context (public items + your private items)
+context_get
 {}
 
-# See all publicly shared items
-context_get_shared
-{ "includeAll": true }
+# Get specific items by key (will find it from any session if public)
+context_get
+{ "key": "websocket_reconnect_fix" }
 
 # Search across all sessions for specific topics
 context_search_all

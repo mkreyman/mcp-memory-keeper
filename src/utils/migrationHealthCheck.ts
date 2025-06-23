@@ -31,9 +31,9 @@ export class MigrationHealthCheck {
    * Get all tables from the database
    */
   private getAllTables(): string[] {
-    const tables = this.db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-    ).all() as { name: string }[];
+    const tables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+      .all() as { name: string }[];
     return tables.map(t => t.name);
   }
 
@@ -47,7 +47,7 @@ export class MigrationHealthCheck {
       type: col.type,
       notNull: col.notnull === 1,
       defaultValue: col.dflt_value,
-      pk: col.pk === 1
+      pk: col.pk === 1,
     }));
   }
 
@@ -56,64 +56,68 @@ export class MigrationHealthCheck {
    */
   private discoverExpectedSchema(): Map<string, Map<string, string>> {
     const schemaMap = new Map<string, Map<string, string>>();
-    
+
     // Try to find database.ts or database.js
     let dbFilePath = path.join(__dirname, 'database.ts');
     let dbContent: string;
-    
+
     try {
       // First try TypeScript source
       dbContent = fs.readFileSync(dbFilePath, 'utf-8');
-    } catch (error) {
+    } catch (_error) {
       // If TypeScript not found, try JavaScript (compiled)
       try {
         dbFilePath = path.join(__dirname, 'database.js');
         dbContent = fs.readFileSync(dbFilePath, 'utf-8');
-      } catch (error2) {
+      } catch (_error2) {
         // If neither found, return hardcoded critical columns as fallback
         return this.getFallbackSchema();
       }
     }
-    
+
     // Extract the createTables method content
-    const createTablesMatch = dbContent.match(/createTables\(\)[\s\S]*?this\.db\.exec\(`([\s\S]*?)`\);/);
+    const createTablesMatch = dbContent.match(
+      /createTables\(\)[\s\S]*?this\.db\.exec\(`([\s\S]*?)`\);/
+    );
     if (!createTablesMatch) {
       console.warn('Could not find createTables method in database.ts');
       return schemaMap;
     }
-    
+
     const sqlContent = createTablesMatch[1];
-    
+
     // Parse CREATE TABLE statements
     const tableRegex = /CREATE TABLE IF NOT EXISTS (\w+)\s*\(([\s\S]*?)\)(?:\s*;|(?=\s*CREATE))/g;
     let match;
-    
+
     while ((match = tableRegex.exec(sqlContent)) !== null) {
       const tableName = match[1];
       const columnsContent = match[2];
-      
+
       // Extract column definitions
       const columnMap = new Map<string, string>();
-      
+
       // First, remove all newlines and extra spaces to handle multi-line definitions
       const cleanedContent = columnsContent.replace(/\n\s*/g, ' ').trim();
-      
+
       // Split by comma but be careful with constraints
       const parts = cleanedContent.split(/,(?![^(]*\))/);
-      
+
       for (const part of parts) {
         const line = part.trim();
-        
+
         // Skip constraint lines
-        if (!line || 
-            line.startsWith('FOREIGN KEY') || 
-            line.startsWith('UNIQUE') ||
-            line.startsWith('PRIMARY KEY') ||
-            line.startsWith('CHECK') ||
-            line.startsWith('--')) {
+        if (
+          !line ||
+          line.startsWith('FOREIGN KEY') ||
+          line.startsWith('UNIQUE') ||
+          line.startsWith('PRIMARY KEY') ||
+          line.startsWith('CHECK') ||
+          line.startsWith('--')
+        ) {
           continue;
         }
-        
+
         // Extract column name and full definition
         const columnMatch = line.match(/^(\w+)\s+(.+)$/);
         if (columnMatch) {
@@ -122,10 +126,10 @@ export class MigrationHealthCheck {
           columnMap.set(columnName, columnDef);
         }
       }
-      
+
       schemaMap.set(tableName, columnMap);
     }
-    
+
     return schemaMap;
   }
 
@@ -134,7 +138,7 @@ export class MigrationHealthCheck {
    */
   private getFallbackSchema(): Map<string, Map<string, string>> {
     const schemaMap = new Map<string, Map<string, string>>();
-    
+
     // Define critical columns that we know should exist
     const sessionsColumns = new Map<string, string>([
       ['id', 'TEXT PRIMARY KEY'],
@@ -144,24 +148,24 @@ export class MigrationHealthCheck {
       ['working_directory', 'TEXT'],
       ['parent_id', 'TEXT'],
       ['created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'],
-      ['updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP']
+      ['updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'],
     ]);
-    
+
     const contextItemsColumns = new Map<string, string>([
       ['id', 'TEXT PRIMARY KEY'],
       ['session_id', 'TEXT NOT NULL'],
       ['key', 'TEXT NOT NULL'],
       ['value', 'TEXT NOT NULL'],
       ['category', 'TEXT'],
-      ['priority', 'TEXT DEFAULT \'normal\''],
+      ['priority', "TEXT DEFAULT 'normal'"],
       ['metadata', 'TEXT'],
       ['size', 'INTEGER DEFAULT 0'],
       ['shared', 'BOOLEAN DEFAULT 0'],
       ['shared_with_sessions', 'TEXT'],
       ['created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'],
-      ['updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP']
+      ['updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'],
     ]);
-    
+
     const fileCacheColumns = new Map<string, string>([
       ['id', 'TEXT PRIMARY KEY'],
       ['session_id', 'TEXT NOT NULL'],
@@ -170,29 +174,36 @@ export class MigrationHealthCheck {
       ['hash', 'TEXT'],
       ['size', 'INTEGER DEFAULT 0'],
       ['last_read', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'],
-      ['updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP']
+      ['updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'],
     ]);
-    
+
     schemaMap.set('sessions', sessionsColumns);
     schemaMap.set('context_items', contextItemsColumns);
     schemaMap.set('file_cache', fileCacheColumns);
-    
+
     return schemaMap;
   }
 
   /**
    * Generate SQLite-safe ALTER TABLE statement
    */
-  private generateSafeAlterStatement(tableName: string, columnName: string, columnDef: string): string {
+  private generateSafeAlterStatement(
+    tableName: string,
+    columnName: string,
+    columnDef: string
+  ): string {
     // SQLite doesn't support CURRENT_TIMESTAMP as default in ALTER TABLE
     // Replace with a static timestamp
     let safeColumnDef = columnDef;
-    
+
     if (columnDef.includes('CURRENT_TIMESTAMP')) {
       const currentTimestamp = new Date().toISOString();
-      safeColumnDef = columnDef.replace(/DEFAULT CURRENT_TIMESTAMP/g, `DEFAULT '${currentTimestamp}'`);
+      safeColumnDef = columnDef.replace(
+        /DEFAULT CURRENT_TIMESTAMP/g,
+        `DEFAULT '${currentTimestamp}'`
+      );
     }
-    
+
     return `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${safeColumnDef}`;
   }
 
@@ -218,7 +229,7 @@ export class MigrationHealthCheck {
             table: tableName,
             issue: `Missing column '${columnName}'`,
             severity: 'error',
-            fix: this.generateSafeAlterStatement(tableName, columnName, columnDef)
+            fix: this.generateSafeAlterStatement(tableName, columnName, columnDef),
           });
         }
       }
@@ -237,7 +248,7 @@ export class MigrationHealthCheck {
   } {
     const missingColumns = this.checkMissingColumns();
     const allIssues = [...missingColumns];
-    
+
     const errors = allIssues.filter(i => i.severity === 'error');
     const warnings = allIssues.filter(i => i.severity === 'warning');
 
@@ -250,7 +261,7 @@ export class MigrationHealthCheck {
     return {
       issues: allIssues,
       canAutoFix,
-      summary
+      summary,
     };
   }
 
@@ -268,16 +279,16 @@ export class MigrationHealthCheck {
     const fixesByTable = new Map<string, MigrationIssue[]>();
     for (const issue of issues) {
       if (issue.fix && issue.severity === 'error') {
-        const table = issue.table;
-        if (!fixesByTable.has(table)) {
-          fixesByTable.set(table, []);
+        const _table = issue.table;
+        if (!fixesByTable.has(_table)) {
+          fixesByTable.set(_table, []);
         }
-        fixesByTable.get(table)!.push(issue);
+        fixesByTable.get(_table)!.push(issue);
       }
     }
 
     // Apply fixes table by table
-    for (const [table, tableIssues] of fixesByTable) {
+    for (const [_table, tableIssues] of fixesByTable) {
       try {
         this.db.transaction(() => {
           for (const issue of tableIssues) {
@@ -304,7 +315,7 @@ export class MigrationHealthCheck {
       '=== MCP Memory Keeper Migration Health Check ===',
       '',
       `Summary: ${healthCheck.summary}`,
-      ''
+      '',
     ];
 
     if (healthCheck.issues.length === 0) {
@@ -312,7 +323,7 @@ export class MigrationHealthCheck {
     } else {
       report.push('Issues found:');
       report.push('');
-      
+
       for (const issue of healthCheck.issues) {
         const icon = issue.severity === 'error' ? '❌' : '⚠️';
         report.push(`${icon} [${issue.severity.toUpperCase()}] ${issue.table}: ${issue.issue}`);
@@ -324,7 +335,9 @@ export class MigrationHealthCheck {
 
       if (healthCheck.canAutoFix) {
         report.push('');
-        report.push('💡 Auto-fix is available. The server will apply fixes automatically on startup.');
+        report.push(
+          '💡 Auto-fix is available. The server will apply fixes automatically on startup.'
+        );
       }
     }
 
@@ -336,39 +349,46 @@ export class MigrationHealthCheck {
    */
   runAutoFix(): boolean {
     const healthCheck = this.runHealthCheck();
-    
+
     if (healthCheck.issues.length === 0) {
       return true;
     }
 
     // Only log in non-test environments
     const isTest = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID;
-    
+
     if (!isTest) {
+      // eslint-disable-next-line no-console
       console.log('[MCP Memory Keeper] Running database migration health check...');
+      // eslint-disable-next-line no-console
       console.log(this.generateReport());
     }
 
     if (healthCheck.canAutoFix) {
       if (!isTest) {
+        // eslint-disable-next-line no-console
         console.log('[MCP Memory Keeper] Applying automatic fixes...');
       }
-      
+
       const { fixed, failed } = this.autoFixIssues(healthCheck.issues);
-      
+
       if (!isTest) {
+        // eslint-disable-next-line no-console
         fixed.forEach(f => console.log(`✅ ${f}`));
         failed.forEach(f => console.error(`❌ ${f}`));
       }
-      
+
       if (failed.length === 0) {
         if (!isTest) {
+          // eslint-disable-next-line no-console
           console.log('[MCP Memory Keeper] All migrations applied successfully!');
         }
         return true;
       } else {
         if (!isTest) {
-          console.error('[MCP Memory Keeper] Some migrations failed. Manual intervention may be required.');
+          console.error(
+            '[MCP Memory Keeper] Some migrations failed. Manual intervention may be required.'
+          );
         }
         return false;
       }
@@ -388,20 +408,25 @@ export async function runMigrationHealthCheckCLI(
   const dbManager = new DatabaseManager({ filename: dbPath });
   const healthCheck = new MigrationHealthCheck(dbManager);
 
+  // eslint-disable-next-line no-console
   console.log(healthCheck.generateReport());
 
   if (autoFix) {
     const issues = healthCheck.runHealthCheck().issues;
     const fixableIssues = issues.filter(i => i.severity === 'error' && i.fix);
-    
+
     if (fixableIssues.length > 0) {
+      // eslint-disable-next-line no-console
       console.log('\nAttempting auto-fix...');
       const { fixed, failed } = healthCheck.autoFixIssues(fixableIssues);
-      
+
+      // eslint-disable-next-line no-console
       fixed.forEach(f => console.log(`✅ ${f}`));
+      // eslint-disable-next-line no-console
       failed.forEach(f => console.log(`❌ ${f}`));
-      
+
       if (fixed.length > 0) {
+        // eslint-disable-next-line no-console
         console.log('\n✅ Auto-fix completed. Please restart the MCP server.');
       }
     }

@@ -27,7 +27,7 @@ describe('Error Cases Integration Tests', () => {
       fs.unlinkSync(tempDbPath);
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
-    } catch (e) {
+    } catch (_e) {
       // Ignore
     }
   });
@@ -54,11 +54,11 @@ describe('Error Cases Integration Tests', () => {
             errorThrown = true;
             break;
           }
-          tinyDbConn.prepare(
-            'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-          ).run(uuidv4(), sessionId, `key${i}`, 'A'.repeat(100));
+          tinyDbConn
+            .prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)')
+            .run(uuidv4(), sessionId, `key${i}`, 'A'.repeat(100));
         }
-      } catch (e) {
+      } catch (_e) {
         errorThrown = true;
       }
 
@@ -72,9 +72,12 @@ describe('Error Cases Integration Tests', () => {
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
 
       // Insert item
-      db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
-      ).run(uuidv4(), sessionId, 'unique_key', 'value1');
+      db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
+        uuidv4(),
+        sessionId,
+        'unique_key',
+        'value1'
+      );
 
       // Try to insert duplicate key (violates unique constraint)
       expect(() => {
@@ -95,11 +98,11 @@ describe('Error Cases Integration Tests', () => {
 
     it('should handle transaction rollbacks', () => {
       const sessionId = uuidv4();
-      
+
       expect(() => {
         dbManager.transaction(() => {
           db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
-          
+
           // This will fail due to foreign key constraint
           db.prepare(
             'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
@@ -178,11 +181,11 @@ describe('Error Cases Integration Tests', () => {
       db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
 
       const nonExistentPath = path.join(os.tmpdir(), 'non-existent-file.txt');
-      
+
       // Simulate file read error
       let errorMessage = '';
       try {
-        const content = fs.readFileSync(nonExistentPath, 'utf-8');
+        const _content = fs.readFileSync(nonExistentPath, 'utf-8');
       } catch (e: any) {
         errorMessage = e.message;
       }
@@ -193,7 +196,7 @@ describe('Error Cases Integration Tests', () => {
     it('should handle permission errors', () => {
       // This test is platform-specific and may need adjustment
       const restrictedPath = '/root/test.txt'; // Usually no write permission
-      
+
       let errorThrown = false;
       let errorCode = '';
       try {
@@ -211,7 +214,10 @@ describe('Error Cases Integration Tests', () => {
     it('should handle disk space errors', () => {
       // This is difficult to test reliably across platforms
       // We'll simulate the behavior
-      const mockWriteLargeFile = (path: string, size: number): { success: boolean; error?: string } => {
+      const mockWriteLargeFile = (
+        path: string,
+        size: number
+      ): { success: boolean; error?: string } => {
         try {
           // Check available space (platform specific)
           const availableSpace = 1024 * 1024 * 100; // Mock 100MB available
@@ -234,7 +240,7 @@ describe('Error Cases Integration Tests', () => {
     it('should handle corrupted git repository', async () => {
       const corruptRepoPath = path.join(os.tmpdir(), `corrupt-repo-${Date.now()}`);
       fs.mkdirSync(corruptRepoPath, { recursive: true });
-      
+
       // Create a fake .git directory with corrupted content
       const gitDir = path.join(corruptRepoPath, '.git');
       fs.mkdirSync(gitDir);
@@ -251,8 +257,10 @@ describe('Error Cases Integration Tests', () => {
 
     it('should handle git command timeouts', async () => {
       // Mock a slow git operation
-      const mockSlowGitOp = async (timeout: number): Promise<{ success: boolean; error?: string }> => {
-        return new Promise((resolve) => {
+      const mockSlowGitOp = async (
+        timeout: number
+      ): Promise<{ success: boolean; error?: string }> => {
+        return new Promise(resolve => {
           const timer = setTimeout(() => {
             resolve({ success: true });
           }, timeout + 1000);
@@ -283,9 +291,9 @@ describe('Error Cases Integration Tests', () => {
       const sessionId = uuidv4();
 
       // Start a transaction in first connection
-      const transaction1 = db.transaction(() => {
+      const _transaction1 = db.transaction(() => {
         db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Test');
-        
+
         // Simulate long-running operation
         const start = Date.now();
         while (Date.now() - start < 100) {
@@ -298,7 +306,7 @@ describe('Error Cases Integration Tests', () => {
       try {
         db2.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(uuidv4(), 'Test2');
         secondWriteSucceeded = true;
-      } catch (e) {
+      } catch (_e) {
         // In WAL mode, this should not throw
       }
 
@@ -351,8 +359,8 @@ describe('Error Cases Integration Tests', () => {
       // Use iterating to handle large result sets
       const stmt2 = db.prepare('SELECT * FROM context_items WHERE session_id = ?');
       let count = 0;
-      
-      for (const row of stmt2.iterate(sessionId)) {
+
+      for (const _row of stmt2.iterate(sessionId)) {
         count++;
         if (count > 5000) break; // Limit iteration
       }
@@ -362,17 +370,20 @@ describe('Error Cases Integration Tests', () => {
 
     it('should handle very long strings', () => {
       const sessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Long String Test');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        sessionId,
+        'Long String Test'
+      );
 
       const veryLongString = 'A'.repeat(1024 * 1024); // 1MB string
-      
+
       // Should handle gracefully
       let errorThrown = false;
       try {
         db.prepare(
           'INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)'
         ).run(uuidv4(), sessionId, 'long_key', veryLongString);
-      } catch (e) {
+      } catch (_e) {
         errorThrown = true;
       }
 
@@ -402,18 +413,22 @@ describe('Error Cases Integration Tests', () => {
       let validItems: any[];
       try {
         // Try with json_valid
-        validItems = db.prepare(
-          `SELECT * FROM context_items 
+        validItems = db
+          .prepare(
+            `SELECT * FROM context_items 
            WHERE session_id = ? 
            AND (metadata IS NULL OR json_valid(metadata))`
-        ).all(sessionId) as any[];
-      } catch (e) {
+          )
+          .all(sessionId) as any[];
+      } catch (_e) {
         // Fallback without json_valid
-        validItems = db.prepare(
-          `SELECT * FROM context_items 
+        validItems = db
+          .prepare(
+            `SELECT * FROM context_items 
            WHERE session_id = ? 
            AND metadata IS NULL`
-        ).all(sessionId) as any[];
+          )
+          .all(sessionId) as any[];
       }
 
       expect(validItems).toHaveLength(5); // Only valid items
@@ -421,31 +436,40 @@ describe('Error Cases Integration Tests', () => {
 
     it('should handle checkpoint restoration failures gracefully', () => {
       const sessionId = uuidv4();
-      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'Checkpoint Recovery');
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+        sessionId,
+        'Checkpoint Recovery'
+      );
 
       // Create checkpoint with missing references
       const checkpointId = uuidv4();
-      db.prepare(
-        'INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)'
-      ).run(checkpointId, sessionId, 'Broken Checkpoint');
+      db.prepare('INSERT INTO checkpoints (id, session_id, name) VALUES (?, ?, ?)').run(
+        checkpointId,
+        sessionId,
+        'Broken Checkpoint'
+      );
 
       // Temporarily disable foreign keys to simulate corruption
       db.pragma('foreign_keys = OFF');
-      
+
       // Add checkpoint items referencing non-existent context items
       db.prepare(
         'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
       ).run(uuidv4(), checkpointId, 'non-existent-item');
-      
+
       // Re-enable foreign keys
       db.pragma('foreign_keys = ON');
 
       // Restoration should handle missing items
-      const restorable = db.prepare(`
+      const restorable = db
+        .prepare(
+          `
         SELECT ci.* FROM context_items ci
         JOIN checkpoint_items cpi ON ci.id = cpi.context_item_id
         WHERE cpi.checkpoint_id = ?
-      `).all(checkpointId) as any[];
+      `
+        )
+        .all(checkpointId) as any[];
 
       expect(restorable).toHaveLength(0); // No items to restore
     });

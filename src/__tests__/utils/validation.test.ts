@@ -44,7 +44,9 @@ describe('Validation Utils', () => {
 
     it('should reject path traversal attempts', () => {
       expect(() => validateFilePath('../../../etc/passwd', 'read')).toThrow(ValidationError);
-      expect(() => validateFilePath('../../../etc/passwd', 'read')).toThrow('Path traversal detected');
+      expect(() => validateFilePath('../../../etc/passwd', 'read')).toThrow(
+        'Path traversal detected'
+      );
     });
 
     it('should reject non-existent files for read', () => {
@@ -56,7 +58,9 @@ describe('Validation Utils', () => {
     it('should reject non-existent directories for write', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(false);
       expect(() => validateFilePath('/nonexistent/dir/file.txt', 'write')).toThrow(ValidationError);
-      expect(() => validateFilePath('/nonexistent/dir/file.txt', 'write')).toThrow('Directory not found');
+      expect(() => validateFilePath('/nonexistent/dir/file.txt', 'write')).toThrow(
+        'Directory not found'
+      );
     });
   });
 

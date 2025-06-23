@@ -392,39 +392,37 @@ await context_checkpoint({
 ### Cross-Session Knowledge Sharing (v0.9.0+)
 Share discoveries and solutions across different AI sessions:
 
-```
-# Developer A discovers a tricky bug fix
-context_save
-{
-  "key": "elixir_genserver_timeout_fix",
-  "value": "Set :infinity timeout for long-running GenServer calls to prevent crashes",
-  "category": "solution",
-  "priority": "high"
-}
+```typescript
+// Developer A discovers a tricky bug fix - automatically shared!
+await context_save({
+  key: "elixir_genserver_timeout_fix",
+  value: "Set :infinity timeout for long-running GenServer calls to prevent crashes",
+  category: "solution",
+  priority: "high"
+  // Note: This is automatically accessible from ALL sessions (public by default)
+});
 
-# Share with the team
-context_share
-{
-  "key": "elixir_genserver_timeout_fix",
-  "makePublic": true
-}
+// Developer B in another session can immediately access it
+const fix = await context_get({ key: "elixir_genserver_timeout_fix" });
 
-# Developer B in another session can find it
-context_get_shared
-{}
+// Or search for it across all sessions
+const results = await context_search_all({ 
+  query: "elixir timeout" 
+});
 
-# Or search for it
-context_search_all
-{ 
-  "query": "elixir timeout" 
-}
-```
+// For session-specific notes, use private flag
+await context_save({
+  key: "my_debug_session",
+  value: "Debugging GenServer locally with IO.inspect",
+  category: "note",
+  private: true  // Only visible in current session
+});
 
 ### The Enhanced Handoff Pattern (v0.9.0+)
 Smooth work transitions between team members with cross-session sharing:
 
 ```typescript
-// Prepare handoff with structured data
+// Prepare handoff with structured data - automatically shared!
 await context_save({
   key: "handoff_status",
   value: JSON.stringify({
@@ -436,19 +434,15 @@ await context_save({
   }),
   category: "progress",
   priority: "high"
+  // Note: This is automatically accessible from ALL sessions (public by default)
 });
 
-// Share with next developer's session
-await context_share({
-  key: "handoff_status",
-  targetSessions: [nextDeveloperSessionId]
-});
+// Next developer in another session retrieves handoff
+const handoffItem = await context_get({ key: "handoff_status" });
+const status = JSON.parse(handoffItem.value);
 
-// Next developer retrieves handoff
-const handoff = await context_get_shared({});
-const status = JSON.parse(
-  handoff.find(item => item.key === "handoff_status").value
-);
+// Or search for handoff items
+const handoffs = await context_search_all({ query: "handoff" });
 
 // Document current state
 const handoffDetails = {
@@ -561,18 +555,14 @@ const patterns = {
   "code_review": "Require 2 approvals for database migrations"
 };
 
-// Save and share team standards
+// Save team standards - automatically shared!
 for (const [key, value] of Object.entries(patterns)) {
   await context_save({
     key: `team_standard_${key}`,
     value: value,
     category: "standard",
     priority: "normal"
-  });
-  
-  await context_share({
-    key: `team_standard_${key}`,
-    makePublic: true
+    // Note: This is automatically accessible from ALL sessions (public by default)
   });
 }
 
@@ -609,21 +599,16 @@ await context_save({
   priority: "high"
 });
 
-// Share with development and QA sessions
-await context_share({
-  key: "security_audit_results",
-  targetSessions: ["dev-session-id", "qa-session-id"]
-});
+// The results are automatically shared with all sessions!
 
 // Development agent addresses issues
 await context_session_start({ 
   name: "Security Fixes - Sprint 15"
 });
 
-const audit = await context_get_shared({});
-const findings = JSON.parse(
-  audit.find(item => item.key === "security_audit_results").value
-);
+// Development agent retrieves the audit results
+const auditResult = await context_get({ key: "security_audit_results" });
+const findings = JSON.parse(auditResult.value);
 
 // Fix each high-priority issue
 for (const issue of findings.high) {
@@ -635,10 +620,12 @@ for (const issue of findings.high) {
   });
 }
 
-// Share fixes back
-await context_share({
+// Save fix completion status - automatically shared!
+await context_save({
   key: "security_fixes_complete",
-  targetSessions: ["security-audit-session-id", "qa-session-id"]
+  value: "All high-priority security issues resolved",
+  category: "progress",
+  priority: "high"
 });
 ```
 
@@ -668,11 +655,7 @@ await context_save({
   })
 });
 
-// Share with all teams
-await context_share({
-  key: `lesson_learned_${Date.now()}`,
-  makePublic: true
-});
+// The lesson is automatically shared with all teams!
 
 // Other teams can learn from this
 const redisLessons = await context_search_all({
