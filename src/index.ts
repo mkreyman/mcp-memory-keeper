@@ -544,12 +544,16 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({
-                  items: itemsWithMetadata,
-                  totalCount: result.totalCount,
-                  page: offset && limit ? Math.floor(offset / limit) + 1 : 1,
-                  pageSize: limit || result.items.length,
-                }, null, 2),
+                text: JSON.stringify(
+                  {
+                    items: itemsWithMetadata,
+                    totalCount: result.totalCount,
+                    page: offset && limit ? Math.floor(offset / limit) + 1 : 1,
+                    pageSize: limit || result.items.length,
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };

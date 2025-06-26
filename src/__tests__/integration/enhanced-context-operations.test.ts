@@ -26,8 +26,14 @@ describe('Enhanced Context Operations Integration Tests', () => {
     // Create test sessions
     testSessionId = uuidv4();
     testSessionId2 = uuidv4();
-    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(testSessionId, 'Test Session 1');
-    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(testSessionId2, 'Test Session 2');
+    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+      testSessionId,
+      'Test Session 1'
+    );
+    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+      testSessionId2,
+      'Test Session 2'
+    );
   });
 
   afterEach(() => {
@@ -47,13 +53,43 @@ describe('Enhanced Context Operations Integration Tests', () => {
       const baseTime = new Date('2024-01-01T00:00:00Z');
       const items = [
         { key: 'alpha_item', value: 'First value', category: 'task', priority: 'high', offset: 0 },
-        { key: 'beta_item', value: 'Second value', category: 'task', priority: 'normal', offset: 1 },
-        { key: 'gamma_item', value: 'Third value', category: 'decision', priority: 'high', offset: 2 },
-        { key: 'delta_item', value: 'Fourth value with much longer content to test size calculation', category: 'note', priority: 'low', offset: 3 },
-        { key: 'epsilon_item', value: 'Fifth value', category: 'progress', priority: 'normal', offset: 4 },
+        {
+          key: 'beta_item',
+          value: 'Second value',
+          category: 'task',
+          priority: 'normal',
+          offset: 1,
+        },
+        {
+          key: 'gamma_item',
+          value: 'Third value',
+          category: 'decision',
+          priority: 'high',
+          offset: 2,
+        },
+        {
+          key: 'delta_item',
+          value: 'Fourth value with much longer content to test size calculation',
+          category: 'note',
+          priority: 'low',
+          offset: 3,
+        },
+        {
+          key: 'epsilon_item',
+          value: 'Fifth value',
+          category: 'progress',
+          priority: 'normal',
+          offset: 4,
+        },
         { key: 'zeta_item', value: 'Sixth value', category: 'task', priority: 'high', offset: 5 },
         { key: 'eta_item', value: 'Seventh value', category: 'error', priority: 'high', offset: 6 },
-        { key: 'theta_item', value: 'Eighth value', category: 'warning', priority: 'normal', offset: 7 },
+        {
+          key: 'theta_item',
+          value: 'Eighth value',
+          category: 'warning',
+          priority: 'normal',
+          offset: 7,
+        },
         { key: 'iota_item', value: 'Ninth value', category: 'task', priority: 'low', offset: 8 },
         { key: 'kappa_item', value: 'Tenth value', category: 'note', priority: 'high', offset: 9 },
       ];
@@ -61,16 +97,18 @@ describe('Enhanced Context Operations Integration Tests', () => {
       items.forEach(item => {
         const createdAt = new Date(baseTime.getTime() + item.offset * 3600000); // 1 hour intervals
         const updatedAt = new Date(createdAt.getTime() + 1800000); // 30 minutes later
-        
-        db.prepare(`
+
+        db.prepare(
+          `
           INSERT INTO context_items (id, session_id, key, value, category, priority, created_at, updated_at) 
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          uuidv4(), 
-          testSessionId, 
-          item.key, 
-          item.value, 
-          item.category, 
+        `
+        ).run(
+          uuidv4(),
+          testSessionId,
+          item.key,
+          item.value,
+          item.category,
           item.priority,
           createdAt.toISOString(),
           updatedAt.toISOString()
@@ -78,10 +116,12 @@ describe('Enhanced Context Operations Integration Tests', () => {
       });
 
       // Add some items to second session for multi-session tests
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO context_items (id, session_id, key, value, category, priority) 
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(uuidv4(), testSessionId2, 'session2_item', 'Another session value', 'task', 'normal');
+      `
+      ).run(uuidv4(), testSessionId2, 'session2_item', 'Another session value', 'task', 'normal');
     });
 
     describe('includeMetadata parameter', () => {
@@ -107,12 +147,14 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should include metadata when includeMetadata is true', () => {
         const items = db
-          .prepare(`
+          .prepare(
+            `
             SELECT ci.*, s.name as session_name, s.description as session_description
             FROM context_items ci
             JOIN sessions s ON ci.session_id = s.id
             WHERE ci.session_id = ?
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         // Simulate response with metadata
@@ -173,8 +215,10 @@ describe('Enhanced Context Operations Integration Tests', () => {
       it('should sort by updated_at descending', () => {
         // Update a specific item to have a more recent updated_at
         const recentUpdate = new Date();
-        db.prepare('UPDATE context_items SET updated_at = ? WHERE key = ?')
-          .run(recentUpdate.toISOString(), 'beta_item');
+        db.prepare('UPDATE context_items SET updated_at = ? WHERE key = ?').run(
+          recentUpdate.toISOString(),
+          'beta_item'
+        );
 
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ? ORDER BY updated_at DESC')
@@ -247,7 +291,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should handle offset beyond available items', () => {
         const items = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? ORDER BY key ASC LIMIT 5 OFFSET 15')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? ORDER BY key ASC LIMIT 5 OFFSET 15'
+          )
           .all(testSessionId) as any[];
 
         expect(items).toHaveLength(0);
@@ -283,7 +329,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
       it('should filter items created before a specific date', () => {
         const beforeDate = new Date('2024-01-01T05:00:00Z'); // Before last 5 items
         const items = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at < ? ORDER BY created_at ASC')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND created_at < ? ORDER BY created_at ASC'
+          )
           .all(testSessionId, beforeDate.toISOString()) as any[];
 
         expect(items).toHaveLength(5);
@@ -320,8 +368,10 @@ describe('Enhanced Context Operations Integration Tests', () => {
         // The implementation should either throw an error or return all items
         // For now, we'll test that it doesn't crash
         expect(() => {
-          db.prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at > ?')
-            .all(testSessionId, invalidDate);
+          db.prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at > ?').all(
+            testSessionId,
+            invalidDate
+          );
         }).not.toThrow();
       });
     });
@@ -329,7 +379,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
     describe('keyPattern parameter', () => {
       it('should match items by simple pattern', () => {
         const items = db
-          .prepare("SELECT * FROM context_items WHERE session_id = ? AND key LIKE '%_item' ORDER BY key ASC")
+          .prepare(
+            "SELECT * FROM context_items WHERE session_id = ? AND key LIKE '%_item' ORDER BY key ASC"
+          )
           .all(testSessionId) as any[];
 
         expect(items).toHaveLength(10); // All items end with '_item'
@@ -338,7 +390,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
       it('should match items by prefix pattern', () => {
         // Simulate regex ^alpha.* as SQL LIKE
         const items = db
-          .prepare("SELECT * FROM context_items WHERE session_id = ? AND key LIKE 'alpha%' ORDER BY key ASC")
+          .prepare(
+            "SELECT * FROM context_items WHERE session_id = ? AND key LIKE 'alpha%' ORDER BY key ASC"
+          )
           .all(testSessionId) as any[];
 
         expect(items).toHaveLength(1);
@@ -348,7 +402,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
       it('should match items by complex pattern', () => {
         // Simulate regex that matches Greek letter names
         const items = db
-          .prepare("SELECT * FROM context_items WHERE session_id = ? AND (key LIKE 'alpha%' OR key LIKE 'beta%' OR key LIKE 'gamma%') ORDER BY key ASC")
+          .prepare(
+            "SELECT * FROM context_items WHERE session_id = ? AND (key LIKE 'alpha%' OR key LIKE 'beta%' OR key LIKE 'gamma%') ORDER BY key ASC"
+          )
           .all(testSessionId) as any[];
 
         expect(items).toHaveLength(3);
@@ -365,10 +421,12 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should handle special regex characters', () => {
         // Add item with special characters in key
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO context_items (id, session_id, key, value, category, priority) 
           VALUES (?, ?, ?, ?, ?, ?)
-        `).run(uuidv4(), testSessionId, 'item.with.dots', 'Special value', 'note', 'normal');
+        `
+        ).run(uuidv4(), testSessionId, 'item.with.dots', 'Special value', 'note', 'normal');
 
         // Pattern should escape dots when used literally
         const items = db
@@ -383,7 +441,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
     describe('priorities parameter', () => {
       it('should filter by single priority', () => {
         const items = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? AND priority = ? ORDER BY key ASC')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND priority = ? ORDER BY key ASC'
+          )
           .all(testSessionId, 'high') as any[];
 
         expect(items).toHaveLength(5);
@@ -392,7 +452,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should filter by multiple priorities', () => {
         const items = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? AND priority IN (?, ?) ORDER BY key ASC')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND priority IN (?, ?) ORDER BY key ASC'
+          )
           .all(testSessionId, 'high', 'normal') as any[];
 
         expect(items).toHaveLength(8); // 5 high + 3 normal
@@ -420,7 +482,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
     describe('Combining multiple parameters', () => {
       it('should combine category filter with sort and limit', () => {
         const items = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? AND category = ? ORDER BY key DESC LIMIT 2')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND category = ? ORDER BY key DESC LIMIT 2'
+          )
           .all(testSessionId, 'task') as any[];
 
         expect(items).toHaveLength(2);
@@ -432,9 +496,10 @@ describe('Enhanced Context Operations Integration Tests', () => {
       it('should combine date filters with priority and pagination', () => {
         const afterDate = new Date('2024-01-01T01:00:00Z');
         const beforeDate = new Date('2024-01-01T07:00:00Z');
-        
+
         const items = db
-          .prepare(`
+          .prepare(
+            `
             SELECT * FROM context_items 
             WHERE session_id = ? 
               AND created_at > ? 
@@ -442,7 +507,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
               AND priority = ?
             ORDER BY created_at ASC 
             LIMIT 3 OFFSET 1
-          `)
+          `
+          )
           .all(testSessionId, afterDate.toISOString(), beforeDate.toISOString(), 'high') as any[];
 
         expect(items).toHaveLength(2); // Only 3 high priority items in range, offset 1
@@ -452,7 +518,7 @@ describe('Enhanced Context Operations Integration Tests', () => {
         // Pattern matching items starting with vowels (a, e, i)
         const result = repositories.contexts.queryEnhanced({
           sessionId: testSessionId,
-          keyPattern: '[aei]*',  // SQLite GLOB pattern for starts with a, e, or i
+          keyPattern: '[aei]*', // SQLite GLOB pattern for starts with a, e, or i
           category: 'task',
           sort: 'key_asc',
         });
@@ -464,7 +530,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should include metadata with all filters applied', () => {
         const items = db
-          .prepare(`
+          .prepare(
+            `
             SELECT ci.*, s.name as session_name, LENGTH(ci.value) as value_size
             FROM context_items ci
             JOIN sessions s ON ci.session_id = s.id
@@ -473,7 +540,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
               AND ci.category = ?
             ORDER BY ci.created_at DESC
             LIMIT 2
-          `)
+          `
+          )
           .all(testSessionId, 'high', 'normal', 'task') as any[];
 
         expect(items).toHaveLength(2);
@@ -523,7 +591,10 @@ describe('Enhanced Context Operations Integration Tests', () => {
     describe('Edge cases', () => {
       it('should handle empty session', () => {
         const emptySessionId = uuidv4();
-        db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(emptySessionId, 'Empty Session');
+        db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+          emptySessionId,
+          'Empty Session'
+        );
 
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ?')
@@ -551,14 +622,17 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should handle concurrent access with proper isolation', () => {
         // Simulate concurrent reads
-        const promises = Array(5).fill(null).map(() => 
-          new Promise(resolve => {
-            const items = db
-              .prepare('SELECT * FROM context_items WHERE session_id = ?')
-              .all(testSessionId) as any[];
-            resolve(items.length);
-          })
-        );
+        const promises = Array(5)
+          .fill(null)
+          .map(
+            () =>
+              new Promise(resolve => {
+                const items = db
+                  .prepare('SELECT * FROM context_items WHERE session_id = ?')
+                  .all(testSessionId) as any[];
+                resolve(items.length);
+              })
+          );
 
         return Promise.all(promises).then(results => {
           expect(results).toEqual([10, 10, 10, 10, 10]);
@@ -572,23 +646,25 @@ describe('Enhanced Context Operations Integration Tests', () => {
       // Create items across different time periods
       const now = new Date();
       const timeOffsets = [
-        { hours: -1, key: 'recent_1', category: 'task' },      // 1 hour ago
-        { hours: -2, key: 'recent_2', category: 'note' },      // 2 hours ago
-        { hours: -5, key: 'today_1', category: 'task' },       // 5 hours ago
-        { hours: -8, key: 'today_2', category: 'decision' },   // 8 hours ago
-        { hours: -25, key: 'yesterday_1', category: 'task' },  // Yesterday
-        { hours: -30, key: 'yesterday_2', category: 'note' },  // Yesterday
+        { hours: -1, key: 'recent_1', category: 'task' }, // 1 hour ago
+        { hours: -2, key: 'recent_2', category: 'note' }, // 2 hours ago
+        { hours: -5, key: 'today_1', category: 'task' }, // 5 hours ago
+        { hours: -8, key: 'today_2', category: 'decision' }, // 8 hours ago
+        { hours: -25, key: 'yesterday_1', category: 'task' }, // Yesterday
+        { hours: -30, key: 'yesterday_2', category: 'note' }, // Yesterday
         { hours: -72, key: 'days_ago_1', category: 'progress' }, // 3 days ago
-        { hours: -168, key: 'week_ago_1', category: 'task' },   // 1 week ago
+        { hours: -168, key: 'week_ago_1', category: 'task' }, // 1 week ago
         { hours: -336, key: 'weeks_ago_1', category: 'error' }, // 2 weeks ago
       ];
 
       timeOffsets.forEach(({ hours, key, category }) => {
         const createdAt = new Date(now.getTime() + hours * 3600000);
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
           VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        `
+        ).run(
           uuidv4(),
           testSessionId,
           key,
@@ -608,16 +684,12 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       journalEntries.forEach(({ hours, entry, mood }) => {
         const createdAt = new Date(now.getTime() + hours * 3600000);
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO journal_entries (id, session_id, entry, mood, created_at) 
           VALUES (?, ?, ?, ?, ?)
-        `).run(
-          uuidv4(),
-          testSessionId,
-          entry,
-          mood,
-          createdAt.toISOString()
-        );
+        `
+        ).run(uuidv4(), testSessionId, entry, mood, createdAt.toISOString());
       });
     });
 
@@ -633,7 +705,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
           .all(testSessionId, oneDayAgo.toISOString()) as any[];
 
         const thisWeekItems = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at > ? AND created_at <= ?')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND created_at > ? AND created_at <= ?'
+          )
           .all(testSessionId, oneWeekAgo.toISOString(), oneDayAgo.toISOString()) as any[];
 
         expect(todayItems.length).toBeGreaterThan(0);
@@ -658,7 +732,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
       it('should return timeline without item details by default', () => {
         // Simulate timeline response without items
         const periods = db
-          .prepare(`
+          .prepare(
+            `
             SELECT 
               DATE(created_at) as period,
               COUNT(*) as item_count
@@ -666,7 +741,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
             WHERE session_id = ?
             GROUP BY DATE(created_at)
             ORDER BY period DESC
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         expect(periods.length).toBeGreaterThan(0);
@@ -678,22 +754,26 @@ describe('Enhanced Context Operations Integration Tests', () => {
       it('should include item details when includeItems is true', () => {
         // Get timeline with items
         const periods = db
-          .prepare(`
+          .prepare(
+            `
             SELECT DATE(created_at) as period
             FROM context_items 
             WHERE session_id = ?
             GROUP BY DATE(created_at)
             ORDER BY period DESC
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         const timeline = periods.map(period => {
           const items = db
-            .prepare(`
+            .prepare(
+              `
               SELECT * FROM context_items 
               WHERE session_id = ? AND DATE(created_at) = ?
               ORDER BY created_at DESC
-            `)
+            `
+            )
             .all(testSessionId, period.period) as any[];
 
           return {
@@ -784,22 +864,32 @@ describe('Enhanced Context Operations Integration Tests', () => {
         today.setHours(0, 0, 0, 0);
 
         const items = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ? AND created_at < ?')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND created_at >= ? AND created_at < ?'
+          )
           .all(testSessionId, yesterday.toISOString(), today.toISOString()) as any[];
 
         expect(items.some(i => i.key.includes('yesterday'))).toBe(true);
       });
 
       it('should handle "X hours ago" format', () => {
+        // Use a slightly earlier time to account for millisecond differences
         const twoHoursAgo = new Date();
         twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+        twoHoursAgo.setMinutes(twoHoursAgo.getMinutes() - 1); // Go back 1 minute to ensure we catch items at exactly 2 hours
 
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ?')
           .all(testSessionId, twoHoursAgo.toISOString()) as any[];
 
-        expect(items.some(i => i.key === 'recent_1')).toBe(true);
-        expect(items.some(i => i.key === 'recent_2')).toBe(false); // Created exactly 2 hours ago
+        // Check what items we actually got
+        const itemKeys = items.map(i => i.key);
+
+        // Should include items created 2 hours ago or less
+        expect(itemKeys).toContain('recent_1'); // 1 hour ago
+        expect(itemKeys).toContain('recent_2'); // 2 hours ago
+        // Should not include items created more than 2 hours ago
+        expect(itemKeys).not.toContain('today_1'); // 5 hours ago
       });
 
       it('should handle "X days ago" format', () => {
@@ -839,7 +929,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
         endOfLastWeek.setDate(endOfLastWeek.getDate() + 7);
 
         const items = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ? AND created_at < ?')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND created_at >= ? AND created_at < ?'
+          )
           .all(testSessionId, startOfLastWeek.toISOString(), endOfLastWeek.toISOString()) as any[];
 
         expect(items.some(i => i.key === 'week_ago_1')).toBe(true);
@@ -859,34 +951,41 @@ describe('Enhanced Context Operations Integration Tests', () => {
       it('should limit items per time period', () => {
         // Get periods with limited items
         const periods = db
-          .prepare(`
+          .prepare(
+            `
             SELECT DATE(created_at) as period
             FROM context_items 
             WHERE session_id = ?
             GROUP BY DATE(created_at)
             ORDER BY period DESC
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         const timeline = periods.map(period => {
           const items = db
-            .prepare(`
+            .prepare(
+              `
               SELECT * FROM context_items 
               WHERE session_id = ? AND DATE(created_at) = ?
               ORDER BY created_at DESC
               LIMIT 2
-            `)
+            `
+            )
             .all(testSessionId, period.period) as any[];
 
           return {
             period: period.period,
             items: items,
-            hasMore: db
-              .prepare(`
+            hasMore:
+              db
+                .prepare(
+                  `
                 SELECT COUNT(*) as total FROM context_items 
                 WHERE session_id = ? AND DATE(created_at) = ?
-              `)
-              .get(testSessionId, period.period).total > 2,
+              `
+                )
+                .get(testSessionId, period.period).total > 2,
           };
         });
 
@@ -899,10 +998,12 @@ describe('Enhanced Context Operations Integration Tests', () => {
         // Add many items to today
         const now = new Date();
         for (let i = 0; i < 10; i++) {
-          db.prepare(`
+          db.prepare(
+            `
             INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
             VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(
+          `
+          ).run(
             uuidv4(),
             testSessionId,
             `extra_item_${i}`,
@@ -914,10 +1015,12 @@ describe('Enhanced Context Operations Integration Tests', () => {
         }
 
         const todayCount = db
-          .prepare(`
+          .prepare(
+            `
             SELECT COUNT(*) as count FROM context_items 
             WHERE session_id = ? AND DATE(created_at) = DATE('now')
-          `)
+          `
+          )
           .get(testSessionId) as any;
 
         expect(todayCount.count).toBeGreaterThan(5);
@@ -925,21 +1028,25 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should show most recent items first in each period', () => {
         const periods = db
-          .prepare(`
+          .prepare(
+            `
             SELECT DATE(created_at) as period
             FROM context_items 
             WHERE session_id = ?
             GROUP BY DATE(created_at)
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         periods.forEach(period => {
           const items = db
-            .prepare(`
+            .prepare(
+              `
               SELECT * FROM context_items 
               WHERE session_id = ? AND DATE(created_at) = ?
               ORDER BY created_at DESC
-            `)
+            `
+            )
             .all(testSessionId, period.period) as any[];
 
           if (items.length > 1) {
@@ -956,7 +1063,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
     describe('groupBy parameter', () => {
       it('should group by hour', () => {
         const hourlyGroups = db
-          .prepare(`
+          .prepare(
+            `
             SELECT 
               strftime('%Y-%m-%d %H:00', created_at) as period,
               COUNT(*) as count
@@ -964,7 +1072,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
             WHERE session_id = ?
             GROUP BY strftime('%Y-%m-%d %H:00', created_at)
             ORDER BY period DESC
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         expect(hourlyGroups.length).toBeGreaterThan(0);
@@ -973,7 +1082,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should group by day (default)', () => {
         const dailyGroups = db
-          .prepare(`
+          .prepare(
+            `
             SELECT 
               DATE(created_at) as period,
               COUNT(*) as count
@@ -981,7 +1091,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
             WHERE session_id = ?
             GROUP BY DATE(created_at)
             ORDER BY period DESC
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         expect(dailyGroups.length).toBeGreaterThan(0);
@@ -990,7 +1101,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should group by week', () => {
         const weeklyGroups = db
-          .prepare(`
+          .prepare(
+            `
             SELECT 
               strftime('%Y-W%W', created_at) as period,
               COUNT(*) as count
@@ -998,7 +1110,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
             WHERE session_id = ?
             GROUP BY strftime('%Y-W%W', created_at)
             ORDER BY period DESC
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         expect(weeklyGroups.length).toBeGreaterThan(0);
@@ -1012,13 +1125,15 @@ describe('Enhanced Context Operations Integration Tests', () => {
         twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
 
         const items = db
-          .prepare(`
+          .prepare(
+            `
             SELECT * FROM context_items 
             WHERE session_id = ? 
               AND category IN (?, ?)
               AND created_at >= ?
             ORDER BY created_at DESC
-          `)
+          `
+          )
           .all(testSessionId, 'task', 'note', twoDaysAgo.toISOString()) as any[];
 
         expect(items.length).toBeGreaterThan(0);
@@ -1027,30 +1142,36 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should combine includeItems with itemsPerPeriod', () => {
         const periods = db
-          .prepare(`
+          .prepare(
+            `
             SELECT DATE(created_at) as period
             FROM context_items 
             WHERE session_id = ?
             GROUP BY DATE(created_at)
             ORDER BY period DESC
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         const timeline = periods.map(period => {
           const allItems = db
-            .prepare(`
+            .prepare(
+              `
               SELECT COUNT(*) as total FROM context_items 
               WHERE session_id = ? AND DATE(created_at) = ?
-            `)
+            `
+            )
             .get(testSessionId, period.period) as any;
 
           const items = db
-            .prepare(`
+            .prepare(
+              `
               SELECT * FROM context_items 
               WHERE session_id = ? AND DATE(created_at) = ?
               ORDER BY created_at DESC
               LIMIT 3
-            `)
+            `
+            )
             .all(testSessionId, period.period) as any[];
 
           return {
@@ -1083,7 +1204,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
         startDate.setDate(startDate.getDate() - 7);
 
         const items = db
-          .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ? AND created_at <= ?')
+          .prepare(
+            'SELECT * FROM context_items WHERE session_id = ? AND created_at >= ? AND created_at <= ?'
+          )
           .all(testSessionId, startDate.toISOString(), endDate.toISOString()) as any[];
 
         expect(items.length).toBeGreaterThan(0);
@@ -1093,7 +1216,10 @@ describe('Enhanced Context Operations Integration Tests', () => {
     describe('Edge cases', () => {
       it('should handle empty timeline gracefully', () => {
         const emptySessionId = uuidv4();
-        db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(emptySessionId, 'Empty Session');
+        db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+          emptySessionId,
+          'Empty Session'
+        );
 
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ?')
@@ -1115,29 +1241,35 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       it('should handle very large itemsPerPeriod values', () => {
         const periods = db
-          .prepare(`
+          .prepare(
+            `
             SELECT DATE(created_at) as period
             FROM context_items 
             WHERE session_id = ?
             GROUP BY DATE(created_at)
-          `)
+          `
+          )
           .all(testSessionId) as any[];
 
         periods.forEach(period => {
           const items = db
-            .prepare(`
+            .prepare(
+              `
               SELECT * FROM context_items 
               WHERE session_id = ? AND DATE(created_at) = ?
               ORDER BY created_at DESC
               LIMIT 99999
-            `)
+            `
+            )
             .all(testSessionId, period.period) as any[];
 
           const totalCount = db
-            .prepare(`
+            .prepare(
+              `
               SELECT COUNT(*) as count FROM context_items 
               WHERE session_id = ? AND DATE(created_at) = ?
-            `)
+            `
+            )
             .get(testSessionId, period.period) as any;
 
           expect(items).toHaveLength(totalCount.count);
@@ -1150,13 +1282,15 @@ describe('Enhanced Context Operations Integration Tests', () => {
     it('should handle large datasets efficiently', () => {
       // Add many items
       const startTime = Date.now();
-      
+
       db.transaction(() => {
         for (let i = 0; i < 1000; i++) {
-          db.prepare(`
+          db.prepare(
+            `
             INSERT INTO context_items (id, session_id, key, value, category, priority) 
             VALUES (?, ?, ?, ?, ?, ?)
-          `).run(
+          `
+          ).run(
             uuidv4(),
             testSessionId,
             `perf_test_${i}`,
@@ -1172,16 +1306,18 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
       // Test query performance
       const queryStartTime = Date.now();
-      
+
       const items = db
-        .prepare(`
+        .prepare(
+          `
           SELECT * FROM context_items 
           WHERE session_id = ? 
             AND category = ?
             AND priority = ?
           ORDER BY created_at DESC
           LIMIT 50 OFFSET 100
-        `)
+        `
+        )
         .all(testSessionId, 'task', 'high') as any[];
 
       const queryTime = Date.now() - queryStartTime;
@@ -1192,7 +1328,9 @@ describe('Enhanced Context Operations Integration Tests', () => {
     it('should use indexes effectively', () => {
       // Check that indexes exist
       const indexes = db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'context_items'")
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'context_items'"
+        )
         .all() as any[];
 
       expect(indexes.length).toBeGreaterThan(0);

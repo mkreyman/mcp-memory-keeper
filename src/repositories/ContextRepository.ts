@@ -332,7 +332,7 @@ export class ContextRepository extends BaseRepository {
         .replace(/\*/g, '*') // * stays as wildcard
         .replace(/^\^/, '') // Remove start anchor
         .replace(/\$$/, ''); // Remove end anchor
-      
+
       sql += ' AND key GLOB ?';
       params.push(globPattern);
     }
@@ -350,12 +350,12 @@ export class ContextRepository extends BaseRepository {
 
     // Add sorting
     const sortMap: Record<string, string> = {
-      'created_at_desc': 'created_at DESC',
-      'created_at_asc': 'created_at ASC',
-      'updated_at_desc': 'updated_at DESC',
-      'updated_at_asc': 'updated_at ASC',
-      'key_asc': 'key ASC',
-      'key_desc': 'key DESC',
+      created_at_desc: 'created_at DESC',
+      created_at_asc: 'created_at ASC',
+      updated_at_desc: 'updated_at DESC',
+      updated_at_asc: 'updated_at ASC',
+      key_asc: 'key ASC',
+      key_desc: 'key DESC',
     };
 
     sql += ` ORDER BY ${sortMap[sort] || 'created_at DESC'}`;
@@ -478,7 +478,7 @@ export class ContextRepository extends BaseRepository {
         if (period.item_ids) {
           const itemIds = period.item_ids.split(',');
           let itemsToFetch = itemIds;
-          
+
           // Limit items per period if specified
           if (itemsPerPeriod && itemIds.length > itemsPerPeriod) {
             itemsToFetch = itemIds.slice(0, itemsPerPeriod);
