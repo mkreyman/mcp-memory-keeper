@@ -485,9 +485,88 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
     }
 
     case 'context_get': {
-      const { key, category, sessionId: specificSessionId } = args;
+      const {
+        key,
+        category,
+        sessionId: specificSessionId,
+        includeMetadata,
+        sort,
+        limit,
+        offset,
+        createdAfter,
+        createdBefore,
+        keyPattern,
+        priorities,
+      } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
+      // Use new enhanced query for complex queries
+      if (sort || limit || offset || createdAfter || createdBefore || keyPattern || priorities) {
+        const result = repositories.contexts.queryEnhanced({
+          sessionId: targetSessionId,
+          key,
+          category,
+          sort,
+          limit,
+          offset,
+          createdAfter,
+          createdBefore,
+          keyPattern,
+          priorities,
+          includeMetadata,
+        });
+
+        if (result.items.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'No matching context found',
+              },
+            ],
+          };
+        }
+
+        // Enhanced response format
+        if (includeMetadata) {
+          const itemsWithMetadata = result.items.map(item => ({
+            key: item.key,
+            value: item.value,
+            category: item.category,
+            priority: item.priority,
+            metadata: item.metadata ? JSON.parse(item.metadata) : null,
+            size: item.size || calculateSize(item.value),
+            created_at: item.created_at,
+            updated_at: item.updated_at,
+          }));
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  items: itemsWithMetadata,
+                  totalCount: result.totalCount,
+                  page: offset && limit ? Math.floor(offset / limit) + 1 : 1,
+                  pageSize: limit || result.items.length,
+                }, null, 2),
+              },
+            ],
+          };
+        }
+
+        // Return items array for backward compatibility when using enhanced features
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result.items),
+            },
+          ],
+        };
+      }
+
+      // Backward compatible simple queries
       let rows;
       if (key) {
         // Use getAccessibleByKey to respect privacy
@@ -1978,99 +2057,131 @@ Entry saved with ID: ${id.substring(0, 8)}`,
 
     // Phase 4.4: Timeline
     case 'context_timeline': {
-      const { startDate, endDate, groupBy = 'day', sessionId } = args;
+      const {
+        startDate,
+        endDate,
+        groupBy = 'day',
+        sessionId,
+        categories,
+        relativeTime,
+        itemsPerPeriod,
+        includeItems,
+      } = args;
       const targetSessionId = sessionId || ensureSession();
 
       try {
-        let query = `
-          SELECT 
-            strftime('%Y-%m-%d', created_at) as date,
-            strftime('%H', created_at) as hour,
-            COUNT(*) as count,
-            category
-          FROM context_items
-          WHERE session_id = ?
-        `;
-        const params: any[] = [targetSessionId];
-
-        if (startDate) {
-          query += ' AND created_at >= ?';
-          params.push(startDate);
-        }
-        if (endDate) {
-          query += ' AND created_at <= ?';
-          params.push(endDate);
-        }
-
-        if (groupBy === 'hour') {
-          query += ' GROUP BY date, hour, category ORDER BY date, hour';
-        } else if (groupBy === 'week') {
-          query = query.replace(
-            "strftime('%Y-%m-%d', created_at)",
-            "strftime('%Y-W%W', created_at)"
-          );
-          query += ' GROUP BY date, category ORDER BY date';
-        } else {
-          query += ' GROUP BY date, category ORDER BY date';
-        }
-
-        const timeline = db.prepare(query).all(...params) as any[];
+        // Use the enhanced timeline method
+        const timeline = repositories.contexts.getTimelineData({
+          sessionId: targetSessionId,
+          startDate,
+          endDate,
+          categories,
+          relativeTime,
+          itemsPerPeriod,
+          includeItems,
+          groupBy,
+        });
 
         // Get journal entries for the same period
         let journalQuery = 'SELECT * FROM journal_entries WHERE session_id = ?';
         const journalParams: any[] = [targetSessionId];
 
-        if (startDate) {
-          journalQuery += ' AND created_at >= ?';
-          journalParams.push(startDate);
+        // Calculate effective dates based on relativeTime if needed
+        let effectiveStartDate = startDate;
+        let effectiveEndDate = endDate;
+
+        if (relativeTime) {
+          const now = new Date();
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+          if (relativeTime === 'today') {
+            effectiveStartDate = today.toISOString();
+            effectiveEndDate = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString();
+          } else if (relativeTime === 'yesterday') {
+            const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+            effectiveStartDate = yesterday.toISOString();
+            effectiveEndDate = today.toISOString();
+          } else if (relativeTime.match(/^(\d+) hours? ago$/)) {
+            const hours = parseInt(relativeTime.match(/^(\d+)/)![1]);
+            effectiveStartDate = new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
+          } else if (relativeTime.match(/^(\d+) days? ago$/)) {
+            const days = parseInt(relativeTime.match(/^(\d+)/)![1]);
+            effectiveStartDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+          } else if (relativeTime === 'this week') {
+            const startOfWeek = new Date(today);
+            startOfWeek.setDate(today.getDate() - today.getDay());
+            effectiveStartDate = startOfWeek.toISOString();
+          } else if (relativeTime === 'last week') {
+            const startOfLastWeek = new Date(today);
+            startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
+            const endOfLastWeek = new Date(startOfLastWeek);
+            endOfLastWeek.setDate(startOfLastWeek.getDate() + 7);
+            effectiveStartDate = startOfLastWeek.toISOString();
+            effectiveEndDate = endOfLastWeek.toISOString();
+          }
         }
-        if (endDate) {
+
+        if (effectiveStartDate) {
+          journalQuery += ' AND created_at >= ?';
+          journalParams.push(effectiveStartDate);
+        }
+        if (effectiveEndDate) {
           journalQuery += ' AND created_at <= ?';
-          journalParams.push(endDate);
+          journalParams.push(effectiveEndDate);
         }
 
         const journals = db
           .prepare(journalQuery + ' ORDER BY created_at')
           .all(...journalParams) as any[];
 
-        // Format timeline
-        let response = `Timeline for session ${targetSessionId.substring(0, 8)}\n`;
-        response += `Period: ${startDate || 'beginning'} to ${endDate || 'now'}\n\n`;
+        // Format enhanced timeline response
+        const timelineData = {
+          session_id: targetSessionId,
+          period: {
+            start: effectiveStartDate || startDate || 'beginning',
+            end: effectiveEndDate || endDate || 'now',
+            relative: relativeTime || null,
+          },
+          groupBy,
+          filters: {
+            categories: categories || null,
+          },
+          timeline: timeline.map(period => {
+            const result: any = {
+              period: period.period,
+              count: period.count,
+            };
 
-        // Group by date
-        const dateGroups: Record<string, any> = {};
-        for (const item of timeline) {
-          if (!dateGroups[item.date]) {
-            dateGroups[item.date] = { categories: {}, total: 0 };
-          }
-          dateGroups[item.date].categories[item.category || 'uncategorized'] = item.count;
-          dateGroups[item.date].total += item.count;
-        }
+            if (includeItems && period.items) {
+              result.items = period.items.map((item: any) => ({
+                key: item.key,
+                value: item.value,
+                category: item.category,
+                priority: item.priority,
+                created_at: item.created_at,
+              }));
 
-        // Add timeline data
-        for (const [date, data] of Object.entries(dateGroups)) {
-          response += `\n${date}: ${data.total} items\n`;
-          for (const [category, count] of Object.entries(data.categories)) {
-            response += `  ${category}: ${count}\n`;
-          }
-        }
+              if (period.hasMore) {
+                result.hasMore = true;
+                result.totalCount = period.totalCount;
+              }
+            }
 
-        // Add journal entries
-        if (journals.length > 0) {
-          response += '\n## Journal Entries\n';
-          for (const journal of journals) {
-            const tags = JSON.parse(journal.tags || '[]');
-            response += `\n${journal.created_at.substring(0, 10)} - ${journal.mood || 'no mood'}\n`;
-            response += `Tags: ${tags.join(', ') || 'none'}\n`;
-            response += `${journal.entry}\n`;
-          }
-        }
+            return result;
+          }),
+          journal_entries: journals.map((journal: any) => ({
+            entry: journal.entry,
+            tags: JSON.parse(journal.tags || '[]'),
+            mood: journal.mood,
+            created_at: journal.created_at,
+          })),
+        };
 
         return {
           content: [
             {
               type: 'text',
-              text: response,
+              text: JSON.stringify(timelineData, null, 2),
             },
           ],
         };
