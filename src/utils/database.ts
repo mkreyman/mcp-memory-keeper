@@ -61,6 +61,7 @@ export class DatabaseManager {
         branch TEXT,
         working_directory TEXT,
         parent_id TEXT,
+        default_channel TEXT DEFAULT 'general',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (parent_id) REFERENCES sessions(id)
@@ -77,6 +78,7 @@ export class DatabaseManager {
         metadata TEXT,
         size INTEGER DEFAULT 0,
         is_private INTEGER DEFAULT 0,
+        channel TEXT DEFAULT 'general',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
@@ -133,6 +135,7 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_context_items_category ON context_items(category);
       CREATE INDEX IF NOT EXISTS idx_context_items_priority ON context_items(priority);
       CREATE INDEX IF NOT EXISTS idx_context_items_private ON context_items(is_private);
+      CREATE INDEX IF NOT EXISTS idx_context_items_channel ON context_items(channel);
       CREATE INDEX IF NOT EXISTS idx_file_cache_session ON file_cache(session_id);
       CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id);
 

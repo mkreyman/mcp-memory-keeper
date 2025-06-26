@@ -14,6 +14,7 @@ import { FeatureFlagManager } from './utils/feature-flags.js';
 import { MigrationManager } from './utils/migrations.js';
 import { RepositoryManager } from './repositories/RepositoryManager.js';
 import { simpleGit } from 'simple-git';
+import { deriveDefaultChannel } from './utils/channels.js';
 
 // Initialize database with migrations
 const dbManager = new DatabaseManager({ filename: 'context.db' });
@@ -188,7 +189,7 @@ function createSummary(
 const server = new Server(
   {
     name: 'memory-keeper',
-    version: '0.8.1',
+    version: '0.10.0',
   },
   {
     capabilities: {
@@ -205,7 +206,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
   switch (toolName) {
     // Session Management
     case 'context_session_start': {
-      const { name, description, continueFrom, projectDir } = args;
+      const { name, description, continueFrom, projectDir, defaultChannel } = args;
 
       // Project directory will be saved with the session if provided
 
@@ -228,12 +229,19 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         // Ignore git errors
       }
 
+      // Derive default channel if not provided
+      let channel = defaultChannel;
+      if (!channel) {
+        channel = deriveDefaultChannel(branch || undefined, name || undefined);
+      }
+
       // Create new session using repository
       const session = repositories.sessions.create({
         name: name || `Session ${new Date().toISOString()}`,
         description: description || '',
         branch: branch || undefined,
         working_directory: projectDir || undefined,
+        defaultChannel: channel,
       });
 
       // Copy context from previous session if specified
@@ -243,7 +251,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
       currentSessionId = session.id;
 
-      let statusMessage = `Started new session: ${session.id}\nName: ${name || 'Unnamed'}`;
+      let statusMessage = `Started new session: ${session.id}\nName: ${name || 'Unnamed'}\nChannel: ${channel}`;
 
       if (projectDir) {
         statusMessage += `\nProject directory: ${projectDir}`;
@@ -373,7 +381,14 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
     // Enhanced Context Storage
     case 'context_save': {
-      const { key, value, category, priority = 'normal', private: isPrivate = false } = args;
+      const {
+        key,
+        value,
+        category,
+        priority = 'normal',
+        private: isPrivate = false,
+        channel,
+      } = args;
 
       try {
         const sessionId = ensureSession();
@@ -394,6 +409,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             category,
             priority: priority as 'high' | 'normal' | 'low',
             isPrivate,
+            channel,
           });
 
           return {
@@ -412,6 +428,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           category,
           priority: priority as 'high' | 'normal' | 'low',
           isPrivate,
+          channel,
         });
 
         // Create embedding for semantic search
@@ -428,7 +445,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           content: [
             {
               type: 'text',
-              text: `Saved: ${key}\nCategory: ${category || 'none'}\nPriority: ${priority}\nSession: ${sessionId.substring(0, 8)}`,
+              text: `Saved: ${key}\nCategory: ${category || 'none'}\nPriority: ${priority}\nChannel: ${contextItem.channel || 'general'}\nSession: ${sessionId.substring(0, 8)}`,
             },
           ],
         };
@@ -451,6 +468,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
               category,
               priority: priority as 'high' | 'normal' | 'low',
               isPrivate,
+              channel,
             });
 
             return {
@@ -488,6 +506,8 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       const {
         key,
         category,
+        channel,
+        channels,
         sessionId: specificSessionId,
         includeMetadata,
         sort,
@@ -501,11 +521,23 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
       // Use new enhanced query for complex queries
-      if (sort || limit || offset || createdAfter || createdBefore || keyPattern || priorities) {
+      if (
+        sort ||
+        limit ||
+        offset ||
+        createdAfter ||
+        createdBefore ||
+        keyPattern ||
+        priorities ||
+        channel ||
+        channels
+      ) {
         const result = repositories.contexts.queryEnhanced({
           sessionId: targetSessionId,
           key,
           category,
+          channel,
+          channels,
           sort,
           limit,
           offset,
@@ -534,6 +566,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             value: item.value,
             category: item.category,
             priority: item.priority,
+            channel: item.channel,
             metadata: item.metadata ? JSON.parse(item.metadata) : null,
             size: item.size || calculateSize(item.value),
             created_at: item.created_at,
@@ -2545,6 +2578,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 'Project directory path for git tracking (e.g., "/path/to/your/project")',
             },
+            defaultChannel: {
+              type: 'string',
+              description:
+                'Default channel for context items (auto-derived from git branch if not provided)',
+            },
           },
         },
       },
@@ -2603,6 +2641,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 'If true, item is only accessible from the current session. Default: false (accessible from all sessions)',
               default: false,
             },
+            channel: {
+              type: 'string',
+              description: 'Channel to organize this item (uses session default if not provided)',
+            },
           },
           required: ['key', 'value'],
         },
@@ -2610,13 +2652,47 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'context_get',
         description:
-          'Retrieve saved context by key, category, or session. Returns all accessible items (public items + own private items)',
+          'Retrieve saved context by key, category, or session with enhanced filtering. Returns all accessible items (public items + own private items)',
         inputSchema: {
           type: 'object',
           properties: {
             key: { type: 'string', description: 'Specific key to retrieve' },
             category: { type: 'string', description: 'Filter by category' },
             sessionId: { type: 'string', description: 'Specific session ID (defaults to current)' },
+            channel: { type: 'string', description: 'Filter by single channel' },
+            channels: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by multiple channels',
+            },
+            includeMetadata: {
+              type: 'boolean',
+              description: 'Include timestamps and size info',
+            },
+            sort: {
+              type: 'string',
+              enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
+              description: 'Sort order for results',
+            },
+            limit: { type: 'number', description: 'Maximum items to return' },
+            offset: { type: 'number', description: 'Pagination offset' },
+            createdAfter: {
+              type: 'string',
+              description: 'ISO date - items created after this time',
+            },
+            createdBefore: {
+              type: 'string',
+              description: 'ISO date - items created before this time',
+            },
+            keyPattern: {
+              type: 'string',
+              description: 'Regex pattern for key matching',
+            },
+            priorities: {
+              type: 'array',
+              items: { type: 'string', enum: ['high', 'normal', 'low'] },
+              description: 'Filter by priority levels',
+            },
           },
         },
       },
@@ -3089,6 +3165,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             sessionId: {
               type: 'string',
               description: 'Session to analyze (defaults to current)',
+            },
+            includeItems: {
+              type: 'boolean',
+              description: 'Include item details in timeline',
+            },
+            categories: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by categories',
+            },
+            relativeTime: {
+              type: 'string',
+              description: 'Natural language time (e.g., "2 hours ago", "today")',
+            },
+            itemsPerPeriod: {
+              type: 'number',
+              description: 'Max items per time period',
             },
           },
         },

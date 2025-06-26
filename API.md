@@ -25,6 +25,8 @@ Start a new session or continue from a previous one.
   name?: string;           // Optional session name
   description?: string;    // Optional session description
   continueFrom?: string;   // Previous session ID to continue from
+  projectDir?: string;     // Project directory for git tracking
+  defaultChannel?: string; // Default channel for context items (auto-derived from git branch if not specified)
 }
 ```
 
@@ -98,6 +100,7 @@ Save context information with categories and priorities.
   priority?: 'critical' | 'high' | 'normal' | 'low';
   metadata?: any;          // Additional JSON metadata
   private?: boolean;       // If true, item is only visible in current session (default: false - shared across all sessions)
+  channel?: string;        // Channel to save to (default: session's defaultChannel or auto-derived from git branch)
 }
 ```
 
@@ -140,9 +143,17 @@ Retrieve context items with flexible filtering. By default, returns all accessib
 {
   key?: string;            // Specific key to retrieve
   category?: string;       // Filter by category
-  priority?: string;       // Filter by priority
+  priority?: string;       // Filter by priority (deprecated - use priorities)
+  priorities?: string[];   // Filter by multiple priorities (NEW v0.10.0)
   sessionId?: string;      // Specific session (default: current)
   limit?: number;          // Maximum items to return
+  offset?: number;         // Pagination offset (NEW v0.10.0)
+  channel?: string;        // Filter by channel (NEW v0.10.0)
+  includeMetadata?: boolean; // Include timestamps and size info (NEW v0.10.0)
+  sort?: 'created_asc' | 'created_desc' | 'updated_asc' | 'updated_desc' | 'priority'; // Sort order (NEW v0.10.0)
+  createdAfter?: string;   // ISO date - items created after this time (NEW v0.10.0)
+  createdBefore?: string;  // ISO date - items created before this time (NEW v0.10.0)
+  keyPattern?: string;     // Regex pattern to match keys (NEW v0.10.0)
 }
 ```
 
@@ -157,9 +168,42 @@ Retrieve context items with flexible filtering. By default, returns all accessib
     priority?: string;
     metadata?: any;
     createdAt: string;
+    updatedAt?: string;      // When includeMetadata: true
+    size?: number;           // When includeMetadata: true
+    channel?: string;        // When includeMetadata: true
   }>;
   count: number;
 }
+```
+
+**Examples:**
+```typescript
+// Get items from specific channel
+await context_get({ 
+  channel: "feature-auth" 
+});
+
+// Get recent high-priority items with metadata
+await context_get({
+  priorities: ["high", "critical"],
+  createdAfter: new Date(Date.now() - 24*60*60*1000).toISOString(),
+  includeMetadata: true,
+  sort: "created_desc"
+});
+
+// Paginated results
+await context_get({
+  category: "task",
+  limit: 20,
+  offset: 40,  // Skip first 40 items
+  sort: "priority"
+});
+
+// Pattern matching
+await context_get({
+  keyPattern: "auth_.*|login_.*",
+  channel: "feature-auth"
+});
 ```
 
 ### context_delete
@@ -733,6 +777,10 @@ Generate timeline view of activity.
   groupBy?: 'hour' | 'day' | 'week';
   includeJournals?: boolean;
   sessionId?: string;
+  includeItems?: boolean;  // Include actual items, not just counts (NEW v0.10.0)
+  categories?: string[];   // Filter by specific categories (NEW v0.10.0)
+  relativeTime?: boolean;  // Show "2 hours ago" format (NEW v0.10.0)
+  itemsPerPeriod?: number; // Max items to show per period (NEW v0.10.0)
 }
 ```
 
@@ -743,9 +791,19 @@ Generate timeline view of activity.
     period: string;        // Period label
     startTime: string;     // Period start
     endTime: string;       // Period end
+    relativeTime?: string; // When relativeTime: true (NEW v0.10.0)
     items: {
       total: number;
       byCategory: Record<string, number>;
+      details?: Array<{    // When includeItems: true (NEW v0.10.0)
+        id: string;
+        key: string;
+        value: string;
+        category?: string;
+        priority?: string;
+        channel?: string;
+        createdAt: string;
+      }>;
     };
     journals: Array<{
       id: string;
@@ -762,6 +820,31 @@ Generate timeline view of activity.
     mostActiveperiod: string;
   };
 }
+```
+
+**Examples:**
+```typescript
+// Basic timeline for today
+await context_timeline({
+  groupBy: "hour"
+});
+
+// Detailed timeline with items
+await context_timeline({
+  startDate: "2025-01-20T00:00:00Z",
+  endDate: "2025-01-26T23:59:59Z",
+  groupBy: "day",
+  includeItems: true,
+  categories: ["task", "progress"],
+  itemsPerPeriod: 10
+});
+
+// Timeline with relative times
+await context_timeline({
+  groupBy: "hour",
+  relativeTime: true,
+  includeItems: true
+});
 ```
 
 ### context_compress

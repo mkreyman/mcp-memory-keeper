@@ -6,10 +6,18 @@ export class ContextRepository extends BaseRepository {
     const id = this.generateId();
     const size = this.calculateSize(input.value);
 
+    // Determine channel - use explicit channel, or session default, or 'general'
+    let channel = input.channel;
+    if (!channel) {
+      const sessionStmt = this.db.prepare('SELECT default_channel FROM sessions WHERE id = ?');
+      const session = sessionStmt.get(sessionId) as any;
+      channel = session?.default_channel || 'general';
+    }
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO context_items 
-      (id, session_id, key, value, category, priority, metadata, size, is_private)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, session_id, key, value, category, priority, metadata, size, is_private, channel)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -21,7 +29,8 @@ export class ContextRepository extends BaseRepository {
       input.priority || 'normal',
       input.metadata || null,
       size,
-      input.isPrivate ? 1 : 0
+      input.isPrivate ? 1 : 0,
+      channel
     );
 
     return this.getById(id)!;
@@ -134,8 +143,8 @@ export class ContextRepository extends BaseRepository {
 
   copyBetweenSessions(fromSessionId: string, toSessionId: string): number {
     const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO context_items (id, session_id, key, value, category, priority, metadata, size, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT OR IGNORE INTO context_items (id, session_id, key, value, category, priority, metadata, size, is_private, channel, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
 
     const items = this.getBySessionId(fromSessionId);
@@ -152,6 +161,8 @@ export class ContextRepository extends BaseRepository {
           item.priority,
           item.metadata,
           item.size,
+          item.is_private,
+          item.channel || 'general',
           item.created_at
         );
         copied++;
@@ -269,11 +280,48 @@ export class ContextRepository extends BaseRepository {
     };
   }
 
+  // Get items by channel
+  getByChannel(sessionId: string, channel: string): ContextItem[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM context_items 
+      WHERE session_id = ? AND channel = ?
+      ORDER BY priority DESC, created_at DESC
+    `);
+    return stmt.all(sessionId, channel) as ContextItem[];
+  }
+
+  // Get items by multiple channels
+  getByChannels(sessionId: string, channels: string[]): ContextItem[] {
+    if (channels.length === 0) {
+      return [];
+    }
+
+    const placeholders = channels.map(() => '?').join(',');
+    const stmt = this.db.prepare(`
+      SELECT * FROM context_items 
+      WHERE session_id = ? AND channel IN (${placeholders})
+      ORDER BY priority DESC, created_at DESC
+    `);
+    return stmt.all(sessionId, ...channels) as ContextItem[];
+  }
+
+  // Get items by channel across all sessions
+  getByChannelAcrossSessions(channel: string): ContextItem[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM context_items 
+      WHERE channel = ? AND is_private = 0
+      ORDER BY priority DESC, created_at DESC
+    `);
+    return stmt.all(channel) as ContextItem[];
+  }
+
   // Enhanced query method with all new parameters
   queryEnhanced(options: {
     sessionId: string;
     key?: string;
     category?: string;
+    channel?: string;
+    channels?: string[];
     sort?: string;
     limit?: number;
     offset?: number;
@@ -287,6 +335,8 @@ export class ContextRepository extends BaseRepository {
       sessionId,
       key,
       category,
+      channel,
+      channels,
       sort = 'created_at_desc',
       limit,
       offset = 0,
@@ -312,6 +362,16 @@ export class ContextRepository extends BaseRepository {
     if (category) {
       sql += ' AND category = ?';
       params.push(category);
+    }
+
+    if (channel) {
+      sql += ' AND channel = ?';
+      params.push(channel);
+    }
+
+    if (channels && channels.length > 0) {
+      sql += ` AND channel IN (${channels.map(() => '?').join(',')})`;
+      params.push(...channels);
     }
 
     if (createdAfter) {

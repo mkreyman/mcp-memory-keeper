@@ -9,6 +9,7 @@ export interface Session {
   parent_id?: string;
   created_at: string;
   updated_at: string;
+  default_channel?: string;
 }
 
 export interface ContextItem {
@@ -23,6 +24,7 @@ export interface ContextItem {
   is_private: number; // 0 = public, 1 = private
   created_at: string;
   updated_at: string;
+  channel?: string;
 }
 
 export interface FileCache {
@@ -95,6 +97,7 @@ export interface CreateContextItemInput {
   priority?: 'high' | 'normal' | 'low';
   metadata?: string;
   isPrivate?: boolean;
+  channel?: string;
 }
 
 export interface CreateSessionInput {
@@ -103,6 +106,7 @@ export interface CreateSessionInput {
   branch?: string;
   working_directory?: string;
   parent_id?: string;
+  defaultChannel?: string;
 }
 
 export interface CreateFileCacheInput {
