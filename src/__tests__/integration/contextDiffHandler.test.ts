@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { DatabaseManager } from '../../utils/database';
 import { RepositoryManager } from '../../repositories/RepositoryManager';
+import { DatabaseTestHelper } from '../helpers/database-test-helper';
 import { ensureSQLiteFormat } from '../../utils/timestamps';
 import * as os from 'os';
 import * as path from 'path';
@@ -23,6 +24,7 @@ describe('Context Diff Handler Integration Tests', () => {
   let repositories: RepositoryManager;
   let tempDbPath: string;
   let db: any;
+  let testHelper: DatabaseTestHelper;
   let testSessionId: string;
   let otherSessionId: string;
   let currentSessionId: string | null = null;
@@ -184,6 +186,7 @@ describe('Context Diff Handler Integration Tests', () => {
     });
     db = dbManager.getDatabase();
     repositories = new RepositoryManager(dbManager);
+    testHelper = new DatabaseTestHelper(db);
 
     // Create test sessions
     testSessionId = uuidv4();
@@ -212,6 +215,9 @@ describe('Context Diff Handler Integration Tests', () => {
       // Add items at different times
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+
+      // Disable triggers to control timestamps precisely
+      testHelper.disableTimestampTriggers();
 
       // Use direct SQL to create items with specific timestamps (SQLite format)
       db.prepare(
@@ -243,6 +249,9 @@ describe('Context Diff Handler Integration Tests', () => {
         'Created 30 minutes ago'.length,
         'general'
       );
+
+      // Re-enable triggers
+      testHelper.enableTimestampTriggers();
 
       // Call handler without 'since' parameter
       const result = await mockContextDiffHandler({
@@ -527,6 +536,9 @@ describe('Context Diff Handler Integration Tests', () => {
     it('should compare against checkpoint by name', async () => {
       const baseTime = new Date(Date.now() - 60 * 60 * 1000);
 
+      // Disable triggers to control timestamps precisely
+      testHelper.disableTimestampTriggers();
+
       // Create items at a specific past time using direct SQL with proper timestamps
       const item1Id = uuidv4();
       const item2Id = uuidv4();
@@ -656,6 +668,9 @@ describe('Context Diff Handler Integration Tests', () => {
       expect(response.deleted).toContain('item3');
 
       expect(response.summary).toBe('1 added, 1 modified, 1 deleted');
+
+      // Re-enable triggers
+      testHelper.enableTimestampTriggers();
     });
 
     it('should compare against checkpoint by ID', async () => {
@@ -716,6 +731,9 @@ describe('Context Diff Handler Integration Tests', () => {
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
       const fourHoursAgo = new Date(now.getTime() - 4 * 60 * 60 * 1000);
 
+      // Disable triggers to control timestamps precisely
+      testHelper.disableTimestampTriggers();
+
       // Create diverse items for filtering tests
       const items = [
         {
@@ -775,6 +793,9 @@ describe('Context Diff Handler Integration Tests', () => {
           0
         );
       }
+
+      // Re-enable triggers
+      testHelper.enableTimestampTriggers();
     });
 
     it('should filter by category', async () => {
@@ -1364,6 +1385,9 @@ describe('Context Diff Handler Integration Tests', () => {
     });
 
     it('should generate accurate summary for large datasets', async () => {
+      // Disable triggers at the beginning to control all timestamps
+      testHelper.disableTimestampTriggers();
+
       const baseTime = new Date(Date.now() - 1 * 60 * 60 * 1000);
       const beforeCheckpointTime = ensureSQLiteFormat(
         new Date(baseTime.getTime() - 30 * 60 * 1000).toISOString()
@@ -1511,6 +1535,9 @@ describe('Context Diff Handler Integration Tests', () => {
       expect(response.summary).toBe(
         `${itemsToAdd} added, ${itemsToModify} modified, ${itemsToDelete} deleted`
       );
+
+      // Re-enable triggers
+      testHelper.enableTimestampTriggers();
     });
   });
 

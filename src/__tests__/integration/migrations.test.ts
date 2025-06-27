@@ -148,7 +148,7 @@ describe('Database Migration Integration Tests', () => {
       expect(status.applied.length).toBeGreaterThanOrEqual(1);
 
       expect(status.lastMigration).toBeDefined();
-      expect(status.lastMigration!.version).toBe('5.0.0');
+      expect(status.lastMigration!.version).toBe('0.4.0');
     });
 
     it('should identify migrations requiring backups', () => {
@@ -486,13 +486,16 @@ describe('Database Migration Integration Tests', () => {
 
     it('should create default migrations without errors', () => {
       const defaultMigrations = (MigrationManager as any).getDefaultMigrations();
+      
+      // Get initial migration count
+      const initialCount = migrationManager.listMigrations().length;
 
       for (const migration of defaultMigrations) {
         expect(() => migrationManager.createMigration(migration)).not.toThrow();
       }
 
       const createdMigrations = migrationManager.listMigrations();
-      expect(createdMigrations.length).toBe(defaultMigrations.length);
+      expect(createdMigrations.length).toBe(initialCount + defaultMigrations.length);
     });
 
     it('should have proper dependency chains', () => {

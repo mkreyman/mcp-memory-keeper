@@ -1678,7 +1678,7 @@ describe('Context Watch Handler Integration Tests', () => {
       const createResult = await mockContextWatchHandler({
         action: 'create',
         filters: {
-          keys: ['user_*_config', 'system.*.settings', 'data[?]'],
+          keys: ['user_*_config', 'system.*.settings', 'data?'],
         },
       });
       const { watcherId } = JSON.parse(createResult.content[0].text);
@@ -1686,8 +1686,9 @@ describe('Context Watch Handler Integration Tests', () => {
       // Add items
       repositories.contexts.save(testSessionId, { key: 'user_admin_config', value: 'matches' });
       repositories.contexts.save(testSessionId, { key: 'system.app.settings', value: 'matches' });
-      repositories.contexts.save(testSessionId, { key: 'data[1]', value: 'matches' });
-      repositories.contexts.save(testSessionId, { key: 'data[10]', value: 'no match' });
+      // Brackets are not allowed in keys, so use a different pattern
+      repositories.contexts.save(testSessionId, { key: 'data1', value: 'matches' });
+      repositories.contexts.save(testSessionId, { key: 'data10', value: 'no match' });
 
       // Poll
       const pollResult = await mockContextWatchHandler({
@@ -1701,7 +1702,7 @@ describe('Context Watch Handler Integration Tests', () => {
       const keys = response.changes.map((c: any) => c.key);
       expect(keys).toContain('user_admin_config');
       expect(keys).toContain('system.app.settings');
-      expect(keys).toContain('data[1]');
+      expect(keys).toContain('data1');
     });
 
     it('should handle very long values', async () => {

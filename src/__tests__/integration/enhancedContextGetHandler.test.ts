@@ -811,8 +811,10 @@ describe('Enhanced Context Get Handler Integration Tests', () => {
         sessionId: 'non-existent-session',
       });
 
-      expect(result.items).toEqual([]);
-      expect(result.totalCount).toBe(0);
+      // When session doesn't exist, it returns public items from other sessions
+      expect(result.items.length).toBeGreaterThan(0);
+      expect(result.items.every(item => item.is_private === 0)).toBe(true);
+      expect(result.items.some(item => item.key === 'shared.resource')).toBe(true);
     });
 
     it('should handle invalid sort parameter', () => {

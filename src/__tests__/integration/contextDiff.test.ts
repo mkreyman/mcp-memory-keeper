@@ -1,5 +1,6 @@
 import { DatabaseManager } from '../../utils/database';
 import { RepositoryManager } from '../../repositories/RepositoryManager';
+import { DatabaseTestHelper } from '../helpers/database-test-helper';
 import { toSQLiteTimestamp } from '../../utils/timestamps';
 import * as os from 'os';
 import * as path from 'path';
@@ -10,6 +11,7 @@ describe('Context Diff Integration Tests', () => {
   let dbManager: DatabaseManager;
   let tempDbPath: string;
   let db: any;
+  let testHelper: DatabaseTestHelper;
   let testSessionId: string;
   let otherSessionId: string;
   let repositories: any;
@@ -22,6 +24,7 @@ describe('Context Diff Integration Tests', () => {
       walMode: true,
     });
     db = dbManager.getDatabase();
+    testHelper = new DatabaseTestHelper(db);
     repositories = new RepositoryManager(dbManager);
 
     // Create test sessions
@@ -194,6 +197,9 @@ describe('Context Diff Integration Tests', () => {
 
   describe('Checkpoint-based Diff', () => {
     it('should compare against checkpoint using repository method', () => {
+      // Disable triggers to control timestamps precisely
+      testHelper.disableTimestampTriggers();
+      
       const checkpointTime = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
 
       // Create items at checkpoint time
@@ -247,6 +253,9 @@ describe('Context Diff Integration Tests', () => {
         testSessionId,
         'item3'
       );
+
+      // Re-enable triggers
+      testHelper.enableTimestampTriggers();
 
       // Use repository method to get diff
       const sinceTime = new Date(checkpointTime.getTime() + 1000); // 1 second after checkpoint

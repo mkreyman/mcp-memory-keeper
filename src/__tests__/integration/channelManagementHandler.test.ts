@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { DatabaseManager } from '../../utils/database';
 import { RepositoryManager } from '../../repositories/RepositoryManager';
+import { DatabaseTestHelper } from '../helpers/database-test-helper';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -11,6 +12,7 @@ describe('Channel Management Handler Integration Tests', () => {
   let _repositories: RepositoryManager;
   let tempDbPath: string;
   let db: any;
+  let testHelper: DatabaseTestHelper;
   let testSessionId: string;
   let testSessionId2: string;
   let testSessionId3: string;
@@ -24,6 +26,7 @@ describe('Channel Management Handler Integration Tests', () => {
     });
     db = dbManager.getDatabase();
     _repositories = new RepositoryManager(dbManager);
+    testHelper = new DatabaseTestHelper(db);
 
     // Create test sessions with different channels
     testSessionId = uuidv4();
@@ -208,9 +211,13 @@ describe('Channel Management Handler Integration Tests', () => {
 
       // Insert all items
       const allItems = [...devItems, ...featureItems, ...prodItems, ...generalItems, ...emptyItems];
+      
+      // Disable triggers to control timestamps precisely
+      testHelper.disableTimestampTriggers();
+      
       const stmt = db.prepare(`
-        INSERT INTO context_items (id, session_id, key, value, channel, priority, category, created_at, is_private)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO context_items (id, session_id, key, value, channel, priority, category, created_at, updated_at, is_private, size)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const item of allItems) {
@@ -223,9 +230,14 @@ describe('Channel Management Handler Integration Tests', () => {
           item.priority,
           item.category,
           item.created_at,
-          item.is_private
+          item.created_at, // Set updated_at to match created_at
+          item.is_private,
+          item.value.length // size
         );
       }
+      
+      // Re-enable triggers
+      testHelper.enableTimestampTriggers();
     });
 
     describe('Basic listing functionality', () => {
@@ -699,6 +711,9 @@ describe('Channel Management Handler Integration Tests', () => {
         },
       ];
 
+      // Disable triggers to control timestamps precisely
+      testHelper.disableTimestampTriggers();
+
       const stmt = db.prepare(`
         INSERT INTO context_items (
           id, session_id, key, value, channel, priority, category, 
@@ -721,6 +736,9 @@ describe('Channel Management Handler Integration Tests', () => {
           Buffer.byteLength(item.value, 'utf8')
         );
       }
+      
+      // Re-enable triggers
+      testHelper.enableTimestampTriggers();
     });
 
     describe('Single channel statistics', () => {
@@ -820,6 +838,9 @@ describe('Channel Management Handler Integration Tests', () => {
       });
 
       it('should calculate activity metrics over time', () => {
+        // Disable triggers to have precise control over timestamps
+        testHelper.disableTimestampTriggers();
+        
         const now = new Date();
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -843,6 +864,9 @@ describe('Channel Management Handler Integration Tests', () => {
             oneWeekAgo.toISOString(),
             'dev-channel'
           ) as any;
+
+        // Re-enable triggers
+        testHelper.enableTimestampTriggers();
 
         expect(activityStats.items_last_24h).toBe(1); // Only dev_progress_1
         expect(activityStats.updates_last_24h).toBe(2); // dev_task_1 and dev_progress_1
@@ -945,6 +969,9 @@ describe('Channel Management Handler Integration Tests', () => {
       });
 
       it('should calculate channel health metrics', () => {
+        // Disable triggers to ensure consistent timestamp behavior
+        testHelper.disableTimestampTriggers();
+        
         const now = new Date();
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const _oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -968,6 +995,9 @@ describe('Channel Management Handler Integration Tests', () => {
         `
           )
           .all(oneDayAgo.toISOString(), oneDayAgo.toISOString()) as any[];
+
+        // Re-enable triggers
+        testHelper.enableTimestampTriggers();
 
         expect(healthMetrics).toHaveLength(3);
 
