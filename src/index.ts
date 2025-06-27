@@ -16,6 +16,7 @@ import { MigrationManager } from './utils/migrations.js';
 import { RepositoryManager } from './repositories/RepositoryManager.js';
 import { simpleGit } from 'simple-git';
 import { deriveDefaultChannel } from './utils/channels.js';
+import { handleContextWatch } from './handlers/contextWatchHandlers.js';
 
 // Initialize database with migrations
 const dbManager = new DatabaseManager({ filename: 'context.db' });
@@ -2917,6 +2918,11 @@ Event ID: ${id.substring(0, 8)}`,
       }
     }
 
+    // Context Watch functionality
+    case 'context_watch': {
+      return await handleContextWatch(args, repositories, ensureSession());
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -3741,6 +3747,63 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               default: false,
             },
           },
+        },
+      },
+      // Context Watch - Real-time monitoring
+      {
+        name: 'context_watch',
+        description: 'Create and manage watchers for real-time context change monitoring',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['create', 'poll', 'stop', 'list'],
+              description: 'Action to perform',
+            },
+            watcherId: {
+              type: 'string',
+              description: 'Watcher ID (required for poll/stop actions)',
+            },
+            filters: {
+              type: 'object',
+              description: 'Filters for watching specific changes (for create action)',
+              properties: {
+                keys: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Key patterns to watch (supports wildcards: *, ?)',
+                },
+                categories: {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+                  },
+                  description: 'Categories to watch',
+                },
+                channels: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Channels to watch',
+                },
+                priorities: {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['high', 'normal', 'low'],
+                  },
+                  description: 'Priority levels to watch',
+                },
+              },
+            },
+            pollTimeout: {
+              type: 'number',
+              description: 'Polling timeout in seconds (default: 30)',
+              default: 30,
+            },
+          },
+          required: ['action'],
         },
       },
     ],
