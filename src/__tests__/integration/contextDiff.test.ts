@@ -221,7 +221,7 @@ describe('Context Diff Integration Tests', () => {
 
       // Use repository method to get diff
       const sinceTime = new Date(checkpointTime.getTime() + 1000); // 1 second after checkpoint
-      
+
       const diff = repositories.contexts.getDiff({
         sessionId: testSessionId,
         sinceTimestamp: sinceTime.toISOString(),
