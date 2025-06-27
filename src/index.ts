@@ -1227,13 +1227,43 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
 
     // Phase 3: Context Search
     case 'context_search': {
-      const { query, searchIn: _searchIn = ['key', 'value'], sessionId: specificSessionId } = args;
+      const {
+        query,
+        searchIn = ['key', 'value'],
+        sessionId: specificSessionId,
+        category,
+        channel,
+        channels,
+        sort,
+        limit,
+        offset,
+        createdAfter,
+        createdBefore,
+        keyPattern,
+        priorities,
+        includeMetadata,
+      } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
-      // Use repository search method that respects privacy
-      const results = repositories.contexts.search(query, targetSessionId, true);
+      // Use enhanced search for all cases
+      const result = repositories.contexts.searchEnhanced({
+        query,
+        sessionId: targetSessionId,
+        searchIn,
+        category,
+        channel,
+        channels,
+        sort,
+        limit,
+        offset,
+        createdAfter,
+        createdBefore,
+        keyPattern,
+        priorities,
+        includeMetadata,
+      });
 
-      if (results.length === 0) {
+      if (result.items.length === 0) {
         return {
           content: [
             {
@@ -1244,7 +1274,42 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
         };
       }
 
-      const resultText = results
+      // Enhanced response format with metadata
+      if (includeMetadata) {
+        const itemsWithMetadata = result.items.map(item => ({
+          key: item.key,
+          value: item.value,
+          category: item.category,
+          priority: item.priority,
+          channel: item.channel,
+          metadata: item.metadata ? JSON.parse(item.metadata) : null,
+          size: item.size || calculateSize(item.value),
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        }));
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  items: itemsWithMetadata,
+                  totalCount: result.totalCount,
+                  page: offset && limit ? Math.floor(offset / limit) + 1 : 1,
+                  pageSize: limit || result.items.length,
+                  query,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      // Backward compatible format
+      const resultText = result.items
         .map(
           (r: any) =>
             `• [${r.priority}] ${r.key} (${r.category || 'none'})\n  ${r.value.substring(0, 100)}${r.value.length > 100 ? '...' : ''}`
@@ -1255,7 +1320,7 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
         content: [
           {
             type: 'text',
-            text: `Found ${results.length} results for "${query}":\n\n${resultText}`,
+            text: `Found ${result.items.length} results for "${query}":\n\n${resultText}`,
           },
         ],
       };
@@ -2822,7 +2887,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Phase 3: Search
       {
         name: 'context_search',
-        description: 'Search through saved context items',
+        description: 'Search through saved context items with advanced filtering',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2834,6 +2899,45 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               default: ['key', 'value'],
             },
             sessionId: { type: 'string', description: 'Session to search (defaults to current)' },
+            category: { type: 'string', description: 'Filter by category' },
+            channel: { type: 'string', description: 'Filter by single channel' },
+            channels: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by multiple channels',
+            },
+            createdAfter: {
+              type: 'string',
+              description: 'ISO date - items created after this time',
+            },
+            createdBefore: {
+              type: 'string',
+              description: 'ISO date - items created before this time',
+            },
+            relativeTime: {
+              type: 'string',
+              description: 'Natural language time (e.g., "2 hours ago", "yesterday")',
+            },
+            keyPattern: {
+              type: 'string',
+              description: 'Pattern for key matching (uses GLOB syntax)',
+            },
+            priorities: {
+              type: 'array',
+              items: { type: 'string', enum: ['high', 'normal', 'low'] },
+              description: 'Filter by priority levels',
+            },
+            sort: {
+              type: 'string',
+              enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
+              description: 'Sort order for results',
+            },
+            limit: { type: 'number', description: 'Maximum items to return' },
+            offset: { type: 'number', description: 'Pagination offset' },
+            includeMetadata: {
+              type: 'boolean',
+              description: 'Include timestamps and size info',
+            },
           },
           required: ['query'],
         },

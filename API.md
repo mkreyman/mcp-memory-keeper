@@ -334,34 +334,90 @@ Restore context from a checkpoint.
 
 ### context_search
 
-Full-text search across all context.
+Full-text search across context items with advanced filtering and sorting.
 
 **Parameters:**
 ```typescript
 {
-  query: string;           // Search query
-  searchIn?: ('key' | 'value')[];  // Fields to search (default: both)
-  categories?: string[];   // Filter by categories
-  sessionId?: string;      // Specific session or 'all'
-  limit?: number;          // Maximum results (default: 50)
+  query: string;           // Search query (required)
+  searchIn?: ('key' | 'value')[];  // Fields to search (default: ['key', 'value'])
+  sessionId?: string;      // Session to search (default: current)
+  
+  // Filtering options
+  category?: string;       // Filter by category
+  channel?: string;        // Filter by single channel
+  channels?: string[];     // Filter by multiple channels
+  priorities?: ('high' | 'normal' | 'low')[];  // Filter by priorities
+  keyPattern?: string;     // GLOB pattern for key matching (e.g., "user_*")
+  
+  // Time filtering
+  createdAfter?: string;   // ISO date string
+  createdBefore?: string;  // ISO date string
+  relativeTime?: string;   // Natural language time (e.g., "2 hours ago", "yesterday")
+  
+  // Sorting and pagination
+  sort?: 'created_desc' | 'created_asc' | 'updated_desc' | 'key_asc' | 'key_desc';
+  limit?: number;          // Maximum results
+  offset?: number;         // Pagination offset
+  includeMetadata?: boolean;  // Include detailed metadata
 }
 ```
 
-**Returns:**
+**Returns (without metadata):**
 ```typescript
 {
   results: Array<{
+    key: string;
+    value: string;
+    category?: string;
+    priority: string;
+  }>;
+}
+```
+
+**Returns (with metadata):**
+```typescript
+{
+  items: Array<{
     id: string;
     key: string;
     value: string;
     category?: string;
-    priority?: string;
-    sessionId: string;
-    score: number;        // Relevance score
-    highlight?: string;   // Highlighted match
+    priority: string;
+    channel: string;
+    created_at: string;
+    updated_at: string;
+    size: number;
+    metadata?: any;
   }>;
-  total: number;
+  totalCount: number;
+  page: number;
+  pageSize: number;
 }
+```
+
+**Examples:**
+```typescript
+// Simple search
+await context_search({ query: "api key" });
+
+// Search with time filtering
+await context_search({
+  query: "error",
+  relativeTime: "2 hours ago",
+  channel: "debugging"
+});
+
+// Advanced filtering with pagination
+await context_search({
+  query: "config",
+  keyPattern: "app_*",
+  priorities: ["high"],
+  sort: "created_desc",
+  limit: 20,
+  offset: 0,
+  includeMetadata: true
+});
 ```
 
 ### context_summarize

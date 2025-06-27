@@ -136,6 +136,8 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_context_items_priority ON context_items(priority);
       CREATE INDEX IF NOT EXISTS idx_context_items_private ON context_items(is_private);
       CREATE INDEX IF NOT EXISTS idx_context_items_channel ON context_items(channel);
+      CREATE INDEX IF NOT EXISTS idx_context_items_created ON context_items(created_at);
+      CREATE INDEX IF NOT EXISTS idx_context_items_session_created ON context_items(session_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_file_cache_session ON file_cache(session_id);
       CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id);
 
