@@ -1,7 +1,103 @@
 import { BaseRepository } from './BaseRepository.js';
 import { ContextItem, CreateContextItemInput } from '../types/entities.js';
 
+// Type for valid sort options (for documentation)
+type _SortOption =
+  | 'created_desc'
+  | 'created_asc'
+  | 'updated_desc'
+  | 'key_asc'
+  | 'key_desc'
+  | 'created_at_desc'
+  | 'created_at_asc'
+  | 'updated_at_desc'
+  | 'updated_at_asc';
+
 export class ContextRepository extends BaseRepository {
+  // Constants
+  private static readonly SQLITE_ESCAPE_CHAR = '\\';
+
+  // Helper methods for DRY code
+  private buildSortClause(sort?: string): string {
+    const sortMap: Record<string, string> = {
+      created_desc: 'created_at DESC',
+      created_at_desc: 'created_at DESC',
+      created_asc: 'created_at ASC',
+      created_at_asc: 'created_at ASC',
+      updated_desc: 'updated_at DESC',
+      updated_at_desc: 'updated_at DESC',
+      updated_at_asc: 'updated_at ASC',
+      key_asc: 'key ASC',
+      key_desc: 'key DESC',
+    };
+
+    const defaultSort = sort?.includes('priority')
+      ? 'priority DESC, created_at DESC'
+      : 'created_at DESC';
+    return sortMap[sort || ''] || defaultSort;
+  }
+
+  private parseRelativeTime(relativeTime: string): string | null {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (relativeTime === 'today') {
+      return today.toISOString();
+    } else if (relativeTime === 'yesterday') {
+      return new Date(today.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    } else if (relativeTime.match(/^(\d+) hours? ago$/)) {
+      const hours = parseInt(relativeTime.match(/^(\d+)/)![1]);
+      return new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
+    } else if (relativeTime.match(/^(\d+) days? ago$/)) {
+      const days = parseInt(relativeTime.match(/^(\d+)/)![1]);
+      return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+    } else if (relativeTime === 'this week') {
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      return startOfWeek.toISOString();
+    } else if (relativeTime === 'last week') {
+      const startOfLastWeek = new Date(today);
+      startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
+      return startOfLastWeek.toISOString();
+    }
+
+    return null;
+  }
+
+  private convertToGlobPattern(pattern: string): string {
+    return pattern
+      .replace(/\./g, '?') // . -> single char
+      .replace(/\*/g, '*') // * stays as wildcard
+      .replace(/^\^/, '') // Remove start anchor
+      .replace(/\$$/, ''); // Remove end anchor
+  }
+
+  private addPaginationToQuery(
+    sql: string,
+    params: any[],
+    limit?: number,
+    offset?: number
+  ): string {
+    let modifiedSql = sql;
+    if (limit) {
+      modifiedSql += ' LIMIT ?';
+      params.push(limit);
+    }
+
+    if (offset && offset > 0) {
+      modifiedSql += ' OFFSET ?';
+      params.push(offset);
+    }
+    return modifiedSql;
+  }
+
+  private getTotalCount(baseSql: string, params: any[]): number {
+    const countSql = baseSql.replace('SELECT *', 'SELECT COUNT(*) as count');
+    const countStmt = this.db.prepare(countSql);
+    const countResult = countStmt.get(...params) as any;
+    return countResult.count || 0;
+  }
+
   save(sessionId: string, input: CreateContextItemInput): ContextItem {
     const id = this.generateId();
     const size = this.calculateSize(input.value);
@@ -98,6 +194,145 @@ export class ContextRepository extends BaseRepository {
 
     const stmt = this.db.prepare(sql);
     return stmt.all(...params) as ContextItem[];
+  }
+
+  // Enhanced search method with all new parameters
+  searchEnhanced(options: {
+    query: string;
+    sessionId: string;
+    searchIn?: string[];
+    category?: string;
+    channel?: string;
+    channels?: string[];
+    sort?: string;
+    limit?: number;
+    offset?: number;
+    createdAfter?: string;
+    createdBefore?: string;
+    keyPattern?: string;
+    priorities?: string[];
+    includeMetadata?: boolean;
+  }): { items: ContextItem[]; totalCount: number } {
+    const {
+      query,
+      sessionId,
+      searchIn = ['key', 'value'],
+      category,
+      channel,
+      channels,
+      sort = 'created_desc',
+      limit,
+      offset = 0,
+      createdAfter,
+      createdBefore,
+      keyPattern,
+      priorities,
+    } = options;
+
+    // Build the base query
+    let sql = `
+      SELECT * FROM context_items 
+      WHERE session_id = ?
+    `;
+    const params: any[] = [sessionId];
+
+    // Add search query with searchIn support
+    if (query) {
+      const searchConditions: string[] = [];
+
+      // Escape special characters for LIKE operator
+      const escapedQuery = query.replace(/[%_\\]/g, `${ContextRepository.SQLITE_ESCAPE_CHAR}$&`);
+
+      if (searchIn.includes('key')) {
+        searchConditions.push(`key LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
+        params.push(`%${escapedQuery}%`);
+      }
+
+      if (searchIn.includes('value')) {
+        searchConditions.push(`value LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
+        params.push(`%${escapedQuery}%`);
+      }
+
+      if (searchConditions.length > 0) {
+        sql += ` AND (${searchConditions.join(' OR ')})`;
+      }
+    }
+
+    // Add filters
+    if (category) {
+      sql += ' AND category = ?';
+      params.push(category);
+    }
+
+    if (channel) {
+      sql += ' AND channel = ?';
+      params.push(channel);
+    }
+
+    if (channels && channels.length > 0) {
+      sql += ` AND channel IN (${channels.map(() => '?').join(',')})`;
+      params.push(...channels);
+    }
+
+    // Handle relative time parsing for createdAfter
+    if (createdAfter) {
+      const parsedDate = this.parseRelativeTime(createdAfter);
+      const effectiveDate = parsedDate || createdAfter;
+      sql += ' AND created_at > ?';
+      params.push(effectiveDate);
+    }
+
+    // Handle relative time parsing for createdBefore
+    if (createdBefore) {
+      let effectiveDate = createdBefore;
+
+      // Special handling for "today" and "yesterday" for createdBefore
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      if (createdBefore === 'today') {
+        effectiveDate = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString();
+      } else if (createdBefore === 'yesterday') {
+        effectiveDate = today.toISOString();
+      } else {
+        const parsedDate = this.parseRelativeTime(createdBefore);
+        if (parsedDate) {
+          effectiveDate = parsedDate;
+        }
+      }
+
+      sql += ' AND created_at < ?';
+      params.push(effectiveDate);
+    }
+
+    if (keyPattern) {
+      const globPattern = this.convertToGlobPattern(keyPattern);
+      sql += ' AND key GLOB ?';
+      params.push(globPattern);
+    }
+
+    if (priorities && priorities.length > 0) {
+      sql += ` AND priority IN (${priorities.map(() => '?').join(',')})`;
+      params.push(...priorities);
+    }
+
+    // Add privacy filter
+    sql += ' AND (is_private = 0 OR session_id = ?)';
+    params.push(sessionId);
+
+    // Count total before pagination
+    const totalCount = this.getTotalCount(sql, params);
+
+    // Add sorting
+    sql += ` ORDER BY ${this.buildSortClause(sort)}`;
+
+    // Add pagination
+    sql = this.addPaginationToQuery(sql, params, limit, offset);
+
+    const stmt = this.db.prepare(sql);
+    const items = stmt.all(...params) as ContextItem[];
+
+    return { items, totalCount };
   }
 
   update(
@@ -385,14 +620,7 @@ export class ContextRepository extends BaseRepository {
     }
 
     if (keyPattern) {
-      // Use GLOB for pattern matching (SQLite's simpler regex-like pattern)
-      // Convert JavaScript regex pattern to SQLite GLOB pattern
-      const globPattern = keyPattern
-        .replace(/\./g, '?') // . -> single char
-        .replace(/\*/g, '*') // * stays as wildcard
-        .replace(/^\^/, '') // Remove start anchor
-        .replace(/\$$/, ''); // Remove end anchor
-
+      const globPattern = this.convertToGlobPattern(keyPattern);
       sql += ' AND key GLOB ?';
       params.push(globPattern);
     }
@@ -403,33 +631,13 @@ export class ContextRepository extends BaseRepository {
     }
 
     // Count total before pagination
-    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as count');
-    const countStmt = this.db.prepare(countSql);
-    const countResult = countStmt.get(...params) as any;
-    const totalCount = countResult.count || 0;
+    const totalCount = this.getTotalCount(sql, params);
 
     // Add sorting
-    const sortMap: Record<string, string> = {
-      created_at_desc: 'created_at DESC',
-      created_at_asc: 'created_at ASC',
-      updated_at_desc: 'updated_at DESC',
-      updated_at_asc: 'updated_at ASC',
-      key_asc: 'key ASC',
-      key_desc: 'key DESC',
-    };
-
-    sql += ` ORDER BY ${sortMap[sort] || 'created_at DESC'}`;
+    sql += ` ORDER BY ${this.buildSortClause(sort)}`;
 
     // Add pagination
-    if (limit) {
-      sql += ' LIMIT ?';
-      params.push(limit);
-    }
-
-    if (offset > 0) {
-      sql += ' OFFSET ?';
-      params.push(offset);
-    }
+    sql = this.addPaginationToQuery(sql, params, limit, offset);
 
     const stmt = this.db.prepare(sql);
     const items = stmt.all(...params) as ContextItem[];
@@ -464,26 +672,21 @@ export class ContextRepository extends BaseRepository {
     let effectiveEndDate = endDate;
 
     if (relativeTime) {
+      const parsedStartDate = this.parseRelativeTime(relativeTime);
+      if (parsedStartDate) {
+        effectiveStartDate = parsedStartDate;
+      }
+
+      // Special handling for end dates
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
       if (relativeTime === 'today') {
-        effectiveStartDate = today.toISOString();
         effectiveEndDate = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString();
       } else if (relativeTime === 'yesterday') {
         const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
         effectiveStartDate = yesterday.toISOString();
         effectiveEndDate = today.toISOString();
-      } else if (relativeTime.match(/^(\d+) hours? ago$/)) {
-        const hours = parseInt(relativeTime.match(/^(\d+)/)![1]);
-        effectiveStartDate = new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
-      } else if (relativeTime.match(/^(\d+) days? ago$/)) {
-        const days = parseInt(relativeTime.match(/^(\d+)/)![1]);
-        effectiveStartDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
-      } else if (relativeTime === 'this week') {
-        const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() - today.getDay());
-        effectiveStartDate = startOfWeek.toISOString();
       } else if (relativeTime === 'last week') {
         const startOfLastWeek = new Date(today);
         startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
