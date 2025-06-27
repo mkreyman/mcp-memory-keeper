@@ -645,20 +645,37 @@ describe('Enhanced Context Operations Integration Tests', () => {
     beforeEach(() => {
       // Create items across different time periods
       const now = new Date();
+
+      // Calculate proper timestamps for yesterday to ensure they fall within yesterday's date range
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(10, 0, 0, 0); // 10 AM yesterday
+
+      const yesterdayAfternoon = new Date();
+      yesterdayAfternoon.setDate(yesterdayAfternoon.getDate() - 1);
+      yesterdayAfternoon.setHours(15, 0, 0, 0); // 3 PM yesterday
+
+      // Ensure we have items that are definitely "today" - create them at specific times today
+      const todayMorning = new Date();
+      todayMorning.setHours(9, 0, 0, 0); // 9 AM today
+
+      const todayAfternoon = new Date();
+      todayAfternoon.setHours(14, 0, 0, 0); // 2 PM today
+
       const timeOffsets = [
-        { hours: -1, key: 'recent_1', category: 'task' }, // 1 hour ago
-        { hours: -2, key: 'recent_2', category: 'note' }, // 2 hours ago
+        { timestamp: todayMorning, key: 'recent_1', category: 'task' }, // Today 9 AM
+        { timestamp: todayAfternoon, key: 'recent_2', category: 'note' }, // Today 2 PM
         { hours: -5, key: 'today_1', category: 'task' }, // 5 hours ago
         { hours: -8, key: 'today_2', category: 'decision' }, // 8 hours ago
-        { hours: -25, key: 'yesterday_1', category: 'task' }, // Yesterday
-        { hours: -30, key: 'yesterday_2', category: 'note' }, // Yesterday
+        { timestamp: yesterday, key: 'yesterday_1', category: 'task' }, // Yesterday 10 AM
+        { timestamp: yesterdayAfternoon, key: 'yesterday_2', category: 'note' }, // Yesterday 3 PM
         { hours: -72, key: 'days_ago_1', category: 'progress' }, // 3 days ago
         { hours: -168, key: 'week_ago_1', category: 'task' }, // 1 week ago
         { hours: -336, key: 'weeks_ago_1', category: 'error' }, // 2 weeks ago
       ];
 
-      timeOffsets.forEach(({ hours, key, category }) => {
-        const createdAt = new Date(now.getTime() + hours * 3600000);
+      timeOffsets.forEach(({ hours, timestamp, key, category }) => {
+        const createdAt = timestamp || new Date(now.getTime() + hours * 3600000);
         db.prepare(
           `
           INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 

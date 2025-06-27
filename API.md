@@ -3,6 +3,7 @@
 ## Table of Contents
 - [Session Management](#session-management)
 - [Context Storage](#context-storage)
+- [Channel Management](#channel-management)
 - [File Management](#file-management)
 - [Checkpoints](#checkpoints)
 - [Search & Analysis](#search--analysis)
@@ -225,6 +226,195 @@ Delete a specific context item.
   deletedCount: number;
 }
 ```
+
+## Channel Management
+
+### context_list_channels
+
+List all channels across sessions with comprehensive statistics and insights.
+
+**Parameters:**
+```typescript
+{
+  sessionId?: string;      // Filter by specific session (default: all sessions)
+  includeEmpty?: boolean;  // Include channels with zero items (default: false)
+  sort?: 'name' | 'item_count' | 'last_activity'; // Sort order (default: 'name')
+  limit?: number;          // Maximum channels to return
+  offset?: number;         // Pagination offset
+}
+```
+
+**Returns:**
+```typescript
+{
+  channels: Array<{
+    channel: string;       // Channel name
+    itemCount: number;     // Total items in this channel
+    sessions: number;      // Number of sessions using this channel
+    lastActivity: string;  // ISO timestamp of most recent activity
+    categories: Record<string, number>; // Item count by category
+    priorities: Record<string, number>; // Item count by priority
+  }>;
+  totalChannels: number;   // Total number of channels found
+  stats: {
+    totalItems: number;    // Total items across all channels
+    averageItemsPerChannel: number;
+    mostActiveChannel: string;
+    leastActiveChannel: string;
+  };
+}
+```
+
+**Examples:**
+```typescript
+// List all active channels
+await context_list_channels();
+
+// List channels for current session only
+await context_list_channels({
+  sessionId: "current"
+});
+
+// Get top 10 most active channels
+await context_list_channels({
+  sort: "item_count",
+  limit: 10
+});
+
+// Include empty channels for cleanup
+await context_list_channels({
+  includeEmpty: true,
+  sort: "last_activity"
+});
+```
+
+**Use Cases:**
+1. **Channel Discovery**: Find all channels being used across your project
+2. **Activity Monitoring**: Identify most/least active channels
+3. **Organization Review**: See how work is distributed across channels
+4. **Cleanup**: Find empty or abandoned channels
+5. **Team Coordination**: Understand channel usage patterns across sessions
+
+### context_channel_stats
+
+Get detailed statistics and insights for a specific channel.
+
+**Parameters:**
+```typescript
+{
+  channel: string;         // Channel name (required)
+  sessionId?: string;      // Filter by specific session (default: all sessions)
+  includeInsights?: boolean; // Generate AI-friendly insights (default: true)
+  timeRange?: {           // Optional time range for analysis
+    start?: string;       // ISO timestamp
+    end?: string;         // ISO timestamp
+  };
+}
+```
+
+**Returns:**
+```typescript
+{
+  channel: string;         // Channel name
+  stats: {
+    totalItems: number;    // Total items in channel
+    totalSessions: number; // Sessions using this channel
+    privateItems: number;  // Number of private items
+    publicItems: number;   // Number of public items
+    
+    byCategory: Record<string, number>;  // Item distribution by category
+    byPriority: Record<string, number>;  // Item distribution by priority
+    bySession: Array<{     // Per-session breakdown
+      sessionId: string;
+      sessionName: string;
+      itemCount: number;
+      lastActivity: string;
+    }>;
+    
+    activity: {
+      firstItem: string;   // ISO timestamp of first item
+      lastItem: string;    // ISO timestamp of last item
+      durationDays: number; // Days between first and last item
+      averageItemsPerDay: number;
+      activityTrend: 'increasing' | 'stable' | 'decreasing';
+    };
+    
+    topKeys: Array<{       // Most common keys
+      key: string;
+      count: number;
+    }>;
+    
+    sizeMetrics: {         // Storage metrics
+      totalSize: number;   // Total size in bytes
+      averageSize: number; // Average item size
+      largestItem: {
+        key: string;
+        size: number;
+      };
+    };
+  };
+  
+  insights?: {             // When includeInsights: true
+    summary: string;       // Natural language summary
+    patterns: string[];    // Identified patterns
+    recommendations: string[]; // Suggested actions
+    relatedChannels: string[]; // Channels with similar content
+  };
+}
+```
+
+**Examples:**
+```typescript
+// Get comprehensive stats for a channel
+await context_channel_stats({
+  channel: "feature-auth"
+});
+
+// Focus on recent activity
+await context_channel_stats({
+  channel: "debugging",
+  timeRange: {
+    start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() // Last 7 days
+  }
+});
+
+// Get stats without AI insights (faster)
+await context_channel_stats({
+  channel: "feature-payments",
+  includeInsights: false
+});
+
+// Session-specific channel stats
+await context_channel_stats({
+  channel: "main",
+  sessionId: "current"
+});
+```
+
+**Use Cases:**
+1. **Progress Tracking**: Monitor activity and trends in feature channels
+2. **Resource Planning**: Identify channels consuming most storage
+3. **Quality Analysis**: Review priority and category distributions
+4. **Team Insights**: Understand how different sessions contribute to a channel
+5. **Decision Making**: Use AI insights to guide channel organization
+
+**Error Scenarios:**
+- `CHANNEL_NOT_FOUND`: Specified channel does not exist
+- `INVALID_PARAMS`: Missing required channel parameter
+- `DATABASE_ERROR`: Database read error during analysis
+
+**Performance Considerations:**
+- Channel stats are computed in real-time from the database
+- For large channels (>1000 items), consider using `includeInsights: false` for faster response
+- Results are not cached, so repeated calls will re-compute statistics
+- Time range filtering can significantly improve performance for historical channels
+
+**Best Practices:**
+1. **Regular Monitoring**: Check channel stats periodically to maintain organization
+2. **Channel Naming**: Use consistent, descriptive channel names (e.g., "feature-{name}", "bugfix-{id}")
+3. **Privacy Boundaries**: Remember that private items are only visible in their creating session
+4. **Cleanup Strategy**: Use stats to identify channels ready for archival or deletion
+5. **Team Coordination**: Share channel stats to align team understanding
 
 ## File Management
 

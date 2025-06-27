@@ -8,3 +8,4 @@ coverage/
 .DS_Store
 .env
 *.log
+memory-keeper-export-*.json
