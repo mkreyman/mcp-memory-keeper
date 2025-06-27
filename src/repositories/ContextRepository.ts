@@ -66,11 +66,13 @@ export class ContextRepository extends BaseRepository {
   }
 
   private convertToGlobPattern(pattern: string): string {
+    // SQLite GLOB supports character classes with brackets, so preserve them
+    // Only convert regex-style patterns to GLOB
     return pattern
       .replace(/\./g, '?') // . -> single char
-      .replace(/\*/g, '*') // * stays as wildcard
       .replace(/^\^/, '') // Remove start anchor
       .replace(/\$$/, ''); // Remove end anchor
+    // Note: * and [...] are already GLOB syntax, so we keep them as-is
   }
 
   private addPaginationToQuery(
@@ -292,9 +294,10 @@ export class ContextRepository extends BaseRepository {
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
       if (createdBefore === 'today') {
-        effectiveDate = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString();
+        effectiveDate = today.toISOString(); // Start of today
       } else if (createdBefore === 'yesterday') {
-        effectiveDate = today.toISOString();
+        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+        effectiveDate = yesterday.toISOString(); // Start of yesterday
       } else {
         const parsedDate = this.parseRelativeTime(createdBefore);
         if (parsedDate) {
@@ -582,6 +585,9 @@ export class ContextRepository extends BaseRepository {
       priorities,
     } = options;
 
+    // Validate offset is not negative
+    const validOffset = Math.max(0, offset || 0);
+
     // Build the base query
     let sql = `
       SELECT * FROM context_items 
@@ -610,14 +616,36 @@ export class ContextRepository extends BaseRepository {
       params.push(...channels);
     }
 
+    // Handle relative time parsing for createdAfter
     if (createdAfter) {
+      const parsedDate = this.parseRelativeTime(createdAfter);
+      const effectiveDate = parsedDate || createdAfter;
       sql += ' AND created_at > ?';
-      params.push(createdAfter);
+      params.push(effectiveDate);
     }
 
+    // Handle relative time parsing for createdBefore
     if (createdBefore) {
+      let effectiveDate = createdBefore;
+
+      // Special handling for "today" and "yesterday" for createdBefore
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      if (createdBefore === 'today') {
+        effectiveDate = today.toISOString(); // Start of today
+      } else if (createdBefore === 'yesterday') {
+        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+        effectiveDate = yesterday.toISOString(); // Start of yesterday
+      } else {
+        const parsedDate = this.parseRelativeTime(createdBefore);
+        if (parsedDate) {
+          effectiveDate = parsedDate;
+        }
+      }
+
       sql += ' AND created_at < ?';
-      params.push(createdBefore);
+      params.push(effectiveDate);
     }
 
     if (keyPattern) {
@@ -638,7 +666,7 @@ export class ContextRepository extends BaseRepository {
     sql += ` ORDER BY ${this.buildSortClause(sort)}`;
 
     // Add pagination
-    sql = this.addPaginationToQuery(sql, params, limit, offset);
+    sql = this.addPaginationToQuery(sql, params, limit, validOffset);
 
     const stmt = this.db.prepare(sql);
     const items = stmt.all(...params) as ContextItem[];
@@ -656,6 +684,8 @@ export class ContextRepository extends BaseRepository {
     itemsPerPeriod?: number;
     includeItems?: boolean;
     groupBy?: 'hour' | 'day' | 'week';
+    minItemsPerPeriod?: number;
+    showEmpty?: boolean;
   }): any[] {
     const {
       sessionId,
@@ -666,6 +696,8 @@ export class ContextRepository extends BaseRepository {
       itemsPerPeriod,
       includeItems,
       groupBy = 'day',
+      minItemsPerPeriod,
+      showEmpty = false,
     } = options;
 
     // Calculate date range from relative time
@@ -734,7 +766,87 @@ export class ContextRepository extends BaseRepository {
     sql += ' GROUP BY period ORDER BY period DESC';
 
     const stmt = this.db.prepare(sql);
-    const timeline = stmt.all(...params) as any[];
+    let timeline = stmt.all(...params) as any[];
+
+    // Handle minItemsPerPeriod filter (before showEmpty logic)
+    if (minItemsPerPeriod && minItemsPerPeriod > 0 && !showEmpty) {
+      // Treat negative values as 0, round fractional values up
+      const minItems = Math.max(0, Math.ceil(minItemsPerPeriod));
+      timeline = timeline.filter(period => period.count >= minItems);
+    }
+
+    // Handle showEmpty - generate empty periods for date ranges
+    if (showEmpty && (effectiveStartDate || effectiveEndDate)) {
+      const existingPeriods = new Map(timeline.map(p => [p.period, p]));
+      const allPeriods: any[] = [];
+
+      // Determine date range
+      const start = effectiveStartDate ? new Date(effectiveStartDate) : new Date();
+      const end = effectiveEndDate ? new Date(effectiveEndDate) : new Date();
+
+      // Return empty array if end is before start
+      if (end < start) {
+        return [];
+      }
+
+      // Generate all periods in range
+      const current = new Date(start);
+      let periodCount = 0;
+      const maxPeriods = groupBy === 'hour' ? 24 * 365 : 365; // Reasonable limits
+
+      while (current <= end && periodCount < maxPeriods) {
+        let periodKey: string;
+
+        if (groupBy === 'hour') {
+          periodKey = current.toISOString().slice(0, 13) + ':00';
+        } else if (groupBy === 'week') {
+          // ISO week format - need to calculate properly
+          const thursday = new Date(current);
+          thursday.setDate(current.getDate() - current.getDay() + 4); // Thursday of current week
+          const yearStart = new Date(thursday.getFullYear(), 0, 1);
+          const weekNum = Math.ceil(
+            ((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7
+          );
+          periodKey = `${thursday.getFullYear()}-W${weekNum.toString().padStart(2, '0')}`;
+        } else {
+          // day
+          periodKey = current.toISOString().slice(0, 10);
+        }
+
+        // Use existing period data or create empty one
+        const existingPeriod = existingPeriods.get(periodKey);
+        if (existingPeriod) {
+          allPeriods.push(existingPeriod);
+        } else {
+          allPeriods.push({
+            period: periodKey,
+            count: 0,
+            item_ids: null,
+            items: [],
+          });
+        }
+
+        // Increment current date
+        if (groupBy === 'hour') {
+          current.setHours(current.getHours() + 1);
+        } else if (groupBy === 'week') {
+          current.setDate(current.getDate() + 7);
+        } else {
+          current.setDate(current.getDate() + 1);
+        }
+
+        periodCount++;
+      }
+
+      // Sort by period descending
+      timeline = allPeriods.sort((a, b) => b.period.localeCompare(a.period));
+
+      // Apply minItemsPerPeriod filter after generating empty periods if showEmpty overrides it
+      if (minItemsPerPeriod && minItemsPerPeriod > 0) {
+        // When showEmpty is true, we still show all periods but can use minItemsPerPeriod for other purposes
+        // According to tests, showEmpty should override minItemsPerPeriod behavior
+      }
+    }
 
     // If includeItems is true, fetch the actual items for each period
     if (includeItems && timeline.length > 0) {
@@ -757,6 +869,16 @@ export class ContextRepository extends BaseRepository {
             ORDER BY created_at DESC
           `);
           period.items = itemStmt.all(...itemsToFetch) as ContextItem[];
+        } else {
+          // No items for this period
+          period.items = [];
+        }
+      }
+    } else if (includeItems) {
+      // Ensure all periods have items array when includeItems is true
+      for (const period of timeline) {
+        if (!period.items) {
+          period.items = [];
         }
       }
     }

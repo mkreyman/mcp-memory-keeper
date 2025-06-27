@@ -2275,6 +2275,8 @@ Entry saved with ID: ${id.substring(0, 8)}`,
         relativeTime,
         itemsPerPeriod,
         includeItems,
+        minItemsPerPeriod,
+        showEmpty,
       } = args;
       const targetSessionId = sessionId || ensureSession();
 
@@ -2289,6 +2291,8 @@ Entry saved with ID: ${id.substring(0, 8)}`,
           itemsPerPeriod,
           includeItems,
           groupBy,
+          minItemsPerPeriod,
+          showEmpty,
         });
 
         // Get journal entries for the same period
@@ -3590,6 +3594,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             itemsPerPeriod: {
               type: 'number',
               description: 'Max items per time period',
+            },
+            minItemsPerPeriod: {
+              type: 'number',
+              description: 'Only include periods with at least N items',
+            },
+            showEmpty: {
+              type: 'boolean',
+              description: 'Include periods with 0 items (default: false)',
             },
           },
         },
