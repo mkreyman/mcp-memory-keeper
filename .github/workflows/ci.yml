@@ -26,6 +26,14 @@ jobs:
     - name: Install dependencies
       run: npm ci
     
+    - name: Configure Git for tests
+      run: |
+        git config --global user.email "ci@github.com"
+        git config --global user.name "GitHub CI"
+    
+    - name: Build project
+      run: npm run build
+    
     - name: Run linter
       run: npm run lint
     
