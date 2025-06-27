@@ -1,6 +1,7 @@
 import { BaseRepository } from './BaseRepository.js';
 import { ContextItem, CreateContextItemInput } from '../types/entities.js';
 import { ensureSQLiteFormat } from '../utils/timestamps.js';
+import { validateKey } from '../utils/validation.js';
 
 // Type for valid sort options (for documentation)
 type _SortOption =
@@ -102,6 +103,9 @@ export class ContextRepository extends BaseRepository {
   }
 
   save(sessionId: string, input: CreateContextItemInput): ContextItem {
+    // Validate the key
+    const validatedKey = validateKey(input.key);
+    
     const id = this.generateId();
     const size = this.calculateSize(input.value);
 
@@ -122,7 +126,7 @@ export class ContextRepository extends BaseRepository {
     stmt.run(
       id,
       sessionId,
-      input.key,
+      validatedKey,
       input.value,
       input.category || null,
       input.priority || 'normal',
@@ -1670,11 +1674,14 @@ export class ContextRepository extends BaseRepository {
           throw new Error('Missing required fields');
         }
 
+        // Validate the key
+        const validatedKey = validateKey(item.key);
+
         const size = this.calculateSize(item.value);
         totalSize += size;
 
         // Check if key exists
-        const existing = checkStmt.get(sessionId, item.key);
+        const existing = checkStmt.get(sessionId, validatedKey);
 
         if (existing && updateExisting) {
           // Update existing
@@ -1687,12 +1694,12 @@ export class ContextRepository extends BaseRepository {
             now,
             size,
             sessionId,
-            item.key
+            validatedKey
           );
 
           results.push({
             index,
-            key: item.key,
+            key: validatedKey,
             success: true,
             action: 'updated',
             size,
@@ -1705,7 +1712,7 @@ export class ContextRepository extends BaseRepository {
           insertStmt.run(
             id,
             sessionId,
-            item.key,
+            validatedKey,
             item.value,
             item.category || null,
             item.priority || 'normal',
@@ -1718,7 +1725,7 @@ export class ContextRepository extends BaseRepository {
 
           results.push({
             index,
-            key: item.key,
+            key: validatedKey,
             success: true,
             action: 'created',
             id,

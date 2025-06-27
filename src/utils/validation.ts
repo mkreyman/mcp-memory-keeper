@@ -144,19 +144,107 @@ export function validateSessionName(name: string): string {
 }
 
 export function validateKey(key: string): string {
-  if (!key || typeof key !== 'string') {
-    throw new ValidationError('Key must be a non-empty string');
+  // Type validation
+  if (key === null || key === undefined) {
+    throw new ValidationError('Key cannot be null or undefined');
+  }
+  
+  if (typeof key !== 'string') {
+    throw new ValidationError('Key must be a string');
   }
 
-  const trimmed = key.trim();
-  if (trimmed.length === 0) {
+  // Empty string check (before trimming)
+  if (key === '') {
     throw new ValidationError('Key cannot be empty');
   }
 
+  // Check if key becomes empty after trimming
+  const trimmed = key.trim();
+  if (trimmed.length === 0) {
+    throw new ValidationError('Key cannot be empty or contain only whitespace');
+  }
+
+  // Length validation
   if (trimmed.length > 255) {
     throw new ValidationError('Key too long (max 255 characters)');
   }
 
+  // Check for invalid characters
+  // First check for spaces specifically (for better error messages)
+  if (/\s/.test(key)) {
+    if (/ /.test(key)) {
+      throw new ValidationError('Key contains special characters - spaces are not allowed');
+    } else if (/\t/.test(key)) {
+      throw new ValidationError('Key contains special characters - tabs are not allowed');
+    } else if (/[\n\r]/.test(key)) {
+      throw new ValidationError('Key contains special characters (newlines)');
+    } else {
+      throw new ValidationError('Key contains special characters (whitespace)');
+    }
+  }
+
+  // Check for null bytes
+  if (/\0/.test(key)) {
+    throw new ValidationError('Key contains invalid characters (null bytes)');
+  }
+
+  // Check for control characters (excluding those already checked)
+  if (/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(key)) {
+    throw new ValidationError('Key contains control characters');
+  }
+
+  // Check for backslashes
+  if (/\\/.test(key)) {
+    throw new ValidationError('Key contains special characters (backslashes)');
+  }
+
+  // Check for quotes
+  if (/['"`]/.test(key)) {
+    throw new ValidationError('Key contains quotes');
+  }
+
+  // Check for shell special characters (including ~)
+  if (/[;|&$<>(){}[\]!#~]/.test(key)) {
+    throw new ValidationError('Key contains special characters');
+  }
+
+  // Check for wildcards
+  if (/[*?]/.test(key)) {
+    throw new ValidationError('Key contains wildcards (* or ?)');
+  }
+
+  // Only allow basic ASCII characters plus underscore, hyphen, dot, forward slash, and colon
+  // This will reject all Unicode including emojis, Chinese characters, etc.
+  if (!/^[a-zA-Z0-9_\-./:]+$/.test(key)) {
+    throw new ValidationError('Key contains special characters');
+  }
+
+  // Path traversal protection
+  if (key.includes('../') || key.includes('..\\')) {
+    throw new ValidationError('Key cannot contain path traversal sequences');
+  }
+
+  // SQL injection protection - check for common SQL keywords in suspicious patterns
+  const sqlPatterns = [
+    /;\s*(DROP|DELETE|INSERT|UPDATE|SELECT|CREATE|ALTER|TRUNCATE)/i,
+    /--\s*$/,
+    /\/\*.*\*\//,
+    /\bUNION\s+SELECT\b/i,
+    /\bOR\s+1\s*=\s*1\b/i,
+  ];
+
+  for (const pattern of sqlPatterns) {
+    if (pattern.test(key)) {
+      throw new ValidationError('Key contains potentially malicious SQL patterns');
+    }
+  }
+
+  // Script injection protection
+  if (/<script|<\/script|javascript:|<iframe|<object|<embed|<img.*on\w+=/i.test(key)) {
+    throw new ValidationError('Key contains potentially malicious script patterns');
+  }
+
+  // If we get here, the key is valid
   return trimmed;
 }
 

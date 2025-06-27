@@ -118,7 +118,18 @@ describe('Validation Utils', () => {
   describe('validateKey', () => {
     it('should accept valid keys', () => {
       expect(validateKey('my_key')).toBe('my_key');
-      expect(validateKey('  trimmed_key  ')).toBe('trimmed_key');
+      expect(validateKey('valid_key_123')).toBe('valid_key_123');
+      expect(validateKey('key-with-hyphens')).toBe('key-with-hyphens');
+      expect(validateKey('key.with.dots')).toBe('key.with.dots');
+      expect(validateKey('path/to/key')).toBe('path/to/key');
+      expect(validateKey('namespace:key')).toBe('namespace:key');
+    });
+
+    it('should reject keys with leading or trailing whitespace', () => {
+      expect(() => validateKey('  trimmed_key  ')).toThrow(ValidationError);
+      expect(() => validateKey(' leading_space')).toThrow(ValidationError);
+      expect(() => validateKey('trailing_space ')).toThrow(ValidationError);
+      expect(() => validateKey('\ttab_key')).toThrow(ValidationError);
     });
 
     it('should reject empty keys', () => {
