@@ -520,6 +520,322 @@ Restore context from a checkpoint.
 }
 ```
 
+## Real-time Monitoring
+
+### context_watch
+
+Create, manage, and poll real-time watchers for context changes. This powerful feature enables real-time monitoring of context items based on flexible filters.
+
+#### Actions
+
+##### create
+Create a new watcher with filters for real-time monitoring.
+
+**Parameters:**
+```typescript
+{
+  action: 'create';
+  filters?: {
+    keys?: string[];         // Specific keys to watch (supports wildcards: "user_*", "*_config")
+    categories?: ('task' | 'decision' | 'progress' | 'note' | 'warning' | 'error')[];
+    channels?: string[];     // Specific channels to monitor
+    priorities?: ('critical' | 'high' | 'normal' | 'low')[];
+    sessionIds?: string[];   // Specific sessions (default: current session only)
+  };
+  includeExisting?: boolean; // Include existing items in first poll (default: false)
+  expiresIn?: number;        // Expiration time in seconds (default: 3600)
+}
+```
+
+**Returns:**
+```typescript
+{
+  watcherId: string;         // Unique watcher identifier
+  filters: {                 // Applied filters
+    keys?: string[];
+    categories?: string[];
+    channels?: string[];
+    priorities?: string[];
+    sessionIds?: string[];
+  };
+  createdAt: string;         // ISO timestamp
+  expiresAt: string;         // ISO timestamp when watcher expires
+  lastSequence: number;      // Starting sequence number
+}
+```
+
+##### poll
+Poll for changes since last check. Returns only new or updated items.
+
+**Parameters:**
+```typescript
+{
+  action: 'poll';
+  watcherId: string;         // Watcher ID from create action
+  timeout?: number;          // Long-polling timeout in seconds (default: 0 - immediate return)
+}
+```
+
+**Returns:**
+```typescript
+{
+  items: Array<{
+    id: string;
+    key: string;
+    value: string;
+    category?: string;
+    priority: string;
+    channel: string;
+    sessionId: string;
+    createdAt: string;
+    updatedAt?: string;
+    changeType: 'added' | 'updated';  // Type of change
+  }>;
+  lastSequence: number;      // Updated sequence number
+  hasMore: boolean;          // If more changes are available
+  metadata: {
+    pollTime: string;        // ISO timestamp of poll
+    itemCount: number;       // Number of items returned
+    expired: boolean;        // If watcher has expired
+  };
+}
+```
+
+##### stop
+Stop and remove a watcher.
+
+**Parameters:**
+```typescript
+{
+  action: 'stop';
+  watcherId: string;         // Watcher ID to stop
+}
+```
+
+**Returns:**
+```typescript
+{
+  success: boolean;
+  watcherId: string;
+  itemsDelivered: number;    // Total items delivered by this watcher
+  duration: number;          // How long watcher was active (seconds)
+}
+```
+
+##### list
+List all active watchers for the current session.
+
+**Parameters:**
+```typescript
+{
+  action: 'list';
+  includeExpired?: boolean;  // Include expired watchers (default: false)
+}
+```
+
+**Returns:**
+```typescript
+{
+  watchers: Array<{
+    watcherId: string;
+    filters: {
+      keys?: string[];
+      categories?: string[];
+      channels?: string[];
+      priorities?: string[];
+      sessionIds?: string[];
+    };
+    createdAt: string;
+    expiresAt: string;
+    lastPoll?: string;       // Last poll timestamp
+    lastSequence: number;
+    itemsDelivered: number;  // Total items delivered
+    active: boolean;         // If watcher is still active
+  }>;
+  total: number;
+}
+```
+
+#### Examples
+
+**Basic Monitoring:**
+```typescript
+// Watch for high-priority tasks
+const watcher = await context_watch({
+  action: 'create',
+  filters: {
+    categories: ['task'],
+    priorities: ['high', 'critical']
+  }
+});
+
+// Poll for changes
+const changes = await context_watch({
+  action: 'poll',
+  watcherId: watcher.watcherId
+});
+
+if (changes.items.length > 0) {
+  console.log(`${changes.items.length} new high-priority tasks`);
+}
+```
+
+**Wildcard Key Monitoring:**
+```typescript
+// Watch for all user-related and config changes
+const watcher = await context_watch({
+  action: 'create',
+  filters: {
+    keys: ['user_*', '*_config', 'auth_*']
+  },
+  includeExisting: true  // Get current state first
+});
+```
+
+**Channel-specific Monitoring:**
+```typescript
+// Monitor specific feature channels
+const watcher = await context_watch({
+  action: 'create',
+  filters: {
+    channels: ['feature-auth', 'feature-payments'],
+    categories: ['error', 'warning']
+  },
+  expiresIn: 7200  // 2-hour expiration
+});
+```
+
+**Long Polling:**
+```typescript
+// Wait up to 30 seconds for changes
+const changes = await context_watch({
+  action: 'poll',
+  watcherId: watcher.watcherId,
+  timeout: 30  // Wait up to 30 seconds
+});
+```
+
+**Multi-session Monitoring:**
+```typescript
+// Watch across multiple sessions
+const watcher = await context_watch({
+  action: 'create',
+  filters: {
+    sessionIds: ['session-1', 'session-2', 'current'],
+    categories: ['decision']
+  }
+});
+```
+
+**Continuous Monitoring Loop:**
+```typescript
+// Create watcher
+const watcher = await context_watch({
+  action: 'create',
+  filters: { categories: ['error', 'warning'] }
+});
+
+// Monitoring loop
+let running = true;
+while (running) {
+  try {
+    const changes = await context_watch({
+      action: 'poll',
+      watcherId: watcher.watcherId,
+      timeout: 30  // Long poll
+    });
+    
+    for (const item of changes.items) {
+      console.log(`[${item.changeType}] ${item.category}: ${item.key}`);
+      // Process changes...
+    }
+    
+    if (changes.metadata.expired) {
+      console.log('Watcher expired');
+      running = false;
+    }
+  } catch (error) {
+    console.error('Poll error:', error);
+    await new Promise(r => setTimeout(r, 5000));  // Wait 5s on error
+  }
+}
+
+// Cleanup
+await context_watch({
+  action: 'stop',
+  watcherId: watcher.watcherId
+});
+```
+
+**Managing Multiple Watchers:**
+```typescript
+// List all active watchers
+const { watchers } = await context_watch({ action: 'list' });
+
+console.log(`Active watchers: ${watchers.length}`);
+for (const w of watchers) {
+  console.log(`- ${w.watcherId}: ${w.itemsDelivered} items delivered`);
+  if (w.filters.categories) {
+    console.log(`  Categories: ${w.filters.categories.join(', ')}`);
+  }
+}
+
+// Stop all watchers
+for (const w of watchers) {
+  await context_watch({
+    action: 'stop',
+    watcherId: w.watcherId
+  });
+}
+```
+
+#### Use Cases
+
+1. **Error Monitoring**: Watch for errors and warnings in real-time
+2. **Task Tracking**: Monitor new high-priority tasks across team sessions
+3. **Configuration Changes**: Track when configuration items are modified
+4. **Progress Updates**: Follow progress on specific features or tasks
+5. **Decision Tracking**: Monitor important decisions as they're made
+6. **Multi-Agent Coordination**: Watch for updates from other AI agents
+7. **Debugging**: Monitor specific keys during debugging sessions
+8. **Audit Trail**: Track all changes in critical channels
+
+#### Best Practices
+
+1. **Filter Specificity**: Use specific filters to reduce unnecessary polling overhead
+2. **Expiration Management**: Set appropriate expiration times based on use case
+3. **Error Handling**: Always handle expired watchers and network errors
+4. **Cleanup**: Stop watchers when no longer needed to free resources
+5. **Polling Strategy**: Use long-polling for real-time needs, short intervals for batch processing
+6. **Wildcard Usage**: Use wildcards thoughtfully to balance coverage and performance
+7. **Session Scope**: Remember watchers are session-specific by default
+
+#### Performance Considerations
+
+- Watchers use sequence-based tracking for efficient change detection
+- Each poll only returns changes since the last sequence number
+- Long-polling reduces request overhead for real-time monitoring
+- Expired watchers are automatically cleaned up
+- Maximum 100 watchers per session (configurable)
+- Wildcard matching is performed server-side for efficiency
+
+#### Error Scenarios
+
+- `WATCHER_NOT_FOUND`: Invalid or expired watcher ID
+- `INVALID_ACTION`: Unknown action specified
+- `INVALID_FILTERS`: Invalid filter parameters
+- `MAX_WATCHERS_EXCEEDED`: Too many active watchers
+- `SESSION_NOT_FOUND`: Invalid session ID in filters
+- `INVALID_TIMEOUT`: Timeout value out of acceptable range
+
+#### Privacy and Security
+
+- Watchers respect privacy boundaries: private items only visible in their creating session
+- Cross-session monitoring requires explicit session IDs in filters
+- Watchers automatically expire to prevent resource leaks
+- Each watcher has a unique, unguessable ID
+- Polling from expired watchers returns empty results
+
 ## Search & Analysis
 
 ### context_search

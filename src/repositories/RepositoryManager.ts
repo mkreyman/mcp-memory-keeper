@@ -3,6 +3,7 @@ import { SessionRepository } from './SessionRepository.js';
 import { ContextRepository } from './ContextRepository.js';
 import { FileRepository } from './FileRepository.js';
 import { CheckpointRepository } from './CheckpointRepository.js';
+import { WatcherRepository } from './WatcherRepository.js';
 
 export class RepositoryManager {
   private dbManager: DatabaseManager;
@@ -11,6 +12,7 @@ export class RepositoryManager {
   public readonly contexts: ContextRepository;
   public readonly files: FileRepository;
   public readonly checkpoints: CheckpointRepository;
+  public readonly watchers: WatcherRepository;
 
   constructor(dbManager: DatabaseManager) {
     this.dbManager = dbManager;
@@ -20,6 +22,7 @@ export class RepositoryManager {
     this.contexts = new ContextRepository(dbManager);
     this.files = new FileRepository(dbManager);
     this.checkpoints = new CheckpointRepository(dbManager);
+    this.watchers = new WatcherRepository(dbManager);
   }
 
   /**
