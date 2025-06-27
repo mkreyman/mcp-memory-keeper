@@ -13,7 +13,6 @@ import { ensureSQLiteFormat } from './utils/timestamps.js';
 import { AgentCoordinator, AnalyzerAgent, SynthesizerAgent, AgentTask } from './utils/agents.js';
 import { RetentionManager } from './utils/retention.js';
 import { FeatureFlagManager } from './utils/feature-flags.js';
-import { MigrationManager } from './utils/migrations.js';
 import { RepositoryManager } from './repositories/RepositoryManager.js';
 import { simpleGit } from 'simple-git';
 import { deriveDefaultChannel } from './utils/channels.js';
@@ -48,8 +47,7 @@ const _retentionManager = new RetentionManager(dbManager);
 // Initialize feature flag manager
 const _featureFlagManager = new FeatureFlagManager(dbManager);
 
-// Initialize migration manager (watcher migrations are now applied by DatabaseManager)
-const migrationManager = new MigrationManager(dbManager);
+// Migration manager is no longer needed - watcher migrations are now applied by DatabaseManager
 
 // Tables are now created by DatabaseManager in utils/database.ts
 
@@ -1064,7 +1062,9 @@ To enable git tracking, use context_set_project_dir with your project path.`;
 
       // Get session information for enhanced messaging
       const sessionCount = db.prepare('SELECT COUNT(*) as count FROM sessions').get() as any;
-      const originalSession = db.prepare('SELECT name FROM sessions WHERE id = ?').get(cp.session_id) as any;
+      const originalSession = db
+        .prepare('SELECT name FROM sessions WHERE id = ?')
+        .get(cp.session_id) as any;
 
       return {
         content: [

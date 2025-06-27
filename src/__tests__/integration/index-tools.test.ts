@@ -479,37 +479,39 @@ describe('Index.ts Tool Handlers Integration Tests', () => {
 
       // Check what tables have data referencing this session
       const tablesWithData: any[] = [];
-      
+
       // Check each table that might reference sessions
       const tables = [
         'context_items',
-        'file_cache', 
+        'file_cache',
         'checkpoints',
         'retention_runs',
         'entities',
         'entity_context_items',
         'retention_executions',
         'context_changes',
-        'context_watchers'
+        'context_watchers',
       ];
-      
+
       for (const table of tables) {
         try {
-          const count = db.prepare(`SELECT COUNT(*) as count FROM ${table} WHERE session_id = ?`).get(session.id);
+          const count = db
+            .prepare(`SELECT COUNT(*) as count FROM ${table} WHERE session_id = ?`)
+            .get(session.id);
           if (count.count > 0) {
             tablesWithData.push({ table, count: count.count });
           }
-        } catch (e) {
+        } catch (_e) {
           // Table might not exist or not have session_id column
         }
       }
 
       // We know context_items has 2 records, context_changes likely has records from triggers
       expect(tablesWithData.length).toBeGreaterThan(0);
-      
+
       // Since we have ON DELETE CASCADE on context_items, deletion should work
       // The issue is likely with a table that doesn't have CASCADE
-      
+
       // For now, let's clean up manually to make the test pass
       // Delete in reverse dependency order
       db.prepare('DELETE FROM context_changes WHERE session_id = ?').run(session.id);
@@ -517,7 +519,7 @@ describe('Index.ts Tool Handlers Integration Tests', () => {
       db.prepare('DELETE FROM context_items WHERE session_id = ?').run(session.id);
       db.prepare('DELETE FROM file_cache WHERE session_id = ?').run(session.id);
       db.prepare('DELETE FROM checkpoints WHERE session_id = ?').run(session.id);
-      
+
       // Now delete the session
       repositories.sessions.delete(session.id);
 

@@ -486,7 +486,7 @@ describe('Database Migration Integration Tests', () => {
 
     it('should create default migrations without errors', () => {
       const defaultMigrations = (MigrationManager as any).getDefaultMigrations();
-      
+
       // Get initial migration count
       const initialCount = migrationManager.listMigrations().length;
 

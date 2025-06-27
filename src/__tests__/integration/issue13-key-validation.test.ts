@@ -5,7 +5,6 @@ import { ValidationError, validateKey } from '../../utils/validation';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
 
 describe('Issue #13: Add validation for special characters in keys', () => {
   let dbManager: DatabaseManager;
@@ -71,10 +70,35 @@ describe('Issue #13: Add validation for special characters in keys', () => {
       it('should reject keys with control characters', () => {
         // Test various control characters
         const controlChars = [
-          '\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07',
-          '\x08', '\x0B', '\x0C', '\x0E', '\x0F', '\x10', '\x11', '\x12',
-          '\x13', '\x14', '\x15', '\x16', '\x17', '\x18', '\x19', '\x1A',
-          '\x1B', '\x1C', '\x1D', '\x1E', '\x1F'
+          '\x00',
+          '\x01',
+          '\x02',
+          '\x03',
+          '\x04',
+          '\x05',
+          '\x06',
+          '\x07',
+          '\x08',
+          '\x0B',
+          '\x0C',
+          '\x0E',
+          '\x0F',
+          '\x10',
+          '\x11',
+          '\x12',
+          '\x13',
+          '\x14',
+          '\x15',
+          '\x16',
+          '\x17',
+          '\x18',
+          '\x19',
+          '\x1A',
+          '\x1B',
+          '\x1C',
+          '\x1D',
+          '\x1E',
+          '\x1F',
         ];
 
         controlChars.forEach(char => {
@@ -94,7 +118,23 @@ describe('Issue #13: Add validation for special characters in keys', () => {
       });
 
       it('should reject keys with special shell characters', () => {
-        const shellChars = ['|', '&', ';', '<', '>', '(', ')', '{', '}', '[', ']', '$', '#', '!', '~'];
+        const shellChars = [
+          '|',
+          '&',
+          ';',
+          '<',
+          '>',
+          '(',
+          ')',
+          '{',
+          '}',
+          '[',
+          ']',
+          '$',
+          '#',
+          '!',
+          '~',
+        ];
         shellChars.forEach(char => {
           expect(() => validateKey(`key${char}test`)).toThrow(ValidationError);
           expect(() => validateKey(`key${char}test`)).toThrow(/special characters/i);
@@ -182,7 +222,7 @@ describe('Issue #13: Add validation for special characters in keys', () => {
         expect(() => validateKey('key_with_😀_emoji')).toThrow(ValidationError);
         expect(() => validateKey('key_with_中文_characters')).toThrow(ValidationError);
         expect(() => validateKey('key_with_🔥_fire')).toThrow(ValidationError);
-        
+
         // Should reject other Unicode special characters
         expect(() => validateKey('key_with_©_copyright')).toThrow(ValidationError);
         expect(() => validateKey('key_with_™_trademark')).toThrow(ValidationError);
@@ -269,11 +309,11 @@ describe('Issue #13: Add validation for special characters in keys', () => {
       // Note: Current implementation doesn't validate special characters in batch operations
       // This test expects validation to be added
       const result = repositories.contexts.batchSave(testSessionId, items);
-      
+
       // Once validation is implemented, we expect some items to fail
       const failedItems = result.results.filter(r => !r.success);
       expect(failedItems).toHaveLength(2); // Should fail for items with spaces and tabs
-      
+
       // Check that the error messages mention special characters
       expect(failedItems[0].error).toMatch(/special characters/i);
       expect(failedItems[1].error).toMatch(/special characters/i);
@@ -288,7 +328,7 @@ describe('Issue #13: Add validation for special characters in keys', () => {
       ];
 
       const result = repositories.contexts.batchSave(testSessionId, items);
-      
+
       const successCount = result.results.filter(r => r.success).length;
       expect(successCount).toBe(4);
 
@@ -304,16 +344,16 @@ describe('Issue #13: Add validation for special characters in keys', () => {
       ];
 
       const result = repositories.contexts.batchSave(testSessionId, items);
-      
+
       // Once validation is implemented, we expect some items to fail
       const failedItems = result.results.filter(r => !r.success);
       expect(failedItems).toHaveLength(2); // Should fail for items with special characters
-      
+
       // Check specific failures
       const invalidKeyResult = result.results.find(r => r.key === 'invalid key');
       expect(invalidKeyResult?.success).toBe(false);
       expect(invalidKeyResult?.error).toMatch(/special characters/i);
-      
+
       const pipeKeyResult = result.results.find(r => r.key === 'another|invalid');
       expect(pipeKeyResult?.success).toBe(false);
       expect(pipeKeyResult?.error).toMatch(/special characters/i);

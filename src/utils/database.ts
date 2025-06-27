@@ -547,8 +547,8 @@ export class DatabaseManager {
       const needsMigration = result.count < 2;
 
       if (needsMigration) {
-        console.log('Applying watcher migrations...');
-        
+        // console.log('Applying watcher migrations...');
+
         // Apply migration 004 - context watch functionality
         this.db.transaction(() => {
           // Create change tracking table
@@ -658,10 +658,14 @@ export class DatabaseManager {
         // Apply migration 005 - additional watcher functionality
         this.db.transaction(() => {
           // Add is_active column to context_watchers if not exists
-          const watchers_columns = this.db.prepare('PRAGMA table_info(context_watchers)').all() as any[];
+          const watchers_columns = this.db
+            .prepare('PRAGMA table_info(context_watchers)')
+            .all() as any[];
           if (!watchers_columns.some((col: any) => col.name === 'is_active')) {
             this.db.exec('ALTER TABLE context_watchers ADD COLUMN is_active INTEGER DEFAULT 1');
-            this.db.exec('CREATE INDEX IF NOT EXISTS idx_watchers_active ON context_watchers(is_active)');
+            this.db.exec(
+              'CREATE INDEX IF NOT EXISTS idx_watchers_active ON context_watchers(is_active)'
+            );
           }
 
           // Add sequence_number column to context_items if not exists
@@ -734,7 +738,9 @@ export class DatabaseManager {
             )
           `);
 
-          this.db.exec('CREATE INDEX IF NOT EXISTS idx_deleted_items_session ON deleted_items(session_id)');
+          this.db.exec(
+            'CREATE INDEX IF NOT EXISTS idx_deleted_items_session ON deleted_items(session_id)'
+          );
           this.db.exec('CREATE INDEX IF NOT EXISTS idx_deleted_items_key ON deleted_items(key)');
         })();
 
@@ -752,7 +758,7 @@ export class DatabaseManager {
             const migration004Exists = this.db
               .prepare('SELECT COUNT(*) as count FROM migrations WHERE version = ?')
               .get('0.4.0') as any;
-            
+
             if (migration004Exists.count === 0) {
               this.db
                 .prepare(
@@ -772,7 +778,7 @@ export class DatabaseManager {
             const migration005Exists = this.db
               .prepare('SELECT COUNT(*) as count FROM migrations WHERE version = ?')
               .get('0.5.0') as any;
-            
+
             if (migration005Exists.count === 0) {
               this.db
                 .prepare(
@@ -792,9 +798,9 @@ export class DatabaseManager {
           console.warn('Could not record migrations in tracking table:', error);
         }
 
-        console.log('Watcher migrations applied successfully');
+        // console.log('Watcher migrations applied successfully');
       } else {
-        console.log('Watcher migrations already applied, skipping.');
+        // console.log('Watcher migrations already applied, skipping.');
       }
     } catch (error) {
       console.error('Failed to apply watcher migrations:', error);

@@ -105,7 +105,7 @@ export class ContextRepository extends BaseRepository {
   save(sessionId: string, input: CreateContextItemInput): ContextItem {
     // Validate the key
     const validatedKey = validateKey(input.key);
-    
+
     const id = this.generateId();
     const size = this.calculateSize(input.value);
 

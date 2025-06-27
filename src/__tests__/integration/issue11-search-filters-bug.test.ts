@@ -8,17 +8,17 @@ import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Tests for Issue #11: Search filters not working with category and priority
- * 
+ *
  * BUG DESCRIPTION:
  * - context_search tool doesn't filter properly when using category + priority parameters
  * - Basic search works, but adding filters returns no results even when matching items exist
  * - context_get with same filters works correctly (this is the workaround)
- * 
+ *
  * ROOT CAUSE:
  * - Missing privacy filter in queryEnhanced method causes different SQL query structure
  * - searchEnhanced includes privacy filter, queryEnhanced doesn't
  * - This affects both the main query and the count query, leading to inconsistent results
- * 
+ *
  * EXPECTED BEHAVIOR:
  * - context_search with filters should return the same results as context_get with same filters
  * - Both should respect privacy boundaries and session isolation
@@ -45,14 +45,20 @@ describe('Issue #11: Search Filters Bug Tests', () => {
     // Create test sessions
     testSessionId = uuidv4();
     otherSessionId = uuidv4();
-    
-    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(testSessionId, 'Main Test Session');
-    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(otherSessionId, 'Other Session');
+
+    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+      testSessionId,
+      'Main Test Session'
+    );
+    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+      otherSessionId,
+      'Other Session'
+    );
 
     // Create comprehensive test data that covers the bug scenarios
     const now = new Date();
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
+
     const testItems = [
       // Items in main session
       {
@@ -178,9 +184,9 @@ describe('Issue #11: Search Filters Bug Tests', () => {
 
       expect(searchResult.items.length).toBeGreaterThan(0);
       expect(searchResult.totalCount).toBeGreaterThan(0);
-      expect(searchResult.items.every(item => 
-        item.key.includes('auth') || item.value.includes('auth')
-      )).toBe(true);
+      expect(
+        searchResult.items.every(item => item.key.includes('auth') || item.value.includes('auth'))
+      ).toBe(true);
     });
   });
 
@@ -188,7 +194,7 @@ describe('Issue #11: Search Filters Bug Tests', () => {
     it('should demonstrate privacy filter bug: queryEnhanced misses public items from other sessions', () => {
       // This test will fail because queryEnhanced is missing the privacy filter
       // The correct behavior should be: show public items from ANY session + private items from OWN session
-      
+
       const queryResult = contextRepo.queryEnhanced({
         sessionId: testSessionId,
         // No filters - this should show all accessible items
@@ -199,40 +205,50 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         sessionId: testSessionId,
       });
 
-      console.log('DEBUG: queryEnhanced results:', {
-        itemCount: queryResult.items.length,
-        totalCount: queryResult.totalCount,
-        sessionsFound: [...new Set(queryResult.items.map(i => i.session_id))],
-        items: queryResult.items.map(i => ({ key: i.key, session_id: i.session_id, is_private: i.is_private }))
-      });
+      // console.log('DEBUG: queryEnhanced results:', {
+      //   itemCount: queryResult.items.length,
+      //   totalCount: queryResult.totalCount,
+      //   sessionsFound: [...new Set(queryResult.items.map(i => i.session_id))],
+      //   items: queryResult.items.map(i => ({
+      //     key: i.key,
+      //     session_id: i.session_id,
+      //     is_private: i.is_private,
+      //   })),
+      // });
 
-      console.log('DEBUG: searchEnhanced results (correct behavior):', {
-        itemCount: searchResult.items.length,
-        totalCount: searchResult.totalCount,
-        sessionsFound: [...new Set(searchResult.items.map(i => i.session_id))],
-        items: searchResult.items.map(i => ({ key: i.key, session_id: i.session_id, is_private: i.is_private }))
-      });
+      // console.log('DEBUG: searchEnhanced results (correct behavior):', {
+      //   itemCount: searchResult.items.length,
+      //   totalCount: searchResult.totalCount,
+      //   sessionsFound: [...new Set(searchResult.items.map(i => i.session_id))],
+      //   items: searchResult.items.map(i => ({
+      //     key: i.key,
+      //     session_id: i.session_id,
+      //     is_private: i.is_private,
+      //   })),
+      // });
 
       // BUG: queryEnhanced only shows items from current session
       // But it should show public items from other sessions too
-      const queryPublicItemsFromOtherSession = queryResult.items.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 0
+      const queryPublicItemsFromOtherSession = queryResult.items.filter(
+        item => item.session_id === otherSessionId && item.is_private === 0
       );
 
-      const searchPublicItemsFromOtherSession = searchResult.items.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 0
+      const searchPublicItemsFromOtherSession = searchResult.items.filter(
+        item => item.session_id === otherSessionId && item.is_private === 0
       );
 
-      console.log('DEBUG: Public items from other session comparison:', {
-        queryCount: queryPublicItemsFromOtherSession.length,
-        searchCount: searchPublicItemsFromOtherSession.length,
-        queryItems: queryPublicItemsFromOtherSession.map(i => i.key),
-        searchItems: searchPublicItemsFromOtherSession.map(i => i.key)
-      });
+      // console.log('DEBUG: Public items from other session comparison:', {
+      //   queryCount: queryPublicItemsFromOtherSession.length,
+      //   searchCount: searchPublicItemsFromOtherSession.length,
+      //   queryItems: queryPublicItemsFromOtherSession.map(i => i.key),
+      //   searchItems: searchPublicItemsFromOtherSession.map(i => i.key),
+      // });
 
       // This will demonstrate the bug: queryEnhanced will have 0 public items from other sessions
       // while searchEnhanced will have > 0 public items from other sessions
-      expect(queryPublicItemsFromOtherSession.length).toBe(searchPublicItemsFromOtherSession.length);
+      expect(queryPublicItemsFromOtherSession.length).toBe(
+        searchPublicItemsFromOtherSession.length
+      );
     });
 
     it('should demonstrate privacy filter works correctly in searchEnhanced', () => {
@@ -243,14 +259,18 @@ describe('Issue #11: Search Filters Bug Tests', () => {
       });
 
       // searchEnhanced should NOT see private items from other sessions
-      const privateItemsFromOtherSession = searchResult.items.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 1
+      const privateItemsFromOtherSession = searchResult.items.filter(
+        item => item.session_id === otherSessionId && item.is_private === 1
       );
 
-      console.log('DEBUG: Private items from other session found by searchEnhanced:', {
-        count: privateItemsFromOtherSession.length,
-        items: privateItemsFromOtherSession.map(i => ({ key: i.key, session_id: i.session_id, is_private: i.is_private }))
-      });
+      // console.log('DEBUG: Private items from other session found by searchEnhanced:', {
+      //   count: privateItemsFromOtherSession.length,
+      //   items: privateItemsFromOtherSession.map(i => ({
+      //     key: i.key,
+      //     session_id: i.session_id,
+      //     is_private: i.is_private,
+      //   })),
+      // });
 
       // This should be 0 and will be 0 because searchEnhanced has the privacy filter
       expect(privateItemsFromOtherSession.length).toBe(0);
@@ -272,29 +292,33 @@ describe('Issue #11: Search Filters Bug Tests', () => {
       });
 
       // Debug logging to understand the actual behavior
-      console.log('DEBUG: searchEnhanced with category=task results:', {
-        itemCount: searchResult.items.length,
-        totalCount: searchResult.totalCount,
-        items: searchResult.items.map(i => ({ key: i.key, category: i.category, priority: i.priority }))
-      });
+      // console.log('DEBUG: searchEnhanced with category=task results:', {
+      //   itemCount: searchResult.items.length,
+      //   totalCount: searchResult.totalCount,
+      //   items: searchResult.items.map(i => ({
+      //     key: i.key,
+      //     category: i.category,
+      //     priority: i.priority,
+      //   })),
+      // });
 
       // BUG: searchEnhanced should return items but currently may not due to filter interaction
       // The query should find: auth_high_task and auth_normal_task
       expect(searchResult.items.length).toBeGreaterThanOrEqual(0); // Currently may be 0 due to bug
-      
+
       // But queryEnhanced works correctly as a workaround
-      const taskItems = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const taskItems = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
-      console.log('DEBUG: queryEnhanced filtered results:', {
-        itemCount: taskItems.length,
-        items: taskItems.map(i => ({ key: i.key, category: i.category, priority: i.priority }))
-      });
+      // console.log('DEBUG: queryEnhanced filtered results:', {
+      //   itemCount: taskItems.length,
+      //   items: taskItems.map(i => ({ key: i.key, category: i.category, priority: i.priority })),
+      // });
       expect(taskItems.length).toBe(3); // Should find auth_high_task, auth_normal_task, and other_auth_task
-      
+
       // Let's see if there's actually a difference
       if (searchResult.items.length !== taskItems.length) {
-        console.log('BUG DETECTED: Different result counts!');
+        // // console.log('BUG DETECTED: Different result counts!');
       }
     });
 
@@ -312,10 +336,10 @@ describe('Issue #11: Search Filters Bug Tests', () => {
 
       // BUG: searchEnhanced may not work with priority filters
       expect(searchResult.items.length).toBeGreaterThanOrEqual(0); // Currently may be 0 due to bug
-      
+
       // But queryEnhanced works as workaround
-      const highPriorityItems = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const highPriorityItems = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
       expect(highPriorityItems.length).toBe(3); // auth_high_task, auth_config_high, and other_auth_task
     });
@@ -337,10 +361,10 @@ describe('Issue #11: Search Filters Bug Tests', () => {
 
       // BUG: Combined filters in searchEnhanced likely return no results
       expect(searchResult.items.length).toBeGreaterThanOrEqual(0); // Currently likely 0 due to bug
-      
+
       // But queryEnhanced works correctly
-      const matchingItems = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const matchingItems = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
       expect(matchingItems.length).toBe(2); // Should find auth_high_task and other_auth_task
       expect(matchingItems.some(item => item.key === 'auth_high_task')).toBe(true);
@@ -361,10 +385,10 @@ describe('Issue #11: Search Filters Bug Tests', () => {
 
       // BUG: Channel filtering in searchEnhanced may not work
       expect(searchResult.items.length).toBeGreaterThanOrEqual(0); // Currently may be 0 due to bug
-      
+
       // But queryEnhanced works as workaround
-      const channelItems = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const channelItems = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
       expect(channelItems.length).toBe(3); // auth_high_task, auth_normal_task, and other_auth_task
     });
@@ -383,8 +407,8 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         category: 'task',
       });
 
-      const queryMatches = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const queryMatches = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
 
       // After fix: searchEnhanced should return same results as queryEnhanced filter
@@ -406,8 +430,8 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         priorities: ['high'],
       });
 
-      const queryMatches = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const queryMatches = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
 
       // After fix: should return matching results
@@ -433,8 +457,8 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         channel: 'feature/auth',
       });
 
-      const queryMatches = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const queryMatches = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
 
       // After fix: complex filter combinations should work
@@ -462,8 +486,8 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         sessionId: testSessionId,
       });
 
-      const authItems = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const authItems = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
 
       // Should find public items from any session + private items from own session
@@ -481,8 +505,8 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         sessionId: testSessionId,
       });
 
-      const queryMatches = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const queryMatches = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
 
       // Both should respect privacy in the same way
@@ -508,8 +532,8 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         priorities: ['high', 'normal'],
       });
 
-      const queryMatches = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const queryMatches = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
 
       expect(searchResult.items.length).toBe(queryMatches.length);
@@ -527,8 +551,8 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         channels: ['main', 'feature/auth'],
       });
 
-      const queryMatches = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const queryMatches = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
 
       expect(searchResult.items.length).toBe(queryMatches.length);
@@ -576,7 +600,7 @@ describe('Issue #11: Search Filters Bug Tests', () => {
         { category: 'task', priorities: ['high'], channel: 'feature/auth' },
       ];
 
-      testCases.forEach((filters, index) => {
+      testCases.forEach((filters, _index) => {
         const searchResult = contextRepo.searchEnhanced({
           query: 'auth',
           sessionId: testSessionId,
@@ -588,18 +612,24 @@ describe('Issue #11: Search Filters Bug Tests', () => {
           ...filters,
         });
 
-        const queryMatches = queryResult.items.filter(item => 
-          item.key.includes('auth') || item.value.includes('auth')
+        const queryMatches = queryResult.items.filter(
+          item => item.key.includes('auth') || item.value.includes('auth')
         );
 
         expect(searchResult.items.length).toBe(queryMatches.length);
         expect(searchResult.totalCount).toBe(queryMatches.length);
-        
+
         // Log for debugging
         if (searchResult.items.length !== queryMatches.length) {
-          console.log(`Test case ${index} failed:`, filters);
-          console.log('Search results:', searchResult.items.map(i => i.key));
-          console.log('Query matches:', queryMatches.map(i => i.key));
+          // console.log(`Test case ${index} failed:`, filters);
+          // console.log(
+          //   'Search results:',
+          //   searchResult.items.map(i => i.key)
+          // );
+          // console.log(
+          //   'Query matches:',
+          //   queryMatches.map(i => i.key)
+          // );
         }
       });
     });
@@ -622,7 +652,7 @@ describe('Issue #11: Search Filters Bug Tests', () => {
 
     it('SUCCESS CRITERIA: Performance should be acceptable', () => {
       const start = Date.now();
-      
+
       const result = contextRepo.searchEnhanced({
         query: 'auth',
         sessionId: testSessionId,
@@ -632,7 +662,7 @@ describe('Issue #11: Search Filters Bug Tests', () => {
       });
 
       const duration = Date.now() - start;
-      
+
       expect(result.items.length).toBeGreaterThanOrEqual(0);
       expect(duration).toBeLessThan(100); // Should complete within 100ms
     });

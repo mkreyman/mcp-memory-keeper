@@ -199,7 +199,7 @@ describe('Context Diff Integration Tests', () => {
     it('should compare against checkpoint using repository method', () => {
       // Disable triggers to control timestamps precisely
       testHelper.disableTimestampTriggers();
-      
+
       const checkpointTime = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
 
       // Create items at checkpoint time

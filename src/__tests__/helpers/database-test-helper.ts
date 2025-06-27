@@ -21,15 +21,13 @@ export class DatabaseTestHelper {
       'update_sessions_timestamp',
       'update_retention_policies_timestamp',
       'update_feature_flags_timestamp',
-      'increment_sequence_update'
+      'increment_sequence_update',
     ];
 
     for (const triggerName of triggerNames) {
       // Get the trigger definition before dropping it
       const triggerDef = this.db
-        .prepare(
-          `SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?`
-        )
+        .prepare(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?`)
         .get(triggerName) as any;
 
       if (triggerDef && triggerDef.sql) {
@@ -65,7 +63,7 @@ export class DatabaseTestHelper {
     return items.map(item => ({
       ...item,
       created_at: fixedTimestamp,
-      updated_at: fixedTimestamp
+      updated_at: fixedTimestamp,
     }));
   }
 
@@ -82,7 +80,7 @@ export class DatabaseTestHelper {
     const setClauses = Object.keys(updates)
       .map(key => `${key} = ?`)
       .join(', ');
-    
+
     const whereClauses = Object.keys(where)
       .map(key => `${key} = ?`)
       .join(' AND ');
@@ -92,7 +90,7 @@ export class DatabaseTestHelper {
 
     // Temporarily disable triggers
     this.disableTimestampTriggers();
-    
+
     try {
       this.db.prepare(sql).run(...values);
     } finally {
@@ -127,7 +125,7 @@ export class DatabaseTestHelper {
 
     return {
       added: added.count,
-      modified: modified.count
+      modified: modified.count,
     };
   }
 
@@ -154,7 +152,7 @@ export class DatabaseTestHelper {
       updatedAt = createdAt,
       category = null,
       priority = 'normal',
-      channel = 'general'
+      channel = 'general',
     } = params;
 
     // Temporarily disable triggers to control timestamps
@@ -167,17 +165,7 @@ export class DatabaseTestHelper {
            (id, session_id, key, value, category, priority, channel, created_at, updated_at) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(
-          id,
-          sessionId,
-          key,
-          value,
-          category,
-          priority,
-          channel,
-          createdAt,
-          updatedAt
-        );
+        .run(id, sessionId, key, value, category, priority, channel, createdAt, updatedAt);
     } finally {
       this.enableTimestampTriggers();
     }

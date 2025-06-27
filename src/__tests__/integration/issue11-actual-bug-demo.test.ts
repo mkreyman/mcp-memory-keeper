@@ -8,15 +8,15 @@ import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Tests for Issue #11: ACTUAL BUG DEMONSTRATION
- * 
+ *
  * ROOT CAUSE IDENTIFIED:
  * Both searchEnhanced and queryEnhanced incorrectly start with "WHERE session_id = ?"
  * This limits them to only show items from the current session.
- * 
+ *
  * CORRECT BEHAVIOR (as shown in other methods like getAccessibleItems):
  * Should start with "WHERE (is_private = 0 OR session_id = ?)"
  * This shows: public items from ANY session + private items from OWN session
- * 
+ *
  * CURRENT INCORRECT BEHAVIOR:
  * Only shows items from current session (both public and private)
  * Misses public items from other sessions entirely
@@ -42,9 +42,15 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
     // Create test sessions
     testSessionId = uuidv4();
     otherSessionId = uuidv4();
-    
-    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(testSessionId, 'Main Test Session');
-    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(otherSessionId, 'Other Session');
+
+    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+      testSessionId,
+      'Main Test Session'
+    );
+    db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(
+      otherSessionId,
+      'Other Session'
+    );
 
     // Create test data that demonstrates the bug
     const testItems = [
@@ -137,31 +143,31 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
         sessionId: testSessionId,
       });
 
-      console.log('searchEnhanced results:', {
-        total: searchResult.items.length,
-        items: searchResult.items.map(i => ({
-          key: i.key,
-          session_id: i.session_id,
-          is_private: i.is_private,
-          from_other_session: i.session_id !== testSessionId
-        }))
-      });
+      // console.log('searchEnhanced results:', {
+      //   total: searchResult.items.length,
+      //   items: searchResult.items.map(i => ({
+      //     key: i.key,
+      //     session_id: i.session_id,
+      //     is_private: i.is_private,
+      //     from_other_session: i.session_id !== testSessionId,
+      //   })),
+      // });
 
       // BUG: This should find the public item 'other_public_auth' from other session
-      const publicItemsFromOtherSession = searchResult.items.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 0
+      const publicItemsFromOtherSession = searchResult.items.filter(
+        item => item.session_id === otherSessionId && item.is_private === 0
       );
 
-      const privateItemsFromOtherSession = searchResult.items.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 1
+      const privateItemsFromOtherSession = searchResult.items.filter(
+        item => item.session_id === otherSessionId && item.is_private === 1
       );
 
-      console.log('Analysis:', {
-        publicFromOther: publicItemsFromOtherSession.length,
-        privateFromOther: privateItemsFromOtherSession.length,
-        shouldSeePublicFromOther: 1, // other_public_auth
-        shouldSeePrivateFromOther: 0, // none
-      });
+      // console.log('Analysis:', {
+      //   publicFromOther: publicItemsFromOtherSession.length,
+      //   privateFromOther: privateItemsFromOtherSession.length,
+      //   shouldSeePublicFromOther: 1, // other_public_auth
+      //   shouldSeePrivateFromOther: 0, // none
+      // });
 
       // THIS TEST WILL FAIL because searchEnhanced incorrectly limits to current session only
       expect(publicItemsFromOtherSession.length).toBe(1); // Should find other_public_auth
@@ -173,36 +179,36 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
         sessionId: testSessionId,
       });
 
-      console.log('queryEnhanced results:', {
-        total: queryResult.items.length,
-        items: queryResult.items.map(i => ({
-          key: i.key,
-          session_id: i.session_id,
-          is_private: i.is_private,
-          from_other_session: i.session_id !== testSessionId
-        }))
-      });
+      // console.log('queryEnhanced results:', {
+      //   total: queryResult.items.length,
+      //   items: queryResult.items.map(i => ({
+      //     key: i.key,
+      //     session_id: i.session_id,
+      //     is_private: i.is_private,
+      //     from_other_session: i.session_id !== testSessionId,
+      //   })),
+      // });
 
       // Filter for items with 'auth' to compare with searchEnhanced
-      const authItems = queryResult.items.filter(item => 
-        item.key.includes('auth') || item.value.includes('auth')
+      const authItems = queryResult.items.filter(
+        item => item.key.includes('auth') || item.value.includes('auth')
       );
 
-      const publicItemsFromOtherSession = authItems.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 0
+      const publicItemsFromOtherSession = authItems.filter(
+        item => item.session_id === otherSessionId && item.is_private === 0
       );
 
-      const privateItemsFromOtherSession = authItems.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 1
+      const privateItemsFromOtherSession = authItems.filter(
+        item => item.session_id === otherSessionId && item.is_private === 1
       );
 
-      console.log('Analysis:', {
-        authItems: authItems.length,
-        publicFromOther: publicItemsFromOtherSession.length,
-        privateFromOther: privateItemsFromOtherSession.length,
-        shouldSeePublicFromOther: 1, // other_public_auth
-        shouldSeePrivateFromOther: 0, // none
-      });
+      // console.log('Analysis:', {
+      //   authItems: authItems.length,
+      //   publicFromOther: publicItemsFromOtherSession.length,
+      //   privateFromOther: privateItemsFromOtherSession.length,
+      //   shouldSeePublicFromOther: 1, // other_public_auth
+      //   shouldSeePrivateFromOther: 0, // none
+      // });
 
       // THIS TEST WILL FAIL because queryEnhanced incorrectly limits to current session only
       expect(publicItemsFromOtherSession.length).toBe(1); // Should find other_public_auth
@@ -213,33 +219,33 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
       // This method correctly implements the privacy filter
       const accessibleItems = contextRepo.getAccessibleItems(testSessionId);
 
-      console.log('getAccessibleItems results (CORRECT behavior):', {
-        total: accessibleItems.length,
-        items: accessibleItems.map(i => ({
-          key: i.key,
-          session_id: i.session_id,
-          is_private: i.is_private,
-          from_other_session: i.session_id !== testSessionId
-        }))
-      });
+      // console.log('getAccessibleItems results (CORRECT behavior):', {
+      //   total: accessibleItems.length,
+      //   items: accessibleItems.map(i => ({
+      //     key: i.key,
+      //     session_id: i.session_id,
+      //     is_private: i.is_private,
+      //     from_other_session: i.session_id !== testSessionId,
+      //   })),
+      // });
 
-      const publicItemsFromOtherSession = accessibleItems.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 0
+      const publicItemsFromOtherSession = accessibleItems.filter(
+        item => item.session_id === otherSessionId && item.is_private === 0
       );
 
-      const privateItemsFromOtherSession = accessibleItems.filter(item => 
-        item.session_id === otherSessionId && item.is_private === 1
+      const privateItemsFromOtherSession = accessibleItems.filter(
+        item => item.session_id === otherSessionId && item.is_private === 1
       );
 
-      const myPrivateItems = accessibleItems.filter(item => 
-        item.session_id === testSessionId && item.is_private === 1
+      const myPrivateItems = accessibleItems.filter(
+        item => item.session_id === testSessionId && item.is_private === 1
       );
 
-      console.log('Correct privacy analysis:', {
-        publicFromOther: publicItemsFromOtherSession.length,
-        privateFromOther: privateItemsFromOtherSession.length,
-        myPrivateItems: myPrivateItems.length,
-      });
+      // console.log('Correct privacy analysis:', {
+      //   publicFromOther: publicItemsFromOtherSession.length,
+      //   privateFromOther: privateItemsFromOtherSession.length,
+      //   myPrivateItems: myPrivateItems.length,
+      // });
 
       // This should work correctly
       expect(publicItemsFromOtherSession.length).toBe(1); // Should find other_public_auth
@@ -251,7 +257,7 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
   describe('Show what the bug causes in practice', () => {
     it('Bug impact: search with filters returns inconsistent results', () => {
       // This demonstrates how the session-only filtering affects real usage
-      
+
       // User searches for auth-related content with filters
       const searchWithCategory = contextRepo.searchEnhanced({
         query: 'auth',
@@ -264,12 +270,12 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
         category: 'docs',
       });
 
-      console.log('Search with category filter:', {
-        searchResults: searchWithCategory.items.length,
-        queryResults: queryWithCategory.items.length,
-        searchItems: searchWithCategory.items.map(i => i.key),
-        queryItems: queryWithCategory.items.map(i => i.key),
-      });
+      // console.log('Search with category filter:', {
+      //   searchResults: searchWithCategory.items.length,
+      //   queryResults: queryWithCategory.items.length,
+      //   searchItems: searchWithCategory.items.map(i => i.key),
+      //   queryItems: queryWithCategory.items.map(i => i.key),
+      // });
 
       // FIXED: Both now return 1 result because users can see public docs from other sessions
       expect(searchWithCategory.items.length).toBe(1); // Now correctly finds public docs
@@ -285,17 +291,18 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
         sessionId: testSessionId,
       });
 
-      const allPublicDocs = contextRepo.getAccessibleItems(testSessionId)
+      const allPublicDocs = contextRepo
+        .getAccessibleItems(testSessionId)
         .filter(item => item.value.includes('documentation') && item.is_private === 0);
 
-      console.log('Documentation search impact:', {
-        searchFound: searchForDocs.items.length,
-        actualPublicDocs: allPublicDocs.length,
-        missedDocs: allPublicDocs.length - searchForDocs.items.length,
-        missedItems: allPublicDocs.filter(doc => 
-          !searchForDocs.items.some(found => found.key === doc.key)
-        ).map(i => ({ key: i.key, session: i.session_id }))
-      });
+      // console.log('Documentation search impact:', {
+      //   searchFound: searchForDocs.items.length,
+      //   actualPublicDocs: allPublicDocs.length,
+      //   missedDocs: allPublicDocs.length - searchForDocs.items.length,
+      //   missedItems: allPublicDocs
+      //     .filter(doc => !searchForDocs.items.some(found => found.key === doc.key))
+      //     .map(i => ({ key: i.key, session: i.session_id })),
+      // });
 
       // FIXED: Users now find all available public content
       expect(searchForDocs.items.length).toBe(allPublicDocs.length);
@@ -314,10 +321,10 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
 
       // After fix, these should return the same items
       expect(searchResult.items.length).toBe(accessibleItems.length);
-      
+
       const searchKeys = new Set(searchResult.items.map(i => i.key));
       const accessibleKeys = new Set(accessibleItems.map(i => i.key));
-      
+
       expect(searchKeys).toEqual(accessibleKeys);
     });
 
@@ -331,10 +338,10 @@ describe('Issue #11: Actual Bug - Incorrect Session Filtering', () => {
 
       // After fix, these should return the same items
       expect(queryResult.items.length).toBe(accessibleItems.length);
-      
+
       const queryKeys = new Set(queryResult.items.map(i => i.key));
       const accessibleKeys = new Set(accessibleItems.map(i => i.key));
-      
+
       expect(queryKeys).toEqual(accessibleKeys);
     });
   });

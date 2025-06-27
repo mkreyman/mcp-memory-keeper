@@ -148,7 +148,7 @@ export function validateKey(key: string): string {
   if (key === null || key === undefined) {
     throw new ValidationError('Key cannot be null or undefined');
   }
-  
+
   if (typeof key !== 'string') {
     throw new ValidationError('Key must be a string');
   }
@@ -189,6 +189,7 @@ export function validateKey(key: string): string {
   }
 
   // Check for control characters (excluding those already checked)
+  // eslint-disable-next-line no-control-regex
   if (/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(key)) {
     throw new ValidationError('Key contains control characters');
   }

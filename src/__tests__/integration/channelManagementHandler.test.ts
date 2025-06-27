@@ -211,10 +211,10 @@ describe('Channel Management Handler Integration Tests', () => {
 
       // Insert all items
       const allItems = [...devItems, ...featureItems, ...prodItems, ...generalItems, ...emptyItems];
-      
+
       // Disable triggers to control timestamps precisely
       testHelper.disableTimestampTriggers();
-      
+
       const stmt = db.prepare(`
         INSERT INTO context_items (id, session_id, key, value, channel, priority, category, created_at, updated_at, is_private, size)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -235,7 +235,7 @@ describe('Channel Management Handler Integration Tests', () => {
           item.value.length // size
         );
       }
-      
+
       // Re-enable triggers
       testHelper.enableTimestampTriggers();
     });
@@ -736,7 +736,7 @@ describe('Channel Management Handler Integration Tests', () => {
           Buffer.byteLength(item.value, 'utf8')
         );
       }
-      
+
       // Re-enable triggers
       testHelper.enableTimestampTriggers();
     });
@@ -840,7 +840,7 @@ describe('Channel Management Handler Integration Tests', () => {
       it('should calculate activity metrics over time', () => {
         // Disable triggers to have precise control over timestamps
         testHelper.disableTimestampTriggers();
-        
+
         const now = new Date();
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -971,7 +971,7 @@ describe('Channel Management Handler Integration Tests', () => {
       it('should calculate channel health metrics', () => {
         // Disable triggers to ensure consistent timestamp behavior
         testHelper.disableTimestampTriggers();
-        
+
         const now = new Date();
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const _oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
