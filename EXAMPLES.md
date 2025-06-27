@@ -3,6 +3,8 @@
 ## Table of Contents
 - [Quick Start Scenarios](#quick-start-scenarios)
 - [Common Workflows](#common-workflows)
+- [Working with Channels](#working-with-channels) (NEW v0.10.0)
+- [Time-based Queries](#time-based-queries) (NEW v0.10.0)
 - [Advanced Usage](#advanced-usage)
 - [Tips & Best Practices](#tips--best-practices)
 
@@ -288,6 +290,289 @@ await context_save({
   value: "TOTP implementation complete, tested with Google Authenticator",
   category: "progress"
 });
+```
+
+## Working with Channels (NEW v0.10.0)
+
+Channels provide persistent topic-based organization that survives session crashes. They're perfect for multi-branch development and team collaboration.
+
+### Auto-derived Channels from Git Branches
+When you set a project directory, channels are automatically derived from your git branch:
+
+```javascript
+// Set project directory - channels will auto-derive from git branch
+context_session_start
+{
+  "name": "Feature Development",
+  "projectDir": "/path/to/project"
+}
+// Branch "feature/user-auth" → channel "feature-user-auth"
+
+// All saves automatically go to the branch-derived channel
+context_save
+{
+  "key": "auth_architecture",
+  "value": "Using JWT with refresh tokens stored in Redis",
+  "category": "decision",
+  "priority": "high"
+  // Automatically saved to "feature-user-auth" channel
+}
+```
+
+### Explicit Channel Management
+Override automatic channels or work without git:
+
+```javascript
+// Start with a specific default channel
+context_session_start
+{
+  "name": "API Redesign",
+  "defaultChannel": "api-v2"
+}
+
+// Save to different channels in same session
+context_save
+{
+  "key": "auth_endpoints",
+  "value": "POST /auth/login, POST /auth/refresh, POST /auth/logout",
+  "category": "note",
+  "channel": "api-v2-auth"  // Explicit channel
+}
+
+context_save
+{
+  "key": "user_endpoints", 
+  "value": "GET /users, POST /users, PATCH /users/:id",
+  "category": "note",
+  "channel": "api-v2-users"  // Different channel
+}
+```
+
+### Cross-Channel Queries
+Work across multiple feature branches:
+
+```javascript
+// Get all items from a specific channel
+context_get
+{ "channel": "feature-payments" }
+
+// Get high-priority tasks across ALL channels
+context_get
+{
+  "category": "task",
+  "priorities": ["high"]
+  // No channel specified = search all channels
+}
+
+// Compare decisions across features
+const authDecisions = await context_get({ 
+  "channel": "feature-auth", 
+  "category": "decision" 
+});
+const paymentDecisions = await context_get({ 
+  "channel": "feature-payments", 
+  "category": "decision" 
+});
+```
+
+### Channel Use Cases
+
+#### Multi-Branch Development
+```javascript
+// Working on authentication feature
+// git checkout -b feature/auth
+context_save
+{
+  "key": "auth_status",
+  "value": "JWT implementation complete, working on OAuth",
+  "category": "progress"
+  // Auto-saved to "feature-auth" channel
+}
+
+// Switch to payments branch
+// git checkout -b feature/payments
+context_save
+{
+  "key": "payment_status",
+  "value": "Stripe integration 50% complete",
+  "category": "progress"
+  // Auto-saved to "feature-payments" channel
+}
+
+// Later, check both features' progress
+const features = ["feature-auth", "feature-payments"];
+for (const channel of features) {
+  const progress = await context_get({ 
+    "channel": channel, 
+    "category": "progress" 
+  });
+  console.log(`${channel}: ${progress.length} updates`);
+}
+```
+
+#### Team Collaboration
+```javascript
+// Frontend developer on UI branch
+context_save
+{
+  "key": "component_library",
+  "value": "Using Material-UI v5 with custom theme",
+  "category": "decision",
+  "channel": "frontend-ui"
+}
+
+// Backend developer can check frontend decisions
+context_get
+{
+  "channel": "frontend-ui",
+  "category": "decision"
+}
+```
+
+## Time-based Queries (NEW v0.10.0)
+
+Find context based on when it was created or updated.
+
+### Recent Work Queries
+```javascript
+// Get everything from today
+const today = new Date().toISOString().split('T')[0];
+context_get
+{
+  "createdAfter": `${today}T00:00:00Z`,
+  "includeMetadata": true  // See timestamps
+}
+
+// Get last 24 hours of high-priority items
+const yesterday = new Date(Date.now() - 24*60*60*1000).toISOString();
+context_get
+{
+  "createdAfter": yesterday,
+  "priorities": ["high"],
+  "sort": "created_desc"
+}
+
+// Get this week's decisions
+const weekStart = new Date();
+weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+context_get
+{
+  "category": "decision",
+  "createdAfter": weekStart.toISOString(),
+  "sort": "created_asc"
+}
+```
+
+### Historical Analysis
+```javascript
+// Find old unfinished tasks
+const thirtyDaysAgo = new Date(Date.now() - 30*24*60*60*1000).toISOString();
+context_get
+{
+  "category": "task",
+  "createdBefore": thirtyDaysAgo,
+  "includeMetadata": true
+}
+
+// Get items from specific date range
+context_get
+{
+  "createdAfter": "2025-01-01T00:00:00Z",
+  "createdBefore": "2025-01-31T23:59:59Z",
+  "sort": "updated_desc"
+}
+```
+
+### Pattern Matching with Time Filters
+```javascript
+// Find all auth-related items from this sprint
+const sprintStart = "2025-01-15T00:00:00Z";
+context_get
+{
+  "keyPattern": "auth_.*",
+  "createdAfter": sprintStart,
+  "includeMetadata": true
+}
+
+// Get recent bug fixes
+context_get
+{
+  "keyPattern": "bug_.*|fix_.*",
+  "category": "progress",
+  "createdAfter": new Date(Date.now() - 7*24*60*60*1000).toISOString(),
+  "sort": "created_desc"
+}
+```
+
+### Pagination for Large Results
+```javascript
+// Get high-priority items page by page
+let offset = 0;
+const limit = 20;
+let hasMore = true;
+
+while (hasMore) {
+  const items = await context_get({
+    "priorities": ["high"],
+    "sort": "created_desc",
+    "limit": limit,
+    "offset": offset,
+    "includeMetadata": true
+  });
+  
+  console.log(`Page ${offset/limit + 1}: ${items.length} items`);
+  
+  if (items.length < limit) hasMore = false;
+  offset += limit;
+}
+```
+
+### Enhanced Timeline with Details
+```javascript
+// Get detailed timeline for today
+context_timeline
+{
+  "groupBy": "hour",
+  "includeItems": true,        // Show actual items
+  "categories": ["task", "progress"],
+  "relativeTime": true,        // "2 hours ago" format
+  "itemsPerPeriod": 5         // Max 5 items per hour
+}
+
+// Weekly summary with all details
+context_timeline
+{
+  "startDate": "2025-01-20T00:00:00Z",
+  "endDate": "2025-01-26T23:59:59Z",
+  "groupBy": "day",
+  "includeItems": true,
+  "itemsPerPeriod": 10        // Top 10 items per day
+}
+```
+
+### Combining Filters
+```javascript
+// Complex query: Recent high-priority auth tasks from feature branch
+context_get
+{
+  "channel": "feature-auth",
+  "category": "task", 
+  "priorities": ["high"],
+  "keyPattern": "auth_.*",
+  "createdAfter": new Date(Date.now() - 48*60*60*1000).toISOString(),
+  "sort": "priority",          // Sort by priority first
+  "includeMetadata": true,
+  "limit": 10
+}
+
+// Find stale decisions that might need review
+context_get
+{
+  "category": "decision",
+  "createdBefore": new Date(Date.now() - 60*24*60*60*1000).toISOString(), // 60+ days old
+  "sort": "created_asc",
+  "includeMetadata": true
+}
 ```
 
 ## Advanced Usage

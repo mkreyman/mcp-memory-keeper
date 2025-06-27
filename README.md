@@ -21,9 +21,11 @@ Claude Code users often face context loss when the conversation window fills up.
 - 🔄 Save and restore context between Claude Code sessions
 - 📁 File content caching with change detection  
 - 🏷️ Organize context with categories and priorities
+- 📺 **Channels** - Persistent topic-based organization (auto-derived from git branch)
 - 📸 Checkpoint system for complete context snapshots
 - 🤖 Smart compaction helper that never loses critical info
 - 🔍 Full-text search across all saved context
+- 🕐 **Enhanced filtering** - Time-based queries, regex patterns, pagination
 - 💾 Export/import for backup and sharing
 - 🌿 Git integration with automatic context correlation
 - 📊 AI-friendly summarization with priority awareness
@@ -195,6 +197,14 @@ mcp_context_session_start({
   projectDir: "/path/to/your/project"
 })
 
+// Start a session with a default channel
+mcp_context_session_start({ 
+  name: "Feature Development", 
+  description: "Working on user authentication",
+  projectDir: "/path/to/your/project",
+  defaultChannel: "auth-feature"  // Will auto-derive from git branch if not specified
+})
+
 // Set project directory for current session
 mcp_context_set_project_dir({ 
   projectDir: "/path/to/your/project"
@@ -208,6 +218,35 @@ mcp_context_session_start({
   name: "Feature Dev Continued",
   continueFrom: "previous-session-id" 
 })
+```
+
+### Working with Channels (NEW in v0.10.0)
+
+Channels provide persistent topic-based organization that survives session crashes and restarts:
+
+```javascript
+// Channels are auto-derived from git branch (if projectDir is set)
+// Branch "feature/auth-system" becomes channel "feature-auth-system" (20 chars max)
+
+// Save to a specific channel
+mcp_context_save({ 
+  key: "auth_design", 
+  value: "Using JWT with refresh tokens",
+  category: "decision",
+  priority: "high",
+  channel: "auth-feature"  // Explicitly set channel
+})
+
+// Get items from a specific channel
+mcp_context_get({ channel: "auth-feature" })
+
+// Get items across all channels (default behavior)
+mcp_context_get({ category: "task" })
+
+// Channels persist across sessions - perfect for:
+// - Multi-branch development
+// - Feature-specific context
+// - Team collaboration on different topics
 ```
 
 ### Enhanced Context Storage
@@ -247,6 +286,29 @@ mcp_context_get({ key: "current_task" })
 mcp_context_get({ 
   sessionId: "session-id-here",
   category: "decision" 
+})
+
+// Enhanced filtering (NEW in v0.10.0)
+mcp_context_get({
+  category: "task",
+  priorities: ["high", "normal"],
+  includeMetadata: true,      // Get timestamps, size info
+  sort: "created_desc",       // created_asc/desc, updated_asc/desc, priority
+  limit: 10,                  // Pagination
+  offset: 0
+})
+
+// Time-based queries (NEW in v0.10.0)
+mcp_context_get({
+  createdAfter: "2025-01-20T00:00:00Z",
+  createdBefore: "2025-01-26T23:59:59Z",
+  includeMetadata: true
+})
+
+// Pattern matching (NEW in v0.10.0)
+mcp_context_get({
+  keyPattern: "auth_.*",      // Regex to match keys
+  category: "decision"
 })
 ```
 
@@ -642,10 +704,20 @@ mcp_context_timeline({
   groupBy: "day" // or "hour", "week"
 })
 
+// Enhanced timeline (NEW in v0.10.0)
+mcp_context_timeline({
+  groupBy: "hour",
+  includeItems: true,         // Show actual items, not just counts
+  categories: ["task", "progress"],  // Filter by categories
+  relativeTime: true,         // Show "2 hours ago" format
+  itemsPerPeriod: 10         // Limit items shown per time period
+})
+
 // Shows:
 // - Context items created per day/hour
 // - Category distribution over time
 // - Journal entries with moods and tags
+// - Actual item details when includeItems: true
 ```
 
 ### Progressive Compression (Phase 4.4)
@@ -782,9 +854,11 @@ Test categories:
 | Semantic Search | ✅ Stable | v0.6+ | Natural language queries |
 | Multi-Agent | ✅ Stable | v0.7+ | Intelligent processing |
 
-### Current Features (v0.8.0)
+### Current Features (v0.10.0)
 - ✅ **Session Management**: Create, list, and continue sessions with branching support
+- ✅ **Channels**: Persistent topic-based organization (auto-derived from git branch)
 - ✅ **Context Storage**: Save/retrieve context with categories (task, decision, progress, note) and priorities
+- ✅ **Enhanced Filtering**: Time-based queries, regex patterns, sorting, pagination
 - ✅ **File Caching**: Track file changes with SHA-256 hashing
 - ✅ **Checkpoints**: Create and restore complete context snapshots
 - ✅ **Smart Compaction**: Never lose critical context when hitting limits
@@ -799,7 +873,7 @@ Test categories:
 - ✅ **Session Branching**: Create branches to explore alternatives without losing original context
 - ✅ **Session Merging**: Merge branches back with conflict resolution options
 - ✅ **Journal Entries**: Time-stamped entries with tags and mood tracking
-- ✅ **Timeline View**: Visualize activity patterns by hour, day, or week
+- ✅ **Enhanced Timeline**: Activity patterns with item details and relative time
 - ✅ **Progressive Compression**: Intelligently compress old context to save space
 - ✅ **Cross-Tool Integration**: Track events from other MCP tools
 

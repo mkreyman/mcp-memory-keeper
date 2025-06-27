@@ -7,8 +7,8 @@ export class SessionRepository extends BaseRepository {
     const timestamp = this.getCurrentTimestamp();
 
     const stmt = this.db.prepare(`
-      INSERT INTO sessions (id, name, description, branch, working_directory, parent_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, name, description, branch, working_directory, parent_id, default_channel, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -18,6 +18,7 @@ export class SessionRepository extends BaseRepository {
       input.branch || null,
       input.working_directory || null,
       input.parent_id || null,
+      input.defaultChannel || 'general',
       timestamp,
       timestamp
     );

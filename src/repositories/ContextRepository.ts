@@ -6,10 +6,18 @@ export class ContextRepository extends BaseRepository {
     const id = this.generateId();
     const size = this.calculateSize(input.value);
 
+    // Determine channel - use explicit channel, or session default, or 'general'
+    let channel = input.channel;
+    if (!channel) {
+      const sessionStmt = this.db.prepare('SELECT default_channel FROM sessions WHERE id = ?');
+      const session = sessionStmt.get(sessionId) as any;
+      channel = session?.default_channel || 'general';
+    }
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO context_items 
-      (id, session_id, key, value, category, priority, metadata, size, is_private)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, session_id, key, value, category, priority, metadata, size, is_private, channel)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -21,7 +29,8 @@ export class ContextRepository extends BaseRepository {
       input.priority || 'normal',
       input.metadata || null,
       size,
-      input.isPrivate ? 1 : 0
+      input.isPrivate ? 1 : 0,
+      channel
     );
 
     return this.getById(id)!;
@@ -134,8 +143,8 @@ export class ContextRepository extends BaseRepository {
 
   copyBetweenSessions(fromSessionId: string, toSessionId: string): number {
     const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO context_items (id, session_id, key, value, category, priority, metadata, size, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT OR IGNORE INTO context_items (id, session_id, key, value, category, priority, metadata, size, is_private, channel, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
 
     const items = this.getBySessionId(fromSessionId);
@@ -152,6 +161,8 @@ export class ContextRepository extends BaseRepository {
           item.priority,
           item.metadata,
           item.size,
+          item.is_private,
+          item.channel || 'general',
           item.created_at
         );
         copied++;
@@ -267,5 +278,285 @@ export class ContextRepository extends BaseRepository {
         return acc;
       }, {}),
     };
+  }
+
+  // Get items by channel
+  getByChannel(sessionId: string, channel: string): ContextItem[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM context_items 
+      WHERE session_id = ? AND channel = ?
+      ORDER BY priority DESC, created_at DESC
+    `);
+    return stmt.all(sessionId, channel) as ContextItem[];
+  }
+
+  // Get items by multiple channels
+  getByChannels(sessionId: string, channels: string[]): ContextItem[] {
+    if (channels.length === 0) {
+      return [];
+    }
+
+    const placeholders = channels.map(() => '?').join(',');
+    const stmt = this.db.prepare(`
+      SELECT * FROM context_items 
+      WHERE session_id = ? AND channel IN (${placeholders})
+      ORDER BY priority DESC, created_at DESC
+    `);
+    return stmt.all(sessionId, ...channels) as ContextItem[];
+  }
+
+  // Get items by channel across all sessions
+  getByChannelAcrossSessions(channel: string): ContextItem[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM context_items 
+      WHERE channel = ? AND is_private = 0
+      ORDER BY priority DESC, created_at DESC
+    `);
+    return stmt.all(channel) as ContextItem[];
+  }
+
+  // Enhanced query method with all new parameters
+  queryEnhanced(options: {
+    sessionId: string;
+    key?: string;
+    category?: string;
+    channel?: string;
+    channels?: string[];
+    sort?: string;
+    limit?: number;
+    offset?: number;
+    createdAfter?: string;
+    createdBefore?: string;
+    keyPattern?: string;
+    priorities?: string[];
+    includeMetadata?: boolean;
+  }): { items: ContextItem[]; totalCount: number } {
+    const {
+      sessionId,
+      key,
+      category,
+      channel,
+      channels,
+      sort = 'created_at_desc',
+      limit,
+      offset = 0,
+      createdAfter,
+      createdBefore,
+      keyPattern,
+      priorities,
+    } = options;
+
+    // Build the base query
+    let sql = `
+      SELECT * FROM context_items 
+      WHERE session_id = ?
+    `;
+    const params: any[] = [sessionId];
+
+    // Add filters
+    if (key) {
+      sql += ' AND key = ?';
+      params.push(key);
+    }
+
+    if (category) {
+      sql += ' AND category = ?';
+      params.push(category);
+    }
+
+    if (channel) {
+      sql += ' AND channel = ?';
+      params.push(channel);
+    }
+
+    if (channels && channels.length > 0) {
+      sql += ` AND channel IN (${channels.map(() => '?').join(',')})`;
+      params.push(...channels);
+    }
+
+    if (createdAfter) {
+      sql += ' AND created_at > ?';
+      params.push(createdAfter);
+    }
+
+    if (createdBefore) {
+      sql += ' AND created_at < ?';
+      params.push(createdBefore);
+    }
+
+    if (keyPattern) {
+      // Use GLOB for pattern matching (SQLite's simpler regex-like pattern)
+      // Convert JavaScript regex pattern to SQLite GLOB pattern
+      const globPattern = keyPattern
+        .replace(/\./g, '?') // . -> single char
+        .replace(/\*/g, '*') // * stays as wildcard
+        .replace(/^\^/, '') // Remove start anchor
+        .replace(/\$$/, ''); // Remove end anchor
+
+      sql += ' AND key GLOB ?';
+      params.push(globPattern);
+    }
+
+    if (priorities && priorities.length > 0) {
+      sql += ` AND priority IN (${priorities.map(() => '?').join(',')})`;
+      params.push(...priorities);
+    }
+
+    // Count total before pagination
+    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as count');
+    const countStmt = this.db.prepare(countSql);
+    const countResult = countStmt.get(...params) as any;
+    const totalCount = countResult.count || 0;
+
+    // Add sorting
+    const sortMap: Record<string, string> = {
+      created_at_desc: 'created_at DESC',
+      created_at_asc: 'created_at ASC',
+      updated_at_desc: 'updated_at DESC',
+      updated_at_asc: 'updated_at ASC',
+      key_asc: 'key ASC',
+      key_desc: 'key DESC',
+    };
+
+    sql += ` ORDER BY ${sortMap[sort] || 'created_at DESC'}`;
+
+    // Add pagination
+    if (limit) {
+      sql += ' LIMIT ?';
+      params.push(limit);
+    }
+
+    if (offset > 0) {
+      sql += ' OFFSET ?';
+      params.push(offset);
+    }
+
+    const stmt = this.db.prepare(sql);
+    const items = stmt.all(...params) as ContextItem[];
+
+    return { items, totalCount };
+  }
+
+  // Get timeline data with enhanced options
+  getTimelineData(options: {
+    sessionId: string;
+    startDate?: string;
+    endDate?: string;
+    categories?: string[];
+    relativeTime?: string;
+    itemsPerPeriod?: number;
+    includeItems?: boolean;
+    groupBy?: 'hour' | 'day' | 'week';
+  }): any[] {
+    const {
+      sessionId,
+      startDate,
+      endDate,
+      categories,
+      relativeTime,
+      itemsPerPeriod,
+      includeItems,
+      groupBy = 'day',
+    } = options;
+
+    // Calculate date range from relative time
+    let effectiveStartDate = startDate;
+    let effectiveEndDate = endDate;
+
+    if (relativeTime) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      if (relativeTime === 'today') {
+        effectiveStartDate = today.toISOString();
+        effectiveEndDate = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString();
+      } else if (relativeTime === 'yesterday') {
+        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+        effectiveStartDate = yesterday.toISOString();
+        effectiveEndDate = today.toISOString();
+      } else if (relativeTime.match(/^(\d+) hours? ago$/)) {
+        const hours = parseInt(relativeTime.match(/^(\d+)/)![1]);
+        effectiveStartDate = new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
+      } else if (relativeTime.match(/^(\d+) days? ago$/)) {
+        const days = parseInt(relativeTime.match(/^(\d+)/)![1]);
+        effectiveStartDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+      } else if (relativeTime === 'this week') {
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay());
+        effectiveStartDate = startOfWeek.toISOString();
+      } else if (relativeTime === 'last week') {
+        const startOfLastWeek = new Date(today);
+        startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
+        const endOfLastWeek = new Date(startOfLastWeek);
+        endOfLastWeek.setDate(startOfLastWeek.getDate() + 7);
+        effectiveStartDate = startOfLastWeek.toISOString();
+        effectiveEndDate = endOfLastWeek.toISOString();
+      }
+    }
+
+    // Build query for timeline
+    let dateFmt = '%Y-%m-%d'; // day grouping
+    if (groupBy === 'hour') {
+      dateFmt = '%Y-%m-%d %H:00';
+    } else if (groupBy === 'week') {
+      dateFmt = '%Y-W%W';
+    }
+
+    let sql = `
+      SELECT 
+        strftime('${dateFmt}', created_at) as period,
+        COUNT(*) as count,
+        ${includeItems ? 'GROUP_CONCAT(id) as item_ids' : 'NULL as item_ids'}
+      FROM context_items
+      WHERE session_id = ?
+    `;
+    const params: any[] = [sessionId];
+
+    if (effectiveStartDate) {
+      sql += ' AND created_at >= ?';
+      params.push(effectiveStartDate);
+    }
+
+    if (effectiveEndDate) {
+      sql += ' AND created_at <= ?';
+      params.push(effectiveEndDate);
+    }
+
+    if (categories && categories.length > 0) {
+      sql += ` AND category IN (${categories.map(() => '?').join(',')})`;
+      params.push(...categories);
+    }
+
+    sql += ' GROUP BY period ORDER BY period DESC';
+
+    const stmt = this.db.prepare(sql);
+    const timeline = stmt.all(...params) as any[];
+
+    // If includeItems is true, fetch the actual items for each period
+    if (includeItems && timeline.length > 0) {
+      for (const period of timeline) {
+        if (period.item_ids) {
+          const itemIds = period.item_ids.split(',');
+          let itemsToFetch = itemIds;
+
+          // Limit items per period if specified
+          if (itemsPerPeriod && itemIds.length > itemsPerPeriod) {
+            itemsToFetch = itemIds.slice(0, itemsPerPeriod);
+            period.hasMore = true;
+            period.totalCount = itemIds.length;
+          }
+
+          // Fetch the items
+          const itemStmt = this.db.prepare(`
+            SELECT * FROM context_items 
+            WHERE id IN (${itemsToFetch.map(() => '?').join(',')})
+            ORDER BY created_at DESC
+          `);
+          period.items = itemStmt.all(...itemsToFetch) as ContextItem[];
+        }
+      }
+    }
+
+    return timeline;
   }
 }

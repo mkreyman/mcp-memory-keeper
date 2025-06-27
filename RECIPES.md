@@ -3,6 +3,9 @@
 ## Table of Contents
 - [Daily Development Patterns](#daily-development-patterns)
 - [Complex Workflow Patterns](#complex-workflow-patterns)
+- [Multi-Branch Development](#multi-branch-development) (NEW v0.10.0)
+- [Finding Recent Work](#finding-recent-work) (NEW v0.10.0)
+- [Cross-Session Coordination](#cross-session-coordination) (NEW v0.10.0)
 - [Team Collaboration Patterns](#team-collaboration-patterns)
 - [Debugging & Troubleshooting](#debugging--troubleshooting)
 - [Performance Optimization](#performance-optimization)
@@ -385,6 +388,425 @@ await context_checkpoint({
   name: "codebase-exploration-day-1",
   description: "Initial exploration complete"
 });
+```
+
+## Multi-Branch Development (NEW v0.10.0)
+
+### The Feature Branch Context Pattern
+Keep context organized across multiple feature branches:
+
+```typescript
+// Set project directory for auto-channel detection
+await context_session_start({
+  name: "Multi-Feature Development",
+  projectDir: "/path/to/project"
+});
+
+// Working on auth feature (git branch: feature/auth)
+await context_save({
+  key: "auth_architecture",
+  value: "JWT with refresh tokens, 15min/7day expiry",
+  category: "decision",
+  priority: "high"
+  // Auto-saved to "feature-auth" channel
+});
+
+await context_save({
+  key: "auth_progress",
+  value: "Login/logout complete, working on password reset",
+  category: "progress"
+  // Auto-saved to "feature-auth" channel
+});
+
+// Switch to payments branch (git checkout feature/payments)
+await context_save({
+  key: "payment_provider",
+  value: "Stripe for cards, considering PayPal for international",
+  category: "decision",
+  priority: "high"
+  // Auto-saved to "feature-payments" channel
+});
+
+// Later: Review all features
+const features = ["feature-auth", "feature-payments", "feature-ui"];
+for (const channel of features) {
+  const items = await context_get({ 
+    channel: channel,
+    category: "decision",
+    includeMetadata: true
+  });
+  console.log(`${channel}: ${items.length} decisions`);
+}
+
+// Find high-priority items across ALL features
+const urgent = await context_get({
+  priorities: ["high"],
+  sort: "created_desc",
+  limit: 10
+  // No channel specified = search all channels
+});
+```
+
+### The Branch Status Dashboard Pattern
+Track progress across multiple branches:
+
+```typescript
+// Create a status overview function
+async function getBranchStatus() {
+  const branches = {
+    "feature-auth": "Authentication System",
+    "feature-payments": "Payment Processing", 
+    "feature-search": "Advanced Search",
+    "bugfix-memory-leak": "Memory Leak Fix"
+  };
+  
+  const status = {};
+  
+  for (const [channel, description] of Object.entries(branches)) {
+    // Get progress items from last 7 days
+    const progress = await context_get({
+      channel: channel,
+      category: "progress",
+      createdAfter: new Date(Date.now() - 7*24*60*60*1000).toISOString(),
+      sort: "created_desc",
+      limit: 1
+    });
+    
+    // Get open tasks
+    const tasks = await context_get({
+      channel: channel,
+      category: "task",
+      priorities: ["high", "normal"]
+    });
+    
+    status[channel] = {
+      description,
+      lastProgress: progress[0]?.value || "No recent updates",
+      openTasks: tasks.length,
+      lastUpdate: progress[0]?.metadata?.createdAt || "Unknown"
+    };
+  }
+  
+  return status;
+}
+
+// Use it for daily standup
+const branchStatus = await getBranchStatus();
+console.log("Branch Status Report:", JSON.stringify(branchStatus, null, 2));
+```
+
+### The Branch Merge Preparation Pattern
+Prepare context when merging branches:
+
+```typescript
+// Before merging feature branch
+const featureChannel = "feature-user-profile";
+
+// Get all decisions made in this feature
+const decisions = await context_get({
+  channel: featureChannel,
+  category: "decision",
+  includeMetadata: true
+});
+
+// Get unresolved issues
+const issues = await context_get({
+  channel: featureChannel,
+  category: "task",
+  keyPattern: "issue_.*|bug_.*"
+});
+
+// Create merge summary
+await context_save({
+  key: "merge_summary_user_profile",
+  value: JSON.stringify({
+    decisions: decisions.map(d => ({ key: d.key, value: d.value })),
+    unresolvedIssues: issues.map(i => i.value),
+    mergeDate: new Date().toISOString()
+  }),
+  category: "note",
+  priority: "high",
+  channel: "main"  // Save to main branch channel
+});
+
+// Archive feature context
+await context_checkpoint({
+  name: `archive-${featureChannel}`,
+  description: "Pre-merge archive of user profile feature"
+});
+```
+
+## Finding Recent Work (NEW v0.10.0)
+
+### The "What Was I Doing?" Pattern
+Quickly find what you were working on:
+
+```typescript
+// Find everything from the last 2 hours
+const twoHoursAgo = new Date(Date.now() - 2*60*60*1000).toISOString();
+const recent = await context_get({
+  createdAfter: twoHoursAgo,
+  sort: "created_desc",
+  includeMetadata: true
+});
+
+console.log("Recent activity:");
+recent.forEach(item => {
+  const time = new Date(item.metadata.createdAt);
+  const timeAgo = Math.round((Date.now() - time) / 60000);
+  console.log(`${timeAgo}m ago: ${item.key} - ${item.value.substring(0, 50)}...`);
+});
+
+// Get today's high-priority items
+const today = new Date().toISOString().split('T')[0];
+const priorities = await context_get({
+  createdAfter: `${today}T00:00:00Z`,
+  priorities: ["high"],
+  sort: "priority",
+  includeMetadata: true
+});
+```
+
+### The Weekly Review Pattern
+Review your week's work:
+
+```typescript
+// Get this week's progress
+const weekStart = new Date();
+weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+
+// Timeline with actual items
+const weekActivity = await context_timeline({
+  startDate: weekStart.toISOString(),
+  groupBy: "day",
+  includeItems: true,
+  categories: ["progress", "decision"],
+  itemsPerPeriod: 5
+});
+
+// Find decisions that might need review
+const oldDecisions = await context_get({
+  category: "decision",
+  createdBefore: new Date(Date.now() - 30*24*60*60*1000).toISOString(),
+  sort: "created_asc",
+  includeMetadata: true
+});
+
+console.log(`Found ${oldDecisions.length} decisions older than 30 days that might need review`);
+
+// Get completed tasks
+const completedTasks = await context_get({
+  category: "progress",
+  createdAfter: weekStart.toISOString(),
+  keyPattern: ".*complete.*|.*done.*|.*fixed.*",
+  sort: "created_desc"
+});
+```
+
+### The Sprint Velocity Pattern
+Track your productivity patterns:
+
+```typescript
+// Analyze last 2 weeks
+const twoWeeksAgo = new Date(Date.now() - 14*24*60*60*1000);
+
+// Get daily task completion
+async function getVelocityData() {
+  const velocity = {};
+  
+  for (let i = 0; i < 14; i++) {
+    const dayStart = new Date(twoWeeksAgo);
+    dayStart.setDate(dayStart.getDate() + i);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    
+    const dayKey = dayStart.toISOString().split('T')[0];
+    
+    // Count completed items
+    const completed = await context_get({
+      category: "progress",
+      createdAfter: dayStart.toISOString(),
+      createdBefore: dayEnd.toISOString()
+    });
+    
+    // Count new tasks
+    const newTasks = await context_get({
+      category: "task",
+      createdAfter: dayStart.toISOString(),
+      createdBefore: dayEnd.toISOString()
+    });
+    
+    velocity[dayKey] = {
+      completed: completed.length,
+      created: newTasks.length,
+      netProgress: completed.length - newTasks.length
+    };
+  }
+  
+  return velocity;
+}
+
+const velocity = await getVelocityData();
+console.log("Two-week velocity:", velocity);
+```
+
+## Cross-Session Coordination (NEW v0.10.0)
+
+### The Continuous Context Pattern
+Maintain context across Claude restarts:
+
+```typescript
+// Before potential context limit
+async function saveWorkState() {
+  // Get current high-priority items
+  const critical = await context_get({
+    priorities: ["high"],
+    createdAfter: new Date(Date.now() - 24*60*60*1000).toISOString(),
+    includeMetadata: true
+  });
+  
+  // Save state summary
+  await context_save({
+    key: "work_state_summary",
+    value: JSON.stringify({
+      timestamp: new Date().toISOString(),
+      activeItems: critical.map(i => ({ key: i.key, value: i.value })),
+      lastActivity: "Implementing OAuth2 callback handler"
+    }),
+    category: "note",
+    priority: "high"
+  });
+  
+  // Create checkpoint
+  await context_checkpoint({
+    name: "work-state-checkpoint",
+    description: "Pre-compaction work state"
+  });
+}
+
+// In new session
+async function restoreWorkState() {
+  // Check for recent work state
+  const state = await context_get({
+    key: "work_state_summary",
+    includeMetadata: true
+  });
+  
+  if (state.length > 0) {
+    const workState = JSON.parse(state[0].value);
+    console.log(`Resuming from ${workState.timestamp}`);
+    console.log(`Last activity: ${workState.lastActivity}`);
+    console.log(`Active items: ${workState.activeItems.length}`);
+  }
+  
+  // Get recent items from all channels
+  const recent = await context_get({
+    createdAfter: new Date(Date.now() - 4*60*60*1000).toISOString(),
+    sort: "updated_desc",
+    limit: 20,
+    includeMetadata: true
+  });
+  
+  return recent;
+}
+```
+
+### The Cross-Channel Search Pattern
+Find information across all your work:
+
+```typescript
+// Search across all channels for related work
+async function findRelatedWork(topic) {
+  // Search by pattern
+  const patternResults = await context_get({
+    keyPattern: `.*${topic}.*`,
+    includeMetadata: true
+  });
+  
+  // Search in specific time window
+  const recentResults = await context_get({
+    createdAfter: new Date(Date.now() - 7*24*60*60*1000).toISOString(),
+    includeMetadata: true
+  });
+  
+  // Filter recent results for topic
+  const relevantRecent = recentResults.filter(item => 
+    item.value.toLowerCase().includes(topic.toLowerCase()) ||
+    item.key.toLowerCase().includes(topic.toLowerCase())
+  );
+  
+  // Combine and deduplicate
+  const allResults = [...patternResults, ...relevantRecent];
+  const unique = Array.from(new Map(allResults.map(item => [item.id, item])).values());
+  
+  // Group by channel
+  const byChannel = {};
+  unique.forEach(item => {
+    const channel = item.channel || 'default';
+    if (!byChannel[channel]) byChannel[channel] = [];
+    byChannel[channel].push(item);
+  });
+  
+  return byChannel;
+}
+
+// Use it
+const authWork = await findRelatedWork("authentication");
+console.log("Authentication work found in channels:", Object.keys(authWork));
+```
+
+### The Time-Based Context Aggregation Pattern
+Aggregate context over time periods:
+
+```typescript
+// Daily aggregation function
+async function aggregateDailyContext(daysBack = 7) {
+  const aggregated = {};
+  
+  for (let i = 0; i < daysBack; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    const dayStart = new Date(date.setHours(0,0,0,0));
+    const dayEnd = new Date(date.setHours(23,59,59,999));
+    
+    const dayKey = dayStart.toISOString().split('T')[0];
+    
+    // Get all items for this day
+    const dayItems = await context_get({
+      createdAfter: dayStart.toISOString(),
+      createdBefore: dayEnd.toISOString(),
+      includeMetadata: true
+    });
+    
+    // Categorize
+    const categorized = {
+      tasks: dayItems.filter(i => i.category === 'task'),
+      progress: dayItems.filter(i => i.category === 'progress'),
+      decisions: dayItems.filter(i => i.category === 'decision'),
+      total: dayItems.length
+    };
+    
+    // Get unique channels
+    const channels = [...new Set(dayItems.map(i => i.channel || 'default'))];
+    
+    aggregated[dayKey] = {
+      ...categorized,
+      channels: channels,
+      highlights: dayItems.filter(i => i.priority === 'high').map(i => i.value)
+    };
+  }
+  
+  return aggregated;
+}
+
+// Generate weekly report
+const weekData = await aggregateDailyContext(7);
+console.log("Week Summary:", JSON.stringify(weekData, null, 2));
+
+// Find most productive day
+const mostProductive = Object.entries(weekData)
+  .sort((a, b) => b[1].progress.length - a[1].progress.length)[0];
+console.log(`Most productive day: ${mostProductive[0]} with ${mostProductive[1].progress.length} completed items`);
 ```
 
 ## Team Collaboration Patterns
