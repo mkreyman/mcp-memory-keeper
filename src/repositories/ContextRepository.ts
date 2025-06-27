@@ -897,4 +897,447 @@ export class ContextRepository extends BaseRepository {
     // Find deleted items
     return Array.from(checkpointKeys).filter(key => !currentKeys.has(key));
   }
+
+  // List all channels with metadata
+  listChannels(options: {
+    sessionId?: string;
+    sessionIds?: string[];
+    sort?: 'name' | 'count' | 'activity';
+    includeEmpty?: boolean;
+  }): any[] {
+    const { sessionId, sessionIds, sort = 'name', includeEmpty = false } = options;
+
+    // Build the base query
+    let sql = `
+      SELECT 
+        channel,
+        COUNT(*) as total_count,
+        SUM(CASE WHEN is_private = 0 THEN 1 ELSE 0 END) as public_count,
+        SUM(CASE WHEN is_private = 1 THEN 1 ELSE 0 END) as private_count,
+        MAX(updated_at) as last_activity,
+        GROUP_CONCAT(DISTINCT category) as categories,
+        GROUP_CONCAT(DISTINCT priority) as priorities,
+        COUNT(DISTINCT session_id) as session_count
+      FROM context_items
+    `;
+    const params: any[] = [];
+
+    // Add session filters
+    if (sessionId) {
+      sql += ' WHERE session_id = ?';
+      params.push(sessionId);
+    } else if (sessionIds && sessionIds.length > 0) {
+      sql += ` WHERE session_id IN (${sessionIds.map(() => '?').join(',')})`;
+      params.push(...sessionIds);
+    }
+
+    sql += ' GROUP BY channel';
+
+    // Add having clause if not including empty channels
+    if (!includeEmpty) {
+      sql += ' HAVING total_count > 0';
+    }
+
+    // Add sorting
+    switch (sort) {
+      case 'count':
+        sql += ' ORDER BY total_count DESC, channel ASC';
+        break;
+      case 'activity':
+        sql += ' ORDER BY last_activity DESC, channel ASC';
+        break;
+      case 'name':
+      default:
+        sql += ' ORDER BY channel ASC';
+        break;
+    }
+
+    const stmt = this.db.prepare(sql);
+    const channels = stmt.all(...params) as any[];
+
+    // Post-process results
+    return channels.map(channel => ({
+      ...channel,
+      categories: channel.categories ? channel.categories.split(',').filter(Boolean) : [],
+      priorities: channel.priorities ? channel.priorities.split(',').filter(Boolean) : [],
+    }));
+  }
+
+  // Get detailed statistics for channels
+  getChannelStats(options: {
+    channel?: string;
+    sessionId?: string;
+    includeTimeSeries?: boolean;
+    includeInsights?: boolean;
+  }): any {
+    const { channel, sessionId, includeTimeSeries = false, includeInsights = false } = options;
+
+    if (channel) {
+      // Single channel stats
+      return this.getSingleChannelStats(channel, sessionId, includeTimeSeries, includeInsights);
+    } else {
+      // All channels overview
+      return this.getAllChannelsStats(sessionId, includeTimeSeries, includeInsights);
+    }
+  }
+
+  private getSingleChannelStats(
+    channel: string,
+    sessionId?: string,
+    includeTimeSeries: boolean = false,
+    includeInsights: boolean = false
+  ): any {
+    // Base stats query
+    let statsSQL = `
+      SELECT 
+        ? as channel,
+        COUNT(*) as total_items,
+        COUNT(DISTINCT session_id) as unique_sessions,
+        MAX(updated_at) as last_activity,
+        MIN(created_at) as first_activity,
+        SUM(size) as total_size,
+        AVG(size) as avg_size,
+        SUM(CASE WHEN is_private = 0 THEN 1 ELSE 0 END) as public_items,
+        SUM(CASE WHEN is_private = 1 THEN 1 ELSE 0 END) as private_items
+      FROM context_items
+      WHERE channel = ?
+    `;
+    const statsParams: any[] = [channel, channel];
+
+    if (sessionId) {
+      statsSQL += ' AND (is_private = 0 OR session_id = ?)';
+      statsParams.push(sessionId);
+    }
+
+    const stats = this.db.prepare(statsSQL).get(...statsParams) as any;
+
+    // Category distribution
+    let categorySQL = `
+      SELECT 
+        COALESCE(category, 'uncategorized') as category,
+        COUNT(*) as count,
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM context_items WHERE channel = ?), 2) as percentage
+      FROM context_items
+      WHERE channel = ?
+    `;
+    const categoryParams: any[] = [channel, channel];
+
+    if (sessionId) {
+      categorySQL += ' AND (is_private = 0 OR session_id = ?)';
+      categoryParams.push(sessionId);
+    }
+
+    categorySQL += ' GROUP BY category ORDER BY count DESC';
+
+    const categoryDistribution = this.db.prepare(categorySQL).all(...categoryParams) as any[];
+
+    // Priority distribution
+    let prioritySQL = `
+      SELECT 
+        priority,
+        COUNT(*) as count,
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM context_items WHERE channel = ?), 2) as percentage
+      FROM context_items
+      WHERE channel = ?
+    `;
+    const priorityParams: any[] = [channel, channel];
+
+    if (sessionId) {
+      prioritySQL += ' AND (is_private = 0 OR session_id = ?)';
+      priorityParams.push(sessionId);
+    }
+
+    prioritySQL += ' GROUP BY priority ORDER BY count DESC';
+
+    const priorityDistribution = this.db.prepare(prioritySQL).all(...priorityParams) as any[];
+
+    // Top contributors
+    let contributorsSQL = `
+      SELECT 
+        session_id,
+        COUNT(*) as item_count,
+        MAX(updated_at) as last_contribution
+      FROM context_items
+      WHERE channel = ?
+    `;
+    const contributorsParams: any[] = [channel];
+
+    if (sessionId) {
+      contributorsSQL += ' AND (is_private = 0 OR session_id = ?)';
+      contributorsParams.push(sessionId);
+    }
+
+    contributorsSQL += ' GROUP BY session_id ORDER BY item_count DESC LIMIT 5';
+
+    const topContributors = this.db.prepare(contributorsSQL).all(...contributorsParams) as any[];
+
+    // Activity metrics
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    let activitySQL = `
+      SELECT 
+        SUM(CASE WHEN created_at > ? THEN 1 ELSE 0 END) as items_last_24h,
+        SUM(CASE WHEN updated_at > ? THEN 1 ELSE 0 END) as updates_last_24h,
+        SUM(CASE WHEN created_at > ? THEN 1 ELSE 0 END) as items_last_week,
+        SUM(CASE WHEN updated_at > ? THEN 1 ELSE 0 END) as updates_last_week
+      FROM context_items
+      WHERE channel = ?
+    `;
+    const activityParams: any[] = [oneDayAgo, oneDayAgo, oneWeekAgo, oneWeekAgo, channel];
+
+    if (sessionId) {
+      activitySQL += ' AND (is_private = 0 OR session_id = ?)';
+      activityParams.push(sessionId);
+    }
+
+    const activityStats = this.db.prepare(activitySQL).get(...activityParams) as any;
+
+    // Build result
+    const result: any = {
+      channel,
+      stats,
+      categoryDistribution,
+      priorityDistribution,
+      topContributors,
+      activityStats,
+    };
+
+    // Add time series if requested
+    if (includeTimeSeries) {
+      const hourlySQL = `
+        SELECT 
+          strftime('%H', created_at) as hour,
+          COUNT(*) as count
+        FROM context_items
+        WHERE channel = ?
+        ${sessionId ? ' AND (is_private = 0 OR session_id = ?)' : ''}
+        GROUP BY hour
+        ORDER BY hour
+      `;
+      const hourlyParams = sessionId ? [channel, sessionId] : [channel];
+      result.hourlyActivity = this.db.prepare(hourlySQL).all(...hourlyParams) as any[];
+
+      const dailySQL = `
+        SELECT 
+          strftime('%Y-%m-%d', created_at) as date,
+          COUNT(*) as count
+        FROM context_items
+        WHERE channel = ?
+        ${sessionId ? ' AND (is_private = 0 OR session_id = ?)' : ''}
+        GROUP BY date
+        ORDER BY date DESC
+        LIMIT 30
+      `;
+      const dailyParams = sessionId ? [channel, sessionId] : [channel];
+      result.dailyActivity = this.db.prepare(dailySQL).all(...dailyParams) as any[];
+    }
+
+    // Add insights if requested
+    if (includeInsights) {
+      result.insights = this.generateChannelInsights(
+        channel,
+        stats,
+        activityStats,
+        categoryDistribution
+      );
+    }
+
+    return result;
+  }
+
+  private getAllChannelsStats(
+    sessionId?: string,
+    _includeTimeSeries: boolean = false,
+    includeInsights: boolean = false
+  ): any {
+    // Overall stats
+    let overallSQL = `
+      SELECT 
+        COUNT(DISTINCT channel) as total_channels,
+        COUNT(*) as total_items,
+        COUNT(DISTINCT session_id) as total_sessions,
+        SUM(size) as total_size,
+        AVG(size) as avg_size_per_item
+      FROM context_items
+    `;
+    const overallParams: any[] = [];
+
+    if (sessionId) {
+      overallSQL += ' WHERE (is_private = 0 OR session_id = ?)';
+      overallParams.push(sessionId);
+    }
+
+    const overallStats = this.db.prepare(overallSQL).get(...overallParams) as any;
+
+    // Channel rankings
+    let rankingSQL = `
+      SELECT 
+        channel,
+        COUNT(*) as item_count,
+        SUM(size) as total_size,
+        MAX(updated_at) as last_activity,
+        COUNT(DISTINCT session_id) as session_count,
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM context_items${
+          sessionId ? ' WHERE (is_private = 0 OR session_id = ?)' : ''
+        }), 2) as percentage_of_total
+      FROM context_items
+    `;
+    const rankingParams: any[] = [];
+
+    if (sessionId) {
+      rankingSQL += ' WHERE (is_private = 0 OR session_id = ?)';
+      rankingParams.push(sessionId);
+      rankingParams.unshift(sessionId); // For the subquery
+    }
+
+    rankingSQL += ' GROUP BY channel ORDER BY item_count DESC';
+
+    const channelRankings = this.db.prepare(rankingSQL).all(...rankingParams) as any[];
+
+    // Health metrics
+    const healthMetrics = channelRankings.map(ch => {
+      const daysSinceActivity = Math.floor(
+        (Date.now() - new Date(ch.last_activity).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const avgItemsPerSession = ch.item_count / ch.session_count;
+
+      return {
+        channel: ch.channel,
+        health_score: this.calculateHealthScore(
+          daysSinceActivity,
+          avgItemsPerSession,
+          ch.item_count
+        ),
+        days_since_activity: daysSinceActivity,
+        avg_items_per_session: avgItemsPerSession,
+      };
+    });
+
+    // Channel relationships
+    const relationshipSQL = `
+      SELECT 
+        c1.channel as channel1,
+        c2.channel as channel2,
+        COUNT(DISTINCT c1.session_id) as shared_sessions
+      FROM context_items c1
+      JOIN context_items c2 ON c1.session_id = c2.session_id AND c1.channel < c2.channel
+      ${sessionId ? 'WHERE (c1.is_private = 0 OR c1.session_id = ?) AND (c2.is_private = 0 OR c2.session_id = ?)' : ''}
+      GROUP BY c1.channel, c2.channel
+      HAVING shared_sessions > 1
+      ORDER BY shared_sessions DESC
+      LIMIT 10
+    `;
+    const relationshipParams = sessionId ? [sessionId, sessionId] : [];
+    const channelRelationships = this.db
+      .prepare(relationshipSQL)
+      .all(...relationshipParams) as any[];
+
+    const result: any = {
+      overallStats,
+      channelRankings,
+      healthMetrics,
+      channelRelationships,
+    };
+
+    if (includeInsights) {
+      result.insights = this.generateOverallInsights(channelRankings, healthMetrics);
+    }
+
+    return result;
+  }
+
+  private calculateHealthScore(
+    daysSinceActivity: number,
+    avgItemsPerSession: number,
+    totalItems: number
+  ): number {
+    // Health score based on activity recency, engagement, and size
+    let score = 100;
+
+    // Penalize for inactivity
+    if (daysSinceActivity > 30) score -= 30;
+    else if (daysSinceActivity > 14) score -= 20;
+    else if (daysSinceActivity > 7) score -= 10;
+
+    // Reward for engagement
+    if (avgItemsPerSession > 10) score += 10;
+    else if (avgItemsPerSession > 5) score += 5;
+
+    // Reward for size
+    if (totalItems > 100) score += 10;
+    else if (totalItems > 50) score += 5;
+
+    return Math.max(0, Math.min(100, score));
+  }
+
+  private generateChannelInsights(
+    channel: string,
+    stats: any,
+    activityStats: any,
+    categoryDistribution: any[]
+  ): string[] {
+    const insights: string[] = [];
+
+    // Activity insights
+    if (activityStats.items_last_24h === 0 && activityStats.updates_last_24h === 0) {
+      insights.push(`Channel "${channel}" has been inactive for the last 24 hours`);
+    }
+
+    if (activityStats.items_last_week > activityStats.items_last_24h * 7) {
+      insights.push(`Channel "${channel}" shows declining activity compared to weekly average`);
+    }
+
+    // Category insights
+    if (categoryDistribution.length > 0) {
+      const topCategory = categoryDistribution[0];
+      if (topCategory.percentage > 60) {
+        insights.push(
+          `Channel "${channel}" is heavily focused on "${topCategory.category}" (${topCategory.percentage}%)`
+        );
+      }
+    }
+
+    // Size insights
+    if (stats.avg_size > 10000) {
+      insights.push(
+        `Channel "${channel}" contains large items (avg ${Math.round(stats.avg_size / 1024)}KB)`
+      );
+    }
+
+    return insights;
+  }
+
+  private generateOverallInsights(channelRankings: any[], healthMetrics: any[]): string[] {
+    const insights: string[] = [];
+
+    // Channel concentration
+    if (channelRankings.length > 0) {
+      const top3Percentage = channelRankings
+        .slice(0, 3)
+        .reduce((sum, ch) => sum + parseFloat(ch.percentage_of_total), 0);
+      if (top3Percentage > 80) {
+        insights.push(
+          `Top 3 channels contain ${top3Percentage.toFixed(1)}% of all items - consider better distribution`
+        );
+      }
+    }
+
+    // Health insights
+    const unhealthyChannels = healthMetrics.filter(m => m.health_score < 50);
+    if (unhealthyChannels.length > 0) {
+      insights.push(
+        `${unhealthyChannels.length} channels show signs of low health (inactive or low engagement)`
+      );
+    }
+
+    // Activity patterns
+    const inactiveChannels = healthMetrics.filter(m => m.days_since_activity > 30);
+    if (inactiveChannels.length > 0) {
+      insights.push(`${inactiveChannels.length} channels have been inactive for over 30 days`);
+    }
+
+    return insights;
+  }
 }

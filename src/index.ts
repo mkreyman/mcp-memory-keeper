@@ -2835,6 +2835,88 @@ Event ID: ${id.substring(0, 8)}`,
       }
     }
 
+    // Channel Management
+    case 'context_list_channels': {
+      const { sessionId, sessionIds, sort, includeEmpty } = args;
+
+      try {
+        const channels = repositories.contexts.listChannels({
+          sessionId: sessionId || currentSessionId,
+          sessionIds,
+          sort,
+          includeEmpty,
+        });
+
+        if (channels.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'No channels found.',
+              },
+            ],
+          };
+        }
+
+        // Format the response
+        const channelList = channels
+          .map(
+            (ch: any) =>
+              `• ${ch.channel}: ${ch.total_count} items (${ch.public_count} public, ${ch.private_count} private)\n  Last activity: ${new Date(ch.last_activity).toLocaleString()}\n  Categories: ${ch.categories.join(', ') || 'none'}\n  Sessions: ${ch.session_count}`
+          )
+          .join('\n\n');
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Found ${channels.length} channels:\n\n${channelList}`,
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to list channels: ${error.message}`,
+            },
+          ],
+        };
+      }
+    }
+
+    case 'context_channel_stats': {
+      const { channel, sessionId, includeTimeSeries, includeInsights } = args;
+
+      try {
+        const stats = repositories.contexts.getChannelStats({
+          channel,
+          sessionId: sessionId || currentSessionId,
+          includeTimeSeries,
+          includeInsights,
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(stats, null, 2),
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to get channel stats: ${error.message}`,
+            },
+          ],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -3601,6 +3683,62 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             offset: {
               type: 'number',
               description: 'Pagination offset',
+            },
+          },
+        },
+      },
+      {
+        name: 'context_list_channels',
+        description: 'List all channels with metadata (counts, activity, categories)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: {
+              type: 'string',
+              description: 'Filter by specific session (shows accessible items)',
+            },
+            sessionIds: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by multiple sessions',
+            },
+            sort: {
+              type: 'string',
+              enum: ['name', 'count', 'activity'],
+              description: 'Sort order for results',
+              default: 'name',
+            },
+            includeEmpty: {
+              type: 'boolean',
+              description: 'Include channels with no items',
+              default: false,
+            },
+          },
+        },
+      },
+      {
+        name: 'context_channel_stats',
+        description: 'Get detailed statistics for a specific channel or all channels',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            channel: {
+              type: 'string',
+              description: 'Specific channel name (omit for all channels overview)',
+            },
+            sessionId: {
+              type: 'string',
+              description: 'Session context for privacy filtering',
+            },
+            includeTimeSeries: {
+              type: 'boolean',
+              description: 'Include hourly/daily activity data',
+              default: false,
+            },
+            includeInsights: {
+              type: 'boolean',
+              description: 'Include AI-generated insights',
+              default: false,
             },
           },
         },
