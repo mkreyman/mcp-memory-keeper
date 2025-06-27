@@ -232,10 +232,10 @@ export class ContextRepository extends BaseRepository {
       priorities,
     } = options;
 
-    // Build the base query
+    // Build the base query with proper privacy filtering
     let sql = `
       SELECT * FROM context_items 
-      WHERE session_id = ?
+      WHERE (is_private = 0 OR session_id = ?)
     `;
     const params: any[] = [sessionId];
 
@@ -319,10 +319,6 @@ export class ContextRepository extends BaseRepository {
       sql += ` AND priority IN (${priorities.map(() => '?').join(',')})`;
       params.push(...priorities);
     }
-
-    // Add privacy filter
-    sql += ' AND (is_private = 0 OR session_id = ?)';
-    params.push(sessionId);
 
     // Count total before pagination
     const totalCount = this.getTotalCount(sql, params);
@@ -606,10 +602,10 @@ export class ContextRepository extends BaseRepository {
     // Validate offset is not negative
     const validOffset = Math.max(0, offset || 0);
 
-    // Build the base query
+    // Build the base query with proper privacy filtering
     let sql = `
       SELECT * FROM context_items 
-      WHERE session_id = ?
+      WHERE (is_private = 0 OR session_id = ?)
     `;
     const params: any[] = [sessionId];
 
