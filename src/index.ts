@@ -1062,16 +1062,33 @@ To enable git tracking, use context_set_project_dir with your project path.`;
 
       currentSessionId = newSessionId;
 
+      // Get session information for enhanced messaging
+      const sessionCount = db.prepare('SELECT COUNT(*) as count FROM sessions').get() as any;
+      const originalSession = db.prepare('SELECT name FROM sessions WHERE id = ?').get(cp.session_id) as any;
+
       return {
         content: [
           {
             type: 'text',
-            text: `Restored from checkpoint: ${cp.name}
-New session: ${newSessionId.substring(0, 8)}
-Context items restored: ${contextItems.length}
-Files restored: ${fileCount}
-Original git branch: ${cp.git_branch || 'none'}
-Original checkpoint created: ${cp.created_at}`,
+            text: `✅ Successfully restored from checkpoint: ${cp.name}
+
+🔄 Data Safety: A new session was created to preserve your current work
+📋 New Session: ${newSessionId.substring(0, 8)} ("${`Restored from: ${cp.name}`}")
+🔙 Original Session: ${originalSession?.name || 'Unknown'} remains accessible
+
+📊 Restored Data:
+- Context items: ${contextItems.length}
+- Files: ${fileCount}
+- Git branch: ${cp.git_branch || 'none'}
+- Checkpoint created: ${cp.created_at}
+
+💡 Next Steps:
+- You are now working in the restored session
+- Your previous work is safely preserved in session ${sessionCount.count - 1}
+- Use context_session_list to see all sessions
+- Switch sessions anytime without losing data
+
+🆘 Need your previous work? Use context_search_all to find items across sessions`,
           },
         ],
       };

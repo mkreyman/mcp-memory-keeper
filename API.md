@@ -949,30 +949,54 @@ Create a complete snapshot of current context.
 
 ### context_restore_checkpoint
 
-Restore context from a checkpoint.
+Restore context from a checkpoint by creating a new session with the checkpoint data.
+
+**Important**: This operation creates a NEW session to preserve data safety. Your current session and all its data remain accessible.
 
 **Parameters:**
 ```typescript
 {
   name?: string;           // Checkpoint name (latest if not specified)
   checkpointId?: string;   // Specific checkpoint ID
-  restoreFiles?: boolean;  // Restore file cache (default: false)
-  merge?: boolean;         // Merge with current context (default: false)
+  restoreFiles?: boolean;  // Restore file cache (default: true)
 }
 ```
 
 **Returns:**
-```typescript
-{
-  restoredItems: number;   // Number of items restored
-  restoredFiles: number;   // Number of files restored
-  sessionId: string;       // New or current session ID
-  checkpoint: {
-    name: string;
-    createdAt: string;
-    description?: string;
-  };
-}
+Enhanced user-friendly message explaining:
+- New session creation for data safety
+- How to access your previous work
+- Session switching guidance
+- Data recovery instructions
+
+**Behavior:**
+1. Creates a new session named "Restored from: {checkpoint-name}"
+2. Copies all checkpoint data to the new session
+3. Switches you to the new session
+4. Preserves your original session completely
+5. Provides clear guidance for session management
+
+**Example Response:**
+```
+✅ Successfully restored from checkpoint: My Checkpoint
+
+🔄 Data Safety: A new session was created to preserve your current work
+📋 New Session: 1a2b3c4d ("Restored from: My Checkpoint")
+🔙 Original Session: Working Session remains accessible
+
+📊 Restored Data:
+- Context items: 15
+- Files: 3
+- Git branch: main
+- Checkpoint created: 2024-01-15T10:30:00Z
+
+💡 Next Steps:
+- You are now working in the restored session
+- Your previous work is safely preserved in session 2
+- Use context_session_list to see all sessions
+- Switch sessions anytime without losing data
+
+🆘 Need your previous work? Use context_search_all to find items across sessions
 ```
 
 ## Real-time Monitoring
