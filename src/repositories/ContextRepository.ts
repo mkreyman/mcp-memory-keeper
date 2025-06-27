@@ -762,4 +762,137 @@ export class ContextRepository extends BaseRepository {
 
     return timeline;
   }
+
+  // Get diff data for context items
+  getDiff(options: {
+    sessionId: string;
+    sinceTimestamp: string;
+    category?: string;
+    channel?: string;
+    channels?: string[];
+    limit?: number;
+    offset?: number;
+    includeValues?: boolean;
+  }): {
+    added: any[];
+    modified: any[];
+  } {
+    const {
+      sessionId,
+      sinceTimestamp,
+      category,
+      channel,
+      channels,
+      limit,
+      offset,
+      includeValues = true,
+    } = options;
+
+    // Build queries for added and modified items
+    let addedSql = `
+      SELECT * FROM context_items 
+      WHERE session_id = ? 
+      AND created_at > ?
+      AND (is_private = 0 OR session_id = ?)
+    `;
+    const addedParams: any[] = [sessionId, sinceTimestamp, sessionId];
+
+    let modifiedSql = `
+      SELECT * FROM context_items 
+      WHERE session_id = ? 
+      AND created_at <= ?
+      AND updated_at > ?
+      AND created_at != updated_at
+      AND (is_private = 0 OR session_id = ?)
+    `;
+    const modifiedParams: any[] = [sessionId, sinceTimestamp, sinceTimestamp, sessionId];
+
+    // Add category filter
+    if (category) {
+      addedSql += ' AND category = ?';
+      modifiedSql += ' AND category = ?';
+      addedParams.push(category);
+      modifiedParams.push(category);
+    }
+
+    // Add channel filter
+    if (channel) {
+      addedSql += ' AND channel = ?';
+      modifiedSql += ' AND channel = ?';
+      addedParams.push(channel);
+      modifiedParams.push(channel);
+    }
+
+    if (channels && channels.length > 0) {
+      const placeholders = channels.map(() => '?').join(',');
+      addedSql += ` AND channel IN (${placeholders})`;
+      modifiedSql += ` AND channel IN (${placeholders})`;
+      addedParams.push(...channels);
+      modifiedParams.push(...channels);
+    }
+
+    // Add ordering
+    addedSql += ' ORDER BY created_at DESC';
+    modifiedSql += ' ORDER BY updated_at DESC';
+
+    // Add pagination if requested
+    if (limit) {
+      addedSql += ' LIMIT ?';
+      modifiedSql += ' LIMIT ?';
+      addedParams.push(limit);
+      modifiedParams.push(limit);
+
+      if (offset) {
+        addedSql += ' OFFSET ?';
+        modifiedSql += ' OFFSET ?';
+        addedParams.push(offset);
+        modifiedParams.push(offset);
+      }
+    }
+
+    // Execute queries
+    const addedItems = this.db.prepare(addedSql).all(...addedParams) as ContextItem[];
+    const modifiedItems = this.db.prepare(modifiedSql).all(...modifiedParams) as ContextItem[];
+
+    // Filter out values if not needed
+    if (!includeValues) {
+      const stripValue = (item: ContextItem) => ({
+        ...item,
+        value: undefined,
+      });
+
+      return {
+        added: addedItems.map(stripValue),
+        modified: modifiedItems.map(stripValue),
+      };
+    }
+
+    return { added: addedItems, modified: modifiedItems };
+  }
+
+  // Get deleted keys by comparing with checkpoint
+  getDeletedKeysFromCheckpoint(sessionId: string, checkpointId: string): string[] {
+    // Get items from checkpoint
+    const checkpointItems = this.db
+      .prepare(
+        `
+        SELECT ci.key FROM context_items ci
+        JOIN checkpoint_items cpi ON ci.id = cpi.context_item_id
+        WHERE cpi.checkpoint_id = ?
+        AND ci.session_id = ?
+      `
+      )
+      .all(checkpointId, sessionId) as any[];
+
+    // Get current items
+    const currentItems = this.db
+      .prepare('SELECT key FROM context_items WHERE session_id = ?')
+      .all(sessionId) as any[];
+
+    const checkpointKeys = new Set(checkpointItems.map((i: any) => i.key));
+    const currentKeys = new Set(currentItems.map((i: any) => i.key));
+
+    // Find deleted items
+    return Array.from(checkpointKeys).filter(key => !currentKeys.has(key));
+  }
 }

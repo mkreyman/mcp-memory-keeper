@@ -81,6 +81,34 @@ function calculateSize(value: string): number {
   return Buffer.byteLength(value, 'utf8');
 }
 
+// Helper to parse relative time strings
+function parseRelativeTime(relativeTime: string): string | null {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  if (relativeTime === 'today') {
+    return today.toISOString();
+  } else if (relativeTime === 'yesterday') {
+    return new Date(today.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  } else if (relativeTime.match(/^(\d+) hours? ago$/)) {
+    const hours = parseInt(relativeTime.match(/^(\d+)/)![1]);
+    return new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
+  } else if (relativeTime.match(/^(\d+) days? ago$/)) {
+    const days = parseInt(relativeTime.match(/^(\d+)/)![1]);
+    return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+  } else if (relativeTime === 'this week') {
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay());
+    return startOfWeek.toISOString();
+  } else if (relativeTime === 'last week') {
+    const startOfLastWeek = new Date(today);
+    startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
+    return startOfLastWeek.toISOString();
+  }
+
+  return null;
+}
+
 // Helper to get project directory setup message
 function getProjectDirectorySetupMessage(): string {
   return `⚠️ No project directory set for git tracking!
@@ -2619,6 +2647,113 @@ Event ID: ${id.substring(0, 8)}`,
       }
     }
 
+    // Context Diff - Track changes since a specific point in time
+    case 'context_diff': {
+      const {
+        since,
+        sessionId: specificSessionId,
+        category,
+        channel,
+        channels,
+        includeValues = true,
+        limit,
+        offset,
+      } = args;
+      const targetSessionId = specificSessionId || currentSessionId || ensureSession();
+
+      try {
+        // Parse the 'since' parameter
+        let sinceTimestamp: string | null = null;
+        let checkpointId: string | null = null;
+
+        if (since) {
+          // Check if it's a checkpoint name or ID
+          const checkpointByName = db
+            .prepare('SELECT * FROM checkpoints WHERE name = ? ORDER BY created_at DESC LIMIT 1')
+            .get(since) as any;
+
+          const checkpointById = !checkpointByName
+            ? (db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(since) as any)
+            : null;
+
+          const checkpoint = checkpointByName || checkpointById;
+
+          if (checkpoint) {
+            checkpointId = checkpoint.id;
+            sinceTimestamp = checkpoint.created_at;
+          } else {
+            // Try to parse as relative time
+            const parsedTime = parseRelativeTime(since);
+            if (parsedTime) {
+              sinceTimestamp = parsedTime;
+            } else {
+              // Assume it's an ISO timestamp
+              sinceTimestamp = since;
+            }
+          }
+        } else {
+          // Default to 1 hour ago if no 'since' provided
+          sinceTimestamp = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        }
+
+        // Use repository method to get diff data
+        const diffData = repositories.contexts.getDiff({
+          sessionId: targetSessionId,
+          sinceTimestamp: sinceTimestamp!,
+          category,
+          channel,
+          channels,
+          limit,
+          offset,
+          includeValues,
+        });
+
+        // Handle deleted items if we have a checkpoint
+        let deletedKeys: string[] = [];
+        if (checkpointId) {
+          deletedKeys = repositories.contexts.getDeletedKeysFromCheckpoint(
+            targetSessionId,
+            checkpointId
+          );
+        }
+
+        // Format response
+        const toDate = new Date().toISOString();
+        const response: any = {
+          added: includeValues
+            ? diffData.added
+            : diffData.added.map(i => ({ key: i.key, category: i.category })),
+          modified: includeValues
+            ? diffData.modified
+            : diffData.modified.map(i => ({ key: i.key, category: i.category })),
+          deleted: deletedKeys,
+          summary: `${diffData.added.length} added, ${diffData.modified.length} modified, ${deletedKeys.length} deleted`,
+          period: {
+            from: sinceTimestamp,
+            to: toDate,
+          },
+        };
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(response, null, 2),
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to get context diff: ${error.message}`,
+            },
+          ],
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -3342,6 +3477,51 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['toolName', 'eventType', 'data'],
+        },
+      },
+      {
+        name: 'context_diff',
+        description:
+          'Get changes to context items since a specific point in time (timestamp, checkpoint, or relative time)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            since: {
+              type: 'string',
+              description:
+                'Point in time to compare against (ISO timestamp, checkpoint name/ID, or relative time like "2 hours ago")',
+            },
+            sessionId: {
+              type: 'string',
+              description: 'Session ID to analyze (defaults to current)',
+            },
+            category: {
+              type: 'string',
+              description: 'Filter by category',
+            },
+            channel: {
+              type: 'string',
+              description: 'Filter by single channel',
+            },
+            channels: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by multiple channels',
+            },
+            includeValues: {
+              type: 'boolean',
+              description: 'Include full item values in response',
+              default: true,
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum items per category (added/modified)',
+            },
+            offset: {
+              type: 'number',
+              description: 'Pagination offset',
+            },
+          },
         },
       },
     ],
