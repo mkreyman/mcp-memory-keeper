@@ -172,12 +172,12 @@ describe('Server Initialization Tests', () => {
           done();
         } catch (error) {
           process.chdir(originalCwd);
-          done(error);
+          done(error as Error);
         }
       }, 1000);
     } catch (error) {
       process.chdir(originalCwd);
-      done(error);
+      done(error as Error);
     }
   });
 
