@@ -1,5 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { ContextItem, CreateContextItemInput } from '../types/entities.js';
+import { ensureSQLiteFormat } from '../utils/timestamps.js';
 
 // Type for valid sort options (for documentation)
 type _SortOption =
@@ -788,14 +789,16 @@ export class ContextRepository extends BaseRepository {
       includeValues = true,
     } = options;
 
+    // Ensure timestamp is in SQLite format for comparison
+    const sqliteTimestamp = ensureSQLiteFormat(sinceTimestamp);
+
     // Build queries for added and modified items
     let addedSql = `
       SELECT * FROM context_items 
       WHERE session_id = ? 
       AND created_at > ?
-      AND (is_private = 0 OR session_id = ?)
     `;
-    const addedParams: any[] = [sessionId, sinceTimestamp, sessionId];
+    const addedParams: any[] = [sessionId, sqliteTimestamp];
 
     let modifiedSql = `
       SELECT * FROM context_items 
@@ -803,9 +806,8 @@ export class ContextRepository extends BaseRepository {
       AND created_at <= ?
       AND updated_at > ?
       AND created_at != updated_at
-      AND (is_private = 0 OR session_id = ?)
     `;
-    const modifiedParams: any[] = [sessionId, sinceTimestamp, sinceTimestamp, sessionId];
+    const modifiedParams: any[] = [sessionId, sqliteTimestamp, sqliteTimestamp];
 
     // Add category filter
     if (category) {

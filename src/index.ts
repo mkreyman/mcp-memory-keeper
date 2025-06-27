@@ -8,6 +8,7 @@ import * as path from 'path';
 import { DatabaseManager } from './utils/database.js';
 import { KnowledgeGraphManager } from './utils/knowledge-graph.js';
 import { VectorStore } from './utils/vector-store.js';
+import { ensureSQLiteFormat } from './utils/timestamps.js';
 import { AgentCoordinator, AnalyzerAgent, SynthesizerAgent, AgentTask } from './utils/agents.js';
 import { RetentionManager } from './utils/retention.js';
 import { FeatureFlagManager } from './utils/feature-flags.js';
@@ -2696,10 +2697,13 @@ Event ID: ${id.substring(0, 8)}`,
           sinceTimestamp = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         }
 
+        // Convert ISO timestamp to SQLite format for repository compatibility
+        const sqliteTimestamp = ensureSQLiteFormat(sinceTimestamp!);
+
         // Use repository method to get diff data
         const diffData = repositories.contexts.getDiff({
           sessionId: targetSessionId,
-          sinceTimestamp: sinceTimestamp!,
+          sinceTimestamp: sqliteTimestamp,
           category,
           channel,
           channels,

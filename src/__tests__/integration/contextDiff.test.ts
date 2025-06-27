@@ -1,5 +1,6 @@
 import { DatabaseManager } from '../../utils/database';
 import { RepositoryManager } from '../../repositories/RepositoryManager';
+import { toSQLiteTimestamp } from '../../utils/timestamps';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -67,12 +68,26 @@ describe('Context Diff Integration Tests', () => {
       };
 
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(oldItem.id, testSessionId, oldItem.key, oldItem.value, oldItem.created_at);
+        'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(
+        oldItem.id,
+        testSessionId,
+        oldItem.key,
+        oldItem.value,
+        toSQLiteTimestamp(oldItem.created_at),
+        toSQLiteTimestamp(oldItem.created_at)
+      );
 
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(newItem.id, testSessionId, newItem.key, newItem.value, newItem.created_at);
+        'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(
+        newItem.id,
+        testSessionId,
+        newItem.key,
+        newItem.value,
+        toSQLiteTimestamp(newItem.created_at),
+        toSQLiteTimestamp(newItem.created_at)
+      );
 
       // Query for items added since baseTime
       const addedItems = db
@@ -83,7 +98,7 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY created_at DESC
         `
         )
-        .all(testSessionId, baseTime.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString())) as any[];
 
       expect(addedItems).toHaveLength(1);
       expect(addedItems[0].key).toBe('new_item');
@@ -95,19 +110,13 @@ describe('Context Diff Integration Tests', () => {
 
       // Create an item
       const itemId = uuidv4();
+      const createTime = toSQLiteTimestamp(new Date(baseTime.getTime() - 1000).toISOString());
       db.prepare(
         'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(
-        itemId,
-        testSessionId,
-        'changing_item',
-        'Original value',
-        new Date(baseTime.getTime() - 1000).toISOString(),
-        new Date(baseTime.getTime() - 1000).toISOString()
-      );
+      ).run(itemId, testSessionId, 'changing_item', 'Original value', createTime, createTime);
 
       // Update the item
-      const newUpdateTime = new Date().toISOString();
+      const newUpdateTime = toSQLiteTimestamp(new Date().toISOString());
       db.prepare('UPDATE context_items SET value = ?, updated_at = ? WHERE id = ?').run(
         'Modified value',
         newUpdateTime,
@@ -125,7 +134,11 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY updated_at DESC
         `
         )
-        .all(testSessionId, baseTime.toISOString(), baseTime.toISOString()) as any[];
+        .all(
+          testSessionId,
+          toSQLiteTimestamp(baseTime.toISOString()),
+          toSQLiteTimestamp(baseTime.toISOString())
+        ) as any[];
 
       expect(modifiedItems).toHaveLength(1);
       expect(modifiedItems[0].key).toBe('changing_item');
@@ -140,7 +153,14 @@ describe('Context Diff Integration Tests', () => {
 
       db.prepare(
         'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(uuidv4(), testSessionId, 'old_item', 'Old value', oldTime, oldTime);
+      ).run(
+        uuidv4(),
+        testSessionId,
+        'old_item',
+        'Old value',
+        toSQLiteTimestamp(oldTime),
+        toSQLiteTimestamp(oldTime)
+      );
 
       // Query for changes since baseTime (should be empty)
       const addedItems = db
@@ -150,7 +170,7 @@ describe('Context Diff Integration Tests', () => {
           WHERE session_id = ? AND created_at > ?
         `
         )
-        .all(testSessionId, baseTime.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString())) as any[];
 
       const modifiedItems = db
         .prepare(
@@ -161,7 +181,11 @@ describe('Context Diff Integration Tests', () => {
           AND updated_at > ?
         `
         )
-        .all(testSessionId, baseTime.toISOString(), baseTime.toISOString()) as any[];
+        .all(
+          testSessionId,
+          toSQLiteTimestamp(baseTime.toISOString()),
+          toSQLiteTimestamp(baseTime.toISOString())
+        ) as any[];
 
       expect(addedItems).toHaveLength(0);
       expect(modifiedItems).toHaveLength(0);
@@ -187,8 +211,8 @@ describe('Context Diff Integration Tests', () => {
           testSessionId,
           item.key,
           item.value,
-          checkpointTime.toISOString(),
-          checkpointTime.toISOString()
+          toSQLiteTimestamp(checkpointTime.toISOString()),
+          toSQLiteTimestamp(checkpointTime.toISOString())
         );
       });
 
@@ -204,14 +228,19 @@ describe('Context Diff Integration Tests', () => {
         testSessionId,
         'item4',
         'Value 4',
-        afterCheckpoint.toISOString(),
-        afterCheckpoint.toISOString()
+        toSQLiteTimestamp(afterCheckpoint.toISOString()),
+        toSQLiteTimestamp(afterCheckpoint.toISOString())
       );
 
       // 2. Modify existing item
       db.prepare(
         'UPDATE context_items SET value = ?, updated_at = ? WHERE session_id = ? AND key = ?'
-      ).run('Modified Value 2', afterCheckpoint.toISOString(), testSessionId, 'item2');
+      ).run(
+        'Modified Value 2',
+        toSQLiteTimestamp(afterCheckpoint.toISOString()),
+        testSessionId,
+        'item2'
+      );
 
       // 3. Delete an item
       db.prepare('DELETE FROM context_items WHERE session_id = ? AND key = ?').run(
@@ -257,8 +286,8 @@ describe('Context Diff Integration Tests', () => {
           testSessionId,
           item.key,
           item.value,
-          checkpointTime.toISOString(),
-          checkpointTime.toISOString()
+          toSQLiteTimestamp(checkpointTime.toISOString()),
+          toSQLiteTimestamp(checkpointTime.toISOString())
         );
       });
 
@@ -267,7 +296,12 @@ describe('Context Diff Integration Tests', () => {
       const checkpointId = uuidv4();
       db.prepare(
         'INSERT INTO checkpoints (id, session_id, name, created_at) VALUES (?, ?, ?, ?)'
-      ).run(checkpointId, testSessionId, 'test-checkpoint', actualCheckpointTime.toISOString());
+      ).run(
+        checkpointId,
+        testSessionId,
+        'test-checkpoint',
+        toSQLiteTimestamp(actualCheckpointTime.toISOString())
+      );
 
       // Link items to checkpoint
       itemIds.forEach(itemId => {
@@ -285,6 +319,20 @@ describe('Context Diff Integration Tests', () => {
         'Value 4'
       );
 
+      // Get checkpoint items BEFORE making changes
+      const checkpointItemsBefore = db
+        .prepare(
+          `
+          SELECT ci.* FROM context_items ci
+          JOIN checkpoint_items cpi ON ci.id = cpi.context_item_id
+          WHERE cpi.checkpoint_id = ?
+        `
+        )
+        .all(checkpointId) as any[];
+
+      // Store checkpoint state
+      const checkpointState = new Map(checkpointItemsBefore.map((item: any) => [item.key, item]));
+
       // 2. Modify existing item
       db.prepare(
         'UPDATE context_items SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ? AND key = ?'
@@ -296,24 +344,13 @@ describe('Context Diff Integration Tests', () => {
         'item3'
       );
 
-      // Get checkpoint items
-      const checkpointItems = db
-        .prepare(
-          `
-          SELECT ci.* FROM context_items ci
-          JOIN checkpoint_items cpi ON ci.id = cpi.context_item_id
-          WHERE cpi.checkpoint_id = ?
-        `
-        )
-        .all(checkpointId) as any[];
-
-      // Get current items
+      // Get current items after changes
       const currentItems = db
         .prepare('SELECT * FROM context_items WHERE session_id = ?')
         .all(testSessionId) as any[];
 
-      // Calculate diff
-      const checkpointKeys = new Set(checkpointItems.map((i: any) => i.key));
+      // Calculate diff using stored checkpoint state
+      const checkpointKeys = new Set(checkpointState.keys());
       const currentKeys = new Set(currentItems.map((i: any) => i.key));
 
       // Added: in current but not in checkpoint
@@ -323,14 +360,16 @@ describe('Context Diff Integration Tests', () => {
 
       // Modified: in both but values differ
       const modified = currentItems.filter((i: any) => {
-        const checkpointItem = checkpointItems.find((ci: any) => ci.key === i.key);
+        const checkpointItem = checkpointState.get(i.key);
         return checkpointItem && checkpointItem.value !== i.value;
       });
       expect(modified).toHaveLength(1);
       expect(modified[0].key).toBe('item2');
 
       // Deleted: in checkpoint but not in current
-      const deleted = checkpointItems.filter((i: any) => !currentKeys.has(i.key));
+      const deleted = Array.from(checkpointKeys)
+        .filter(key => !currentKeys.has(key))
+        .map(key => checkpointState.get(key));
       expect(deleted).toHaveLength(1);
       expect(deleted[0].key).toBe('item3');
     });
@@ -351,23 +390,25 @@ describe('Context Diff Integration Tests', () => {
 
       // Add items at different times
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(
         uuidv4(),
         testSessionId,
         'recent_item',
         'Added 1 hour ago',
-        new Date(now.getTime() - 60 * 60 * 1000).toISOString()
+        toSQLiteTimestamp(new Date(now.getTime() - 60 * 60 * 1000).toISOString()),
+        toSQLiteTimestamp(new Date(now.getTime() - 60 * 60 * 1000).toISOString())
       );
 
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(
         uuidv4(),
         testSessionId,
         'old_item',
         'Added 3 hours ago',
-        new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString()
+        toSQLiteTimestamp(new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString()),
+        toSQLiteTimestamp(new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString())
       );
 
       // Query items added since "2 hours ago"
@@ -379,7 +420,7 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY created_at DESC
         `
         )
-        .all(testSessionId, twoHoursAgo.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(twoHoursAgo.toISOString())) as any[];
 
       expect(items).toHaveLength(1);
       expect(items[0].key).toBe('recent_item');
@@ -392,27 +433,36 @@ describe('Context Diff Integration Tests', () => {
 
       // Add items at different times
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(uuidv4(), testSessionId, 'today_item', 'Added today', new Date().toISOString());
+        'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(
+        uuidv4(),
+        testSessionId,
+        'today_item',
+        'Added today',
+        toSQLiteTimestamp(new Date().toISOString()),
+        toSQLiteTimestamp(new Date().toISOString())
+      );
 
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(
         uuidv4(),
         testSessionId,
         'yesterday_item',
         'Added yesterday',
-        new Date(yesterday.getTime() + 12 * 60 * 60 * 1000).toISOString() // Noon yesterday
+        toSQLiteTimestamp(new Date(yesterday.getTime() + 12 * 60 * 60 * 1000).toISOString()), // Noon yesterday
+        toSQLiteTimestamp(new Date(yesterday.getTime() + 12 * 60 * 60 * 1000).toISOString())
       );
 
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(
         uuidv4(),
         testSessionId,
         'old_item',
         'Added 2 days ago',
-        new Date(yesterday.getTime() - 24 * 60 * 60 * 1000).toISOString()
+        toSQLiteTimestamp(new Date(yesterday.getTime() - 24 * 60 * 60 * 1000).toISOString()),
+        toSQLiteTimestamp(new Date(yesterday.getTime() - 24 * 60 * 60 * 1000).toISOString())
       );
 
       // Query items added since yesterday
@@ -424,7 +474,7 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY created_at DESC
         `
         )
-        .all(testSessionId, yesterday.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(yesterday.toISOString())) as any[];
 
       expect(items).toHaveLength(2);
       expect(items.map((i: any) => i.key)).toContain('today_item');
@@ -442,13 +492,14 @@ describe('Context Diff Integration Tests', () => {
         const itemTime = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
 
         db.prepare(
-          'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
+          'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
         ).run(
           uuidv4(),
           testSessionId,
           `item_${daysAgo}d_ago`,
           `Added ${daysAgo} days ago`,
-          itemTime.toISOString()
+          toSQLiteTimestamp(itemTime.toISOString()),
+          toSQLiteTimestamp(itemTime.toISOString())
         );
       }
 
@@ -461,7 +512,7 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY created_at DESC
         `
         )
-        .all(testSessionId, threeDaysAgo.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(threeDaysAgo.toISOString())) as any[];
 
       expect(items).toHaveLength(3); // 0, 1, 2 days ago
       expect(items.map((i: any) => i.key)).toContain('item_0d_ago');
@@ -547,8 +598,8 @@ describe('Context Diff Integration Tests', () => {
           item.category,
           item.priority,
           item.channel,
-          item.created_at,
-          item.updated_at || item.created_at
+          toSQLiteTimestamp(item.created_at),
+          toSQLiteTimestamp(item.updated_at || item.created_at)
         );
       });
     });
@@ -568,7 +619,7 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY created_at DESC
         `
         )
-        .all(testSessionId, baseTime.toISOString(), 'task') as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString()), 'task') as any[];
 
       expect(addedTasks).toHaveLength(1);
       expect(addedTasks[0].key).toBe('task_new_high');
@@ -589,7 +640,7 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY created_at DESC
         `
         )
-        .all(testSessionId, baseTime.toISOString(), 'main') as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString()), 'main') as any[];
 
       expect(mainChannelAdded).toHaveLength(1);
       expect(mainChannelAdded[0].key).toBe('task_new_high');
@@ -612,7 +663,7 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY created_at DESC
         `
         )
-        .all(testSessionId, baseTime.toISOString(), ...channels) as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString()), ...channels) as any[];
 
       expect(multiChannelItems).toHaveLength(2);
       expect(multiChannelItems.map((i: any) => i.key)).toContain('task_new_high');
@@ -695,7 +746,7 @@ describe('Context Diff Integration Tests', () => {
           ORDER BY created_at DESC
         `
         )
-        .all(baseTime.toISOString(), testSessionId) as any[];
+        .all(toSQLiteTimestamp(baseTime.toISOString()), testSessionId) as any[];
 
       expect(visibleItems.map((i: any) => i.key)).toContain('my_public');
       expect(visibleItems.map((i: any) => i.key)).toContain('my_private');
@@ -730,7 +781,7 @@ describe('Context Diff Integration Tests', () => {
           WHERE session_id = ? AND created_at > ?
         `
         )
-        .all(testSessionId, baseTime.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString())) as any[];
 
       expect(sessionItems).toHaveLength(1);
       expect(sessionItems[0].key).toBe('my_item');
@@ -780,15 +831,8 @@ describe('Context Diff Integration Tests', () => {
         ).run(uuidv4(), checkpointId, itemId);
       });
 
-      // Delete some items
-      db.prepare('DELETE FROM context_items WHERE session_id = ? AND key IN (?, ?)').run(
-        testSessionId,
-        'delete_item1',
-        'delete_item2'
-      );
-
-      // Get checkpoint items
-      const checkpointItems = db
+      // Get checkpoint items BEFORE deletion
+      const checkpointItemsBefore = db
         .prepare(
           `
           SELECT ci.key FROM context_items ci
@@ -798,16 +842,25 @@ describe('Context Diff Integration Tests', () => {
         )
         .all(checkpointId) as any[];
 
-      // Get current items
+      // Store keys before deletion
+      const keysBeforeDeletion = new Set(checkpointItemsBefore.map((i: any) => i.key));
+
+      // Delete some items
+      db.prepare('DELETE FROM context_items WHERE session_id = ? AND key IN (?, ?)').run(
+        testSessionId,
+        'delete_item1',
+        'delete_item2'
+      );
+
+      // Get current items after deletion
       const currentItems = db
         .prepare('SELECT key FROM context_items WHERE session_id = ?')
         .all(testSessionId) as any[];
 
-      const checkpointKeys = new Set(checkpointItems.map((i: any) => i.key));
       const currentKeys = new Set(currentItems.map((i: any) => i.key));
 
-      // Find deleted items
-      const deletedKeys = Array.from(checkpointKeys).filter(key => !currentKeys.has(key));
+      // Find deleted items by comparing before and after
+      const deletedKeys = Array.from(keysBeforeDeletion).filter(key => !currentKeys.has(key));
 
       expect(deletedKeys).toHaveLength(2);
       expect(deletedKeys).toContain('delete_item1');
@@ -887,13 +940,13 @@ describe('Context Diff Integration Tests', () => {
           WHERE session_id = ? AND created_at > ?
         `
         )
-        .all(testSessionId, futureTime.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(futureTime.toISOString())) as any[];
 
       expect(items).toHaveLength(0);
     });
 
     it('should handle very old timestamps', () => {
-      const veryOldTime = new Date('1970-01-01').toISOString();
+      const veryOldTime = toSQLiteTimestamp(new Date('1970-01-01').toISOString());
 
       // Add items
       db.prepare('INSERT INTO context_items (id, session_id, key, value) VALUES (?, ?, ?, ?)').run(
@@ -963,13 +1016,14 @@ describe('Context Diff Integration Tests', () => {
       // Create many items before base time
       for (let i = 0; i < 500; i++) {
         db.prepare(
-          'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
+          'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
         ).run(
           uuidv4(),
           testSessionId,
           `old_item_${i}`,
           `Old value ${i}`,
-          new Date(baseTime.getTime() - 60000).toISOString()
+          toSQLiteTimestamp(new Date(baseTime.getTime() - 60000).toISOString()),
+          toSQLiteTimestamp(new Date(baseTime.getTime() - 60000).toISOString())
         );
       }
 
@@ -990,7 +1044,7 @@ describe('Context Diff Integration Tests', () => {
           WHERE session_id = ? AND created_at > ?
         `
         )
-        .get(testSessionId, baseTime.toISOString()) as any;
+        .get(testSessionId, toSQLiteTimestamp(baseTime.toISOString())) as any;
 
       const duration = Date.now() - start;
 
@@ -1019,7 +1073,7 @@ describe('Context Diff Integration Tests', () => {
           LIMIT 20 OFFSET 0
         `
         )
-        .all(testSessionId, baseTime.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString())) as any[];
 
       const page2 = db
         .prepare(
@@ -1030,7 +1084,7 @@ describe('Context Diff Integration Tests', () => {
           LIMIT 20 OFFSET 20
         `
         )
-        .all(testSessionId, baseTime.toISOString()) as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString())) as any[];
 
       expect(page1).toHaveLength(20);
       expect(page2).toHaveLength(20);
@@ -1048,24 +1102,44 @@ describe('Context Diff Integration Tests', () => {
       // Create initial item
       const originalId = uuidv4();
       db.prepare(
-        'INSERT INTO context_items (id, session_id, key, value, created_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO context_items (id, session_id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(
         originalId,
         testSessionId,
         'recreated_item',
         'Original value',
-        new Date(checkpointTime.getTime() - 60000).toISOString()
+        toSQLiteTimestamp(new Date(checkpointTime.getTime() - 60000).toISOString()),
+        toSQLiteTimestamp(new Date(checkpointTime.getTime() - 60000).toISOString())
       );
 
       // Create checkpoint
       const checkpointId = uuidv4();
       db.prepare(
         'INSERT INTO checkpoints (id, session_id, name, created_at) VALUES (?, ?, ?, ?)'
-      ).run(checkpointId, testSessionId, 'before-recreation', checkpointTime.toISOString());
+      ).run(
+        checkpointId,
+        testSessionId,
+        'before-recreation',
+        toSQLiteTimestamp(checkpointTime.toISOString())
+      );
 
       db.prepare(
         'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
       ).run(uuidv4(), checkpointId, originalId);
+
+      // Get checkpoint item BEFORE deletion
+      const checkpointItemBefore = db
+        .prepare(
+          `
+          SELECT ci.* FROM context_items ci
+          JOIN checkpoint_items cpi ON ci.id = cpi.context_item_id
+          WHERE cpi.checkpoint_id = ? AND ci.key = ?
+        `
+        )
+        .get(checkpointId, 'recreated_item') as any;
+
+      // Store the original data
+      const originalData = { ...checkpointItemBefore };
 
       // Delete the item
       db.prepare('DELETE FROM context_items WHERE id = ?').run(originalId);
@@ -1079,27 +1153,16 @@ describe('Context Diff Integration Tests', () => {
         'New value after recreation'
       );
 
-      // Get checkpoint item
-      const checkpointItem = db
-        .prepare(
-          `
-          SELECT ci.* FROM context_items ci
-          JOIN checkpoint_items cpi ON ci.id = cpi.context_item_id
-          WHERE cpi.checkpoint_id = ? AND ci.key = ?
-        `
-        )
-        .get(checkpointId, 'recreated_item') as any;
-
       // Get current item
       const currentItem = db
         .prepare('SELECT * FROM context_items WHERE session_id = ? AND key = ?')
         .get(testSessionId, 'recreated_item') as any;
 
       // Should be treated as modified (different id, different value)
-      expect(checkpointItem).toBeDefined();
+      expect(originalData).toBeDefined();
       expect(currentItem).toBeDefined();
-      expect(checkpointItem.id).not.toBe(currentItem.id);
-      expect(checkpointItem.value).not.toBe(currentItem.value);
+      expect(originalData.id).not.toBe(currentItem.id);
+      expect(originalData.value).not.toBe(currentItem.value);
     });
 
     it('should handle mixed changes across categories and channels', () => {
@@ -1141,8 +1204,8 @@ describe('Context Diff Integration Tests', () => {
             `Original value for ${change.key}`,
             change.category,
             change.channel,
-            new Date(baseTime.getTime() - 60000).toISOString(),
-            new Date(baseTime.getTime() - 60000).toISOString()
+            toSQLiteTimestamp(new Date(baseTime.getTime() - 60000).toISOString()),
+            toSQLiteTimestamp(new Date(baseTime.getTime() - 60000).toISOString())
           );
 
           // Update after base time
@@ -1163,7 +1226,7 @@ describe('Context Diff Integration Tests', () => {
           AND channel = ?
         `
         )
-        .all(testSessionId, baseTime.toISOString(), 'main') as any[];
+        .all(testSessionId, toSQLiteTimestamp(baseTime.toISOString()), 'main') as any[];
 
       expect(mainAdded).toHaveLength(1);
       expect(mainAdded[0].key).toBe('task_new_1');
@@ -1179,7 +1242,12 @@ describe('Context Diff Integration Tests', () => {
           AND category = ?
         `
         )
-        .all(testSessionId, baseTime.toISOString(), baseTime.toISOString(), 'task') as any[];
+        .all(
+          testSessionId,
+          toSQLiteTimestamp(baseTime.toISOString()),
+          toSQLiteTimestamp(baseTime.toISOString()),
+          'task'
+        ) as any[];
 
       expect(modifiedTasks).toHaveLength(1);
       expect(modifiedTasks[0].key).toBe('task_mod_1');
@@ -1189,7 +1257,7 @@ describe('Context Diff Integration Tests', () => {
         .prepare(
           'SELECT COUNT(*) as count FROM context_items WHERE session_id = ? AND created_at > ?'
         )
-        .get(testSessionId, baseTime.toISOString()) as any;
+        .get(testSessionId, toSQLiteTimestamp(baseTime.toISOString())) as any;
 
       const allModified = db
         .prepare(
@@ -1200,7 +1268,11 @@ describe('Context Diff Integration Tests', () => {
           AND updated_at > ?
         `
         )
-        .get(testSessionId, baseTime.toISOString(), baseTime.toISOString()) as any;
+        .get(
+          testSessionId,
+          toSQLiteTimestamp(baseTime.toISOString()),
+          toSQLiteTimestamp(baseTime.toISOString())
+        ) as any;
 
       expect(allAdded.count).toBe(2);
       expect(allModified.count).toBe(2);
@@ -1225,8 +1297,8 @@ describe('Context Diff Integration Tests', () => {
           testSessionId,
           `old_item_${i}`,
           `Original value ${i}`,
-          new Date(baseTime.getTime() - 60000).toISOString(),
-          new Date(baseTime.getTime() - 60000).toISOString()
+          toSQLiteTimestamp(new Date(baseTime.getTime() - 60000).toISOString()),
+          toSQLiteTimestamp(new Date(baseTime.getTime() - 60000).toISOString())
         );
       }
 
@@ -1234,13 +1306,18 @@ describe('Context Diff Integration Tests', () => {
       const checkpointId = uuidv4();
       db.prepare(
         'INSERT INTO checkpoints (id, session_id, name, created_at) VALUES (?, ?, ?, ?)'
-      ).run(checkpointId, testSessionId, 'summary-test', baseTime.toISOString());
+      ).run(checkpointId, testSessionId, 'summary-test', toSQLiteTimestamp(baseTime.toISOString()));
 
       oldItemIds.forEach(id => {
         db.prepare(
           'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
         ).run(uuidv4(), checkpointId, id);
       });
+
+      // Count checkpoint items before any modifications
+      const originalCheckpointCount = db
+        .prepare('SELECT COUNT(*) as count FROM checkpoint_items WHERE checkpoint_id = ?')
+        .get(checkpointId) as any;
 
       // Modify 3 items
       for (let i = 0; i < 3; i++) {
@@ -1268,7 +1345,7 @@ describe('Context Diff Integration Tests', () => {
         .prepare(
           'SELECT COUNT(*) as count FROM context_items WHERE session_id = ? AND created_at > ?'
         )
-        .get(testSessionId, baseTime.toISOString()) as any;
+        .get(testSessionId, toSQLiteTimestamp(baseTime.toISOString())) as any;
 
       const modified = db
         .prepare(
@@ -1279,18 +1356,19 @@ describe('Context Diff Integration Tests', () => {
           AND updated_at > ?
         `
         )
-        .get(testSessionId, baseTime.toISOString(), baseTime.toISOString()) as any;
+        .get(
+          testSessionId,
+          toSQLiteTimestamp(baseTime.toISOString()),
+          toSQLiteTimestamp(baseTime.toISOString())
+        ) as any;
 
       // Get deleted count from checkpoint comparison
-      const checkpointItemCount = db
-        .prepare('SELECT COUNT(*) as count FROM checkpoint_items WHERE checkpoint_id = ?')
-        .get(checkpointId) as any;
-
       const currentItemCount = db
         .prepare('SELECT COUNT(*) as count FROM context_items WHERE session_id = ?')
         .get(testSessionId) as any;
 
-      const deletedCount = checkpointItemCount.count - (currentItemCount.count - added.count);
+      // deletedCount = original items - (current items - newly added items)
+      const deletedCount = originalCheckpointCount.count - (currentItemCount.count - added.count);
 
       expect(added.count).toBe(5);
       expect(modified.count).toBe(3);
