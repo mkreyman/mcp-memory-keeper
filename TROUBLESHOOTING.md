@@ -463,6 +463,123 @@ async function testMemoryKeeper() {
    - Check existing issues for solutions
    - Join discussions in the repository
 
+### Batch Operations Issues
+
+**"Transaction failed" errors**
+
+**Symptoms:**
+- Batch operations fail with transaction errors
+- Some items saved but not others
+
+**Solutions:**
+
+1. **Check for conflicts:**
+   ```typescript
+   // Check if keys already exist
+   const existing = await context_get({ 
+     keys: ["key1", "key2", "key3"] 
+   });
+   
+   // Use updateExisting flag
+   await context_batch_save({
+     items: [...],
+     updateExisting: true  // Allow updates
+   });
+   ```
+
+2. **Validate data first:**
+   ```typescript
+   // Ensure all required fields
+   const items = data.map(item => ({
+     key: item.key || `generated_${Date.now()}`,
+     value: item.value || "",
+     category: item.category || "note",
+     priority: item.priority || "normal"
+   }));
+   ```
+
+### Channel Reassignment Problems
+
+**"No items found" when moving channels**
+
+**Solutions:**
+
+1. **Preview with dryRun:**
+   ```typescript
+   const preview = await context_reassign_channel({
+     fromChannel: "old-channel",
+     toChannel: "new-channel",
+     dryRun: true
+   });
+   console.log(`Would move ${preview.movedCount} items`);
+   ```
+
+2. **Check channel exists:**
+   ```typescript
+   const channels = await context_list_channels();
+   console.log("Available channels:", channels);
+   ```
+
+### Relationship Errors
+
+**"Item not found" when creating links**
+
+**Solutions:**
+
+1. **Ensure both items exist:**
+   ```typescript
+   // Save items first
+   await context_save({ key: "item1", value: "..." });
+   await context_save({ key: "item2", value: "..." });
+   
+   // Then link them
+   await context_link({
+     sourceKey: "item1",
+     targetKey: "item2",
+     relationship: "related_to"
+   });
+   ```
+
+2. **Check relationship types:**
+   ```typescript
+   // Valid relationships:
+   const validRelationships = [
+     "contains", "depends_on", "references", 
+     "implements", "extends", "related_to",
+     "blocks", "blocked_by", "parent_of", 
+     "child_of", "has_task", "documented_in",
+     "serves", "leads_to"
+   ];
+   ```
+
+### Watcher Not Updating
+
+**"No changes detected" with context_watch**
+
+**Solutions:**
+
+1. **Check watcher expiration:**
+   ```typescript
+   // Watchers expire after 1 hour by default
+   const watcher = await context_watch({
+     action: "create",
+     expiresIn: 3600  // Seconds
+   });
+   ```
+
+2. **Use correct filters:**
+   ```typescript
+   // Be specific with filters
+   const watcher = await context_watch({
+     action: "create",
+     filters: {
+       channels: ["my-channel"],  // Must match exactly
+       categories: ["task"],      // Case sensitive
+       keys: ["prefix_*"]        // Supports wildcards
+     }
+   });
+   ```
+
 ### Emergency recovery
 
 If all else fails:

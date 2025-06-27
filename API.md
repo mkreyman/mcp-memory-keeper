@@ -4,8 +4,11 @@
 - [Session Management](#session-management)
 - [Context Storage](#context-storage)
 - [Channel Management](#channel-management)
+- [Batch Operations](#batch-operations)
+- [Context Relationships](#context-relationships)
 - [File Management](#file-management)
 - [Checkpoints](#checkpoints)
+- [Real-time Monitoring](#real-time-monitoring)
 - [Search & Analysis](#search--analysis)
 - [Export/Import](#exportimport)
 - [Knowledge Graph](#knowledge-graph)
@@ -415,6 +418,458 @@ await context_channel_stats({
 3. **Privacy Boundaries**: Remember that private items are only visible in their creating session
 4. **Cleanup Strategy**: Use stats to identify channels ready for archival or deletion
 5. **Team Coordination**: Share channel stats to align team understanding
+
+### context_reassign_channel
+
+Move context items between channels based on keys, patterns, or entire channels. This is useful for reorganizing work when branches are renamed, features are merged, or you need to consolidate related items.
+
+**Parameters:**
+```typescript
+{
+  toChannel: string;         // Target channel to move items to (required)
+  keys?: string[];           // Specific keys to reassign
+  keyPattern?: string;       // Pattern to match keys (supports wildcards: *, ?)
+  fromChannel?: string;      // Source channel to move all items from
+  category?: 'task' | 'decision' | 'progress' | 'note' | 'error' | 'warning';
+  priorities?: ('high' | 'normal' | 'low')[];
+  sessionId?: string;        // Session ID (defaults to current)
+  dryRun?: boolean;          // Preview changes without applying them (default: false)
+}
+```
+
+**Returns:**
+```typescript
+{
+  success: boolean;
+  movedCount: number;        // Number of items moved
+  items: Array<{             // Details of moved items (or items that would be moved if dryRun)
+    id: string;
+    key: string;
+    fromChannel: string;
+    toChannel: string;
+  }>;
+}
+```
+
+**Examples:**
+```typescript
+// Move specific items to a new channel
+await context_reassign_channel({
+  keys: ["auth_config", "auth_tokens", "auth_middleware"],
+  toChannel: "feature-authentication"
+});
+
+// Move all items matching a pattern
+await context_reassign_channel({
+  keyPattern: "test_*",
+  toChannel: "testing"
+});
+
+// Move entire channel contents
+await context_reassign_channel({
+  fromChannel: "feature-old-auth",
+  toChannel: "feature-new-auth"
+});
+
+// Move high-priority tasks only
+await context_reassign_channel({
+  fromChannel: "backlog",
+  toChannel: "sprint-15",
+  category: "task",
+  priorities: ["high"]
+});
+
+// Preview changes before applying
+const preview = await context_reassign_channel({
+  keyPattern: "legacy_*",
+  toChannel: "archive",
+  dryRun: true
+});
+console.log(`Would move ${preview.movedCount} items`);
+```
+
+**Use Cases:**
+1. **Branch Renaming**: When git branches are renamed, move all items to match
+2. **Feature Consolidation**: Merge items from multiple feature branches
+3. **Sprint Planning**: Move high-priority items to current sprint channel
+4. **Cleanup**: Move completed or obsolete items to archive channels
+5. **Team Handoffs**: Reassign work items between team channels
+
+**Best Practices:**
+1. Always use `dryRun: true` first to preview large moves
+2. Create the target channel through normal saves if it doesn't exist
+3. Use specific filters (category, priority) to avoid moving unintended items
+4. Document channel moves in your team's workflow
+
+## Batch Operations
+
+### context_batch_save
+
+Save multiple context items in a single atomic operation. This ensures all items are saved together or none are saved, maintaining data consistency.
+
+**Parameters:**
+```typescript
+{
+  items: Array<{
+    key: string;             // Unique key for the context item
+    value: string;           // Context value to save
+    category?: 'task' | 'decision' | 'progress' | 'note' | 'error' | 'warning';
+    priority?: 'high' | 'normal' | 'low';
+    channel?: string;        // Channel to organize this item
+  }>;
+  updateExisting?: boolean;  // Update existing items with same key (default: true)
+}
+```
+
+**Returns:**
+```typescript
+{
+  success: boolean;
+  savedCount: number;        // Number of items saved
+  updatedCount: number;      // Number of existing items updated
+  items: Array<{             // Details of saved items
+    id: string;
+    key: string;
+    isNew: boolean;          // true if newly created, false if updated
+  }>;
+}
+```
+
+**Examples:**
+```typescript
+// Save multiple related configuration items
+await context_batch_save({
+  items: [
+    { key: "db_host", value: "localhost", category: "note" },
+    { key: "db_port", value: "5432", category: "note" },
+    { key: "db_name", value: "myapp", category: "note" },
+    { key: "db_pool_size", value: "10", category: "note" }
+  ]
+});
+
+// Import task list with priorities
+const tasks = [
+  { key: "task_auth", value: "Implement OAuth2", priority: "high", category: "task" },
+  { key: "task_tests", value: "Add integration tests", priority: "normal", category: "task" },
+  { key: "task_docs", value: "Update API docs", priority: "low", category: "task" }
+];
+await context_batch_save({ items: tasks });
+
+// Save items to specific channel
+await context_batch_save({
+  items: [
+    { key: "sprint_15_goal", value: "Complete user management", channel: "sprint-15" },
+    { key: "sprint_15_capacity", value: "40 story points", channel: "sprint-15" },
+    { key: "sprint_15_risks", value: "Backend API delays", channel: "sprint-15" }
+  ]
+});
+```
+
+**Use Cases:**
+1. **Bulk Import**: Import configuration, tasks, or notes from external sources
+2. **Atomic Updates**: Ensure related items are saved together
+3. **Template Application**: Apply predefined sets of context items
+4. **Migration**: Move data between systems while maintaining consistency
+
+### context_batch_delete
+
+Delete multiple context items by keys or pattern in a single atomic operation.
+
+**Parameters:**
+```typescript
+{
+  keys?: string[];           // Array of specific keys to delete
+  keyPattern?: string;       // Pattern to match keys for deletion (supports wildcards: *, ?)
+  sessionId?: string;        // Session ID (defaults to current)
+  dryRun?: boolean;          // Preview items to be deleted without actually deleting (default: false)
+}
+```
+
+**Returns:**
+```typescript
+{
+  success: boolean;
+  deletedCount: number;      // Number of items deleted
+  items: Array<{             // Details of deleted items (or items that would be deleted if dryRun)
+    id: string;
+    key: string;
+    value: string;           // Included in dryRun to help identify items
+  }>;
+}
+```
+
+**Examples:**
+```typescript
+// Delete specific items
+await context_batch_delete({
+  keys: ["temp_file_1", "temp_file_2", "temp_cache"]
+});
+
+// Delete all items matching pattern
+await context_batch_delete({
+  keyPattern: "test_*"
+});
+
+// Preview deletion
+const preview = await context_batch_delete({
+  keyPattern: "old_*",
+  dryRun: true
+});
+console.log(`Would delete ${preview.deletedCount} items`);
+
+// Clean up session-specific temporary items
+await context_batch_delete({
+  keyPattern: "tmp_*",
+  sessionId: "specific-session-id"
+});
+```
+
+**Use Cases:**
+1. **Cleanup**: Remove temporary or obsolete items
+2. **Reset**: Clear specific categories of data
+3. **Testing**: Clean up test data after test runs
+4. **Maintenance**: Remove old or unused context items
+
+### context_batch_update
+
+Update multiple context items with partial updates in a single atomic operation. Only specified fields are updated; others remain unchanged.
+
+**Parameters:**
+```typescript
+{
+  updates: Array<{
+    key: string;             // Key of the item to update (required)
+    value?: string;          // New value (optional)
+    category?: 'task' | 'decision' | 'progress' | 'note' | 'error' | 'warning';
+    priority?: 'high' | 'normal' | 'low';
+    channel?: string;        // New channel (optional)
+  }>;
+  sessionId?: string;        // Session ID (defaults to current)
+}
+```
+
+**Returns:**
+```typescript
+{
+  success: boolean;
+  updatedCount: number;      // Number of items updated
+  failedCount: number;       // Number of items that couldn't be updated
+  results: Array<{           // Details of update results
+    key: string;
+    success: boolean;
+    error?: string;          // Error message if update failed
+    changes?: {              // What was changed
+      value?: boolean;
+      category?: boolean;
+      priority?: boolean;
+      channel?: boolean;
+    };
+  }>;
+}
+```
+
+**Examples:**
+```typescript
+// Update priorities for multiple tasks
+await context_batch_update({
+  updates: [
+    { key: "task_auth", priority: "high" },
+    { key: "task_ui", priority: "high" },
+    { key: "task_docs", priority: "low" }
+  ]
+});
+
+// Move items to new channel and update category
+await context_batch_update({
+  updates: [
+    { key: "decision_1", channel: "archived", category: "note" },
+    { key: "decision_2", channel: "archived", category: "note" },
+    { key: "decision_3", channel: "archived", category: "note" }
+  ]
+});
+
+// Update values while keeping other fields
+await context_batch_update({
+  updates: [
+    { key: "config_timeout", value: "30000" },
+    { key: "config_retries", value: "5" },
+    { key: "config_batch_size", value: "100" }
+  ]
+});
+```
+
+**Use Cases:**
+1. **Bulk Status Updates**: Update multiple task statuses or priorities
+2. **Reorganization**: Move groups of items to different channels
+3. **Metadata Updates**: Update categories or priorities in bulk
+4. **Configuration Changes**: Update multiple configuration values
+
+**Best Practices for Batch Operations:**
+1. Use transactions to ensure atomicity - all operations succeed or all fail
+2. Always validate data before batch operations
+3. Use `dryRun` for delete operations to preview effects
+4. Consider performance impact for large batches (>1000 items)
+5. Log batch operations for audit trails
+
+## Context Relationships
+
+### context_link
+
+Create a relationship between two context items. This enables building a graph of related items for better organization and discovery.
+
+**Parameters:**
+```typescript
+{
+  sourceKey: string;         // Key of the source context item
+  targetKey: string;         // Key of the target context item
+  relationship: string;      // Type of relationship (see enum below)
+  metadata?: object;         // Optional metadata for the relationship
+}
+```
+
+**Relationship Types:**
+- `contains` - Source contains target (e.g., epic contains task)
+- `depends_on` - Source depends on target
+- `references` - Source references target
+- `implements` - Source implements target
+- `extends` - Source extends target
+- `related_to` - General relationship
+- `blocks` - Source blocks target
+- `blocked_by` - Source is blocked by target
+- `parent_of` - Source is parent of target
+- `child_of` - Source is child of target
+- `has_task` - Source has associated task
+- `documented_in` - Source is documented in target
+- `serves` - Source serves target
+- `leads_to` - Source leads to target
+
+**Returns:**
+```typescript
+{
+  success: boolean;
+  relationshipId: string;    // Unique ID for the relationship
+  source: {
+    key: string;
+    exists: boolean;         // Whether source item exists
+  };
+  target: {
+    key: string;
+    exists: boolean;         // Whether target item exists
+  };
+}
+```
+
+**Examples:**
+```typescript
+// Link epic to its tasks
+await context_link({
+  sourceKey: "epic_user_management",
+  targetKey: "task_create_user_api",
+  relationship: "contains"
+});
+
+// Document dependencies
+await context_link({
+  sourceKey: "service_auth",
+  targetKey: "service_database",
+  relationship: "depends_on",
+  metadata: { critical: true, version: "1.0" }
+});
+
+// Track blocking relationships
+await context_link({
+  sourceKey: "task_frontend_integration",
+  targetKey: "task_api_completion",
+  relationship: "blocked_by"
+});
+
+// Reference documentation
+await context_link({
+  sourceKey: "feature_oauth",
+  targetKey: "doc_oauth_setup",
+  relationship: "documented_in"
+});
+```
+
+### context_get_related
+
+Get items related to a given context item, with support for multi-level traversal and filtering.
+
+**Parameters:**
+```typescript
+{
+  key: string;               // Key of the context item to find relationships for
+  relationship?: string;     // Filter by specific relationship type
+  depth?: number;            // Traversal depth for multi-level relationships (default: 1)
+  direction?: 'outgoing' | 'incoming' | 'both'; // Direction of relationships (default: 'both')
+}
+```
+
+**Returns:**
+```typescript
+{
+  items: Array<{
+    key: string;
+    value: string;
+    category?: string;
+    priority: string;
+    relationship: string;    // How this item is related
+    direction: 'outgoing' | 'incoming';
+    distance: number;        // How many hops from source (1 = direct)
+    path: string[];          // Path of keys from source to this item
+    metadata?: object;       // Relationship metadata
+  }>;
+  totalCount: number;
+  graph: {                   // Summary of the relationship graph
+    nodes: number;           // Total unique items in graph
+    edges: number;           // Total relationships
+    maxDepth: number;        // Deepest connection found
+  };
+}
+```
+
+**Examples:**
+```typescript
+// Get all directly related items
+const related = await context_get_related({
+  key: "epic_user_management"
+});
+
+// Get only dependencies
+const deps = await context_get_related({
+  key: "service_api",
+  relationship: "depends_on",
+  direction: "outgoing"
+});
+
+// Find what blocks a task (incoming "blocks" = outgoing "blocked_by")
+const blockers = await context_get_related({
+  key: "task_deploy",
+  relationship: "blocked_by",
+  direction: "outgoing"
+});
+
+// Traverse multiple levels to find all connected items
+const fullGraph = await context_get_related({
+  key: "feature_auth",
+  depth: 3,
+  direction: "both"
+});
+```
+
+**Use Cases:**
+1. **Dependency Analysis**: Understand what a component depends on
+2. **Impact Assessment**: Find all items affected by a change
+3. **Task Management**: Track blockers and dependencies
+4. **Documentation Discovery**: Find related docs and examples
+5. **Feature Mapping**: Understand all components of a feature
+
+**Best Practices:**
+1. Use specific relationship types for clearer organization
+2. Limit depth for large graphs to avoid performance issues
+3. Add metadata to relationships for richer context
+4. Regularly review and update relationships
+5. Use bidirectional relationships thoughtfully (blocks/blocked_by)
 
 ## File Management
 

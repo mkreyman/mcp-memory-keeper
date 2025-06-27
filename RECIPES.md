@@ -7,6 +7,10 @@
 - [Finding Recent Work](#finding-recent-work) (NEW v0.10.0)
 - [Cross-Session Coordination](#cross-session-coordination) (NEW v0.10.0)
 - [Team Collaboration Patterns](#team-collaboration-patterns)
+- [Batch Operations Patterns](#batch-operations-patterns) (NEW)
+- [Channel Reorganization Patterns](#channel-reorganization-patterns) (NEW)
+- [Context Relationships Patterns](#context-relationships-patterns) (NEW)
+- [Real-time Monitoring Patterns](#real-time-monitoring-patterns) (NEW)
 - [Debugging & Troubleshooting](#debugging--troubleshooting)
 - [Performance Optimization](#performance-optimization)
 - [Advanced Techniques](#advanced-techniques)
@@ -1090,6 +1094,373 @@ await context_save({
   value: "Added: Verify session persistence across deployments",
   category: "process"
 });
+```
+
+## Batch Operations Patterns
+
+### Sprint Planning Batch Import
+Import multiple tasks and stories in one operation:
+
+```typescript
+// Parse sprint planning output
+const sprintItems = [
+  // User stories
+  { key: "story_user_profile", value: "As a user, I want to update my profile", category: "task", priority: "high", channel: "sprint-15" },
+  { key: "story_notifications", value: "As a user, I want email notifications", category: "task", priority: "normal", channel: "sprint-15" },
+  
+  // Technical tasks
+  { key: "task_db_migration", value: "Create user preferences table", category: "task", priority: "high", channel: "sprint-15" },
+  { key: "task_api_endpoints", value: "Implement profile CRUD endpoints", category: "task", priority: "high", channel: "sprint-15" },
+  { key: "task_email_service", value: "Set up email notification service", category: "task", priority: "normal", channel: "sprint-15" },
+  
+  // Sprint metadata
+  { key: "sprint_15_goal", value: "Complete user profile and notifications", category: "note", channel: "sprint-15" },
+  { key: "sprint_15_capacity", value: "Team capacity: 45 story points", category: "note", channel: "sprint-15" }
+];
+
+// Import all at once
+await context_batch_save({ 
+  items: sprintItems,
+  updateExisting: false  // Don't overwrite if already exists
+});
+
+// Link stories to tasks
+await context_link({
+  sourceKey: "story_user_profile",
+  targetKey: "task_db_migration",
+  relationship: "has_task"
+});
+
+await context_link({
+  sourceKey: "story_user_profile", 
+  targetKey: "task_api_endpoints",
+  relationship: "has_task"
+});
+```
+
+### Configuration Migration Pattern
+Move configuration between environments:
+
+```typescript
+// Export from development
+const devConfig = await context_get({ keyPattern: "config_*", channel: "dev" });
+
+// Transform for production
+const prodItems = devConfig.map(item => ({
+  key: item.key.replace('config_', 'prod_config_'),
+  value: item.value.includes('localhost') 
+    ? item.value.replace('localhost', 'prod.example.com')
+    : item.value,
+  category: item.category,
+  priority: "high",
+  channel: "production"
+}));
+
+// Batch import to production channel
+await context_batch_save({ items: prodItems });
+
+// Verify import
+const imported = await context_get({ channel: "production", keyPattern: "prod_config_*" });
+console.log(`Imported ${imported.length} config items to production`);
+```
+
+### Bulk Status Updates
+Update multiple items based on criteria:
+
+```typescript
+// Find all tasks assigned to a developer
+const johnsTasks = await context_get({ 
+  keyPattern: "task_*",
+  valuePattern: ".*assigned:john.*"  // If assignment in value
+});
+
+// Update all to in-progress
+const updates = johnsTasks.map(task => ({
+  key: task.key,
+  value: task.value.replace('[TODO]', '[IN PROGRESS]'),
+  priority: "high"  // Bump priority for active work
+}));
+
+await context_batch_update({ updates });
+
+// Move completed tasks to done channel
+const completedTasks = await context_get({ 
+  keyPattern: "task_*",
+  valuePattern: ".*\\[DONE\\].*"
+});
+
+if (completedTasks.length > 0) {
+  await context_reassign_channel({
+    keys: completedTasks.map(t => t.key),
+    toChannel: "completed-sprint-15"
+  });
+}
+```
+
+## Channel Reorganization Patterns
+
+### Feature Branch Merge Pattern
+Consolidate work when merging feature branches:
+
+```typescript
+// Before merging feature branch
+const featureWork = await context_get({ channel: "feature-payments" });
+console.log(`Found ${featureWork.length} items in feature branch`);
+
+// Move decisions to main branch
+await context_reassign_channel({
+  fromChannel: "feature-payments",
+  toChannel: "main",
+  category: "decision",
+  dryRun: true  // Preview first
+});
+
+// Actually move after review
+await context_reassign_channel({
+  fromChannel: "feature-payments",
+  toChannel: "main",
+  category: "decision"
+});
+
+// Archive the rest
+await context_reassign_channel({
+  fromChannel: "feature-payments",
+  toChannel: "archive-features",
+  priorities: ["low", "normal"]  // Keep high priority items
+});
+```
+
+### Sprint Rollover Pattern
+Handle unfinished work at sprint end:
+
+```typescript
+// Find unfinished tasks
+const unfinishedTasks = await context_get({
+  channel: "sprint-14",
+  category: "task",
+  valuePattern: "^(?!.*\\[DONE\\]).*$"  // Not containing [DONE]
+});
+
+// Analyze by priority
+const byPriority = {
+  high: unfinishedTasks.filter(t => t.priority === "high"),
+  normal: unfinishedTasks.filter(t => t.priority === "normal"),
+  low: unfinishedTasks.filter(t => t.priority === "low")
+};
+
+// Move high priority to next sprint
+if (byPriority.high.length > 0) {
+  await context_reassign_channel({
+    keys: byPriority.high.map(t => t.key),
+    toChannel: "sprint-15"
+  });
+}
+
+// Move others to backlog
+const backlogItems = [...byPriority.normal, ...byPriority.low];
+if (backlogItems.length > 0) {
+  await context_reassign_channel({
+    keys: backlogItems.map(t => t.key),
+    toChannel: "backlog"
+  });
+}
+
+// Create rollover report
+await context_save({
+  key: "sprint_14_rollover_report",
+  value: `Rolled over: ${byPriority.high.length} high, ${byPriority.normal.length} normal, ${byPriority.low.length} low priority tasks`,
+  category: "note",
+  channel: "sprint-reports"
+});
+```
+
+## Context Relationships Patterns
+
+### Epic Management Pattern
+Track complex features with multiple levels:
+
+```typescript
+// Create epic structure
+const epic = { key: "epic_payment_v2", value: "Payment System 2.0", category: "task", priority: "high" };
+const features = [
+  { key: "feature_stripe", value: "Stripe integration", category: "task" },
+  { key: "feature_paypal", value: "PayPal integration", category: "task" },
+  { key: "feature_crypto", value: "Cryptocurrency support", category: "task" }
+];
+
+// Save all items
+await context_save(epic);
+for (const feature of features) {
+  await context_save(feature);
+  await context_link({
+    sourceKey: epic.key,
+    targetKey: feature.key,
+    relationship: "contains"
+  });
+}
+
+// Add feature dependencies
+await context_link({
+  sourceKey: "feature_crypto",
+  targetKey: "feature_stripe",
+  relationship: "depends_on",
+  metadata: { reason: "Reuses payment gateway abstraction" }
+});
+
+// Find all work for the epic
+const epicWork = await context_get_related({
+  key: "epic_payment_v2",
+  depth: 2,  // Epic -> Features -> Tasks
+  direction: "outgoing"
+});
+
+// Create visual hierarchy
+const hierarchy = epicWork.items.reduce((acc, item) => {
+  const level = item.distance === 1 ? "Features" : "Tasks";
+  if (!acc[level]) acc[level] = [];
+  acc[level].push(item.key);
+  return acc;
+}, {});
+```
+
+### Impact Analysis Pattern
+Understand cascading effects of changes:
+
+```typescript
+// Map service dependencies
+const services = [
+  { source: "api-gateway", target: "auth-service", rel: "depends_on" },
+  { source: "api-gateway", target: "user-service", rel: "depends_on" },
+  { source: "user-service", target: "database", rel: "depends_on" },
+  { source: "user-service", target: "cache", rel: "depends_on" },
+  { source: "auth-service", target: "database", rel: "depends_on" },
+  { source: "notification-service", target: "user-service", rel: "depends_on" }
+];
+
+// Create dependency graph
+for (const dep of services) {
+  await context_save({ key: dep.source, value: `Service: ${dep.source}`, category: "note" });
+  await context_save({ key: dep.target, value: `Service: ${dep.target}`, category: "note" });
+  await context_link({
+    sourceKey: dep.source,
+    targetKey: dep.target,
+    relationship: dep.rel
+  });
+}
+
+// Analyze database change impact
+const impacted = await context_get_related({
+  key: "database",
+  relationship: "depends_on",
+  direction: "incoming",
+  depth: 3
+});
+
+console.log("Database change will affect:");
+impacted.items.forEach(item => {
+  console.log(`- ${item.key} (${item.distance} levels away)`);
+});
+
+// Find critical paths
+const authImpact = await context_get_related({
+  key: "auth-service",
+  direction: "both",
+  depth: 2
+});
+
+const criticalServices = authImpact.items.filter(item => 
+  item.relationship === "depends_on" && item.direction === "incoming"
+);
+```
+
+## Real-time Monitoring Patterns
+
+### CI/CD Pipeline Monitor
+Track build and deployment status:
+
+```typescript
+// Create pipeline watcher
+const pipelineWatcher = await context_watch({
+  action: "create",
+  filters: {
+    keys: ["build_*", "deploy_*", "test_*"],
+    categories: ["progress", "error"],
+    channels: ["ci-cd"]
+  }
+});
+
+// Monitoring loop
+const monitorPipeline = async () => {
+  const changes = await context_watch({
+    action: "poll",
+    watcherId: pipelineWatcher.watcherId,
+    timeout: 30  // Long poll for 30 seconds
+  });
+  
+  for (const item of changes.items) {
+    if (item.category === "error") {
+      console.error(`Pipeline failure: ${item.key} - ${item.value}`);
+      // Trigger alerts
+    } else if (item.key.startsWith("deploy_") && item.value.includes("success")) {
+      console.log(`Deployment completed: ${item.key}`);
+      // Update deployment tracking
+    }
+  }
+  
+  // Continue monitoring
+  setTimeout(monitorPipeline, 1000);
+};
+
+monitorPipeline();
+```
+
+### Team Activity Dashboard
+Real-time team progress tracking:
+
+```typescript
+// Set up watchers for each team
+const teams = ["frontend", "backend", "devops"];
+const watchers = {};
+
+for (const team of teams) {
+  watchers[team] = await context_watch({
+    action: "create",
+    filters: {
+      channels: [team],
+      categories: ["task", "progress", "decision"]
+    }
+  });
+}
+
+// Dashboard update function
+const updateDashboard = async () => {
+  const dashboard = {};
+  
+  for (const team of teams) {
+    const updates = await context_watch({
+      action: "poll",
+      watcherId: watchers[team].watcherId,
+      timeout: 0  // Immediate return
+    });
+    
+    dashboard[team] = {
+      updates: updates.items.length,
+      tasks: updates.items.filter(i => i.category === "task").length,
+      progress: updates.items.filter(i => i.category === "progress").length,
+      decisions: updates.items.filter(i => i.category === "decision").length
+    };
+  }
+  
+  // Display dashboard
+  console.clear();
+  console.log("=== Team Activity Dashboard ===");
+  Object.entries(dashboard).forEach(([team, stats]) => {
+    console.log(`${team}: ${stats.updates} updates (${stats.tasks} tasks, ${stats.progress} progress, ${stats.decisions} decisions)`);
+  });
+};
+
+// Update every 10 seconds
+setInterval(updateDashboard, 10000);
 ```
 
 ## Debugging & Troubleshooting

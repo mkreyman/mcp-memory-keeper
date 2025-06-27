@@ -5,6 +5,10 @@
 - [Common Workflows](#common-workflows)
 - [Working with Channels](#working-with-channels) (NEW v0.10.0)
 - [Time-based Queries](#time-based-queries) (NEW v0.10.0)
+- [Batch Operations Examples](#batch-operations-examples) (NEW)
+- [Channel Reorganization Examples](#channel-reorganization-examples) (NEW)
+- [Context Relationships Examples](#context-relationships-examples) (NEW)
+- [Real-time Monitoring Examples](#real-time-monitoring-examples) (NEW)
 - [Advanced Usage](#advanced-usage)
 - [Tips & Best Practices](#tips--best-practices)
 
@@ -525,6 +529,299 @@ while (hasMore) {
   if (items.length < limit) hasMore = false;
   offset += limit;
 }
+```
+
+## Batch Operations Examples
+
+### Importing Multiple Items
+Save multiple related items in one atomic operation:
+
+```javascript
+// Import configuration settings
+await context_batch_save({
+  items: [
+    { key: "api_endpoint", value: "https://api.example.com", category: "note" },
+    { key: "api_key", value: "sk-123456", category: "note", priority: "high" },
+    { key: "api_timeout", value: "30000", category: "note" },
+    { key: "api_retry_count", value: "3", category: "note" }
+  ]
+});
+
+// Bulk import tasks from planning session
+const sprintTasks = [
+  { key: "task_001", value: "Set up authentication flow", priority: "high", category: "task", channel: "sprint-15" },
+  { key: "task_002", value: "Create user profile page", priority: "normal", category: "task", channel: "sprint-15" },
+  { key: "task_003", value: "Add password reset", priority: "high", category: "task", channel: "sprint-15" },
+  { key: "task_004", value: "Write API tests", priority: "normal", category: "task", channel: "sprint-15" }
+];
+
+await context_batch_save({ 
+  items: sprintTasks,
+  updateExisting: false  // Don't overwrite if tasks already exist
+});
+```
+
+### Bulk Updates
+Update multiple items at once:
+
+```javascript
+// Mark multiple tasks as completed
+await context_batch_update({
+  updates: [
+    { key: "task_001", value: "✓ Set up authentication flow - DONE", priority: "low" },
+    { key: "task_002", value: "✓ Create user profile page - DONE", priority: "low" },
+    { key: "task_003", value: "✓ Add password reset - DONE", priority: "low" }
+  ]
+});
+
+// Move items to archive channel
+await context_batch_update({
+  updates: [
+    { key: "old_decision_1", channel: "archive-2024" },
+    { key: "old_decision_2", channel: "archive-2024" },
+    { key: "old_decision_3", channel: "archive-2024" }
+  ]
+});
+```
+
+### Batch Deletion
+Clean up multiple items safely:
+
+```javascript
+// Preview what will be deleted
+const preview = await context_batch_delete({
+  keyPattern: "temp_*",
+  dryRun: true
+});
+console.log(`Will delete ${preview.deletedCount} temporary items`);
+
+// Actually delete them
+if (preview.deletedCount > 0) {
+  await context_batch_delete({
+    keyPattern: "temp_*"
+  });
+}
+
+// Delete specific test data
+await context_batch_delete({
+  keys: ["test_user_1", "test_user_2", "test_config"]
+});
+```
+
+## Channel Reorganization Examples
+
+### Moving Items Between Channels
+Reorganize your context when project structure changes:
+
+```javascript
+// Move all auth-related items to dedicated channel
+await context_reassign_channel({
+  keyPattern: "auth_*",
+  toChannel: "feature-authentication"
+});
+
+// Consolidate sprint work
+await context_reassign_channel({
+  fromChannel: "sprint-14-overflow",
+  toChannel: "sprint-15",
+  category: "task",
+  priorities: ["high", "normal"]
+});
+
+// Archive completed features
+const completed = await context_get({ 
+  category: "task", 
+  keyPattern: "✓ *" 
+});
+
+await context_reassign_channel({
+  keys: completed.map(item => item.key),
+  toChannel: "completed-tasks"
+});
+```
+
+## Context Relationships Examples
+
+### Building Task Dependencies
+Track relationships between your work items:
+
+```javascript
+// Create epic with subtasks
+await context_save({ 
+  key: "epic_user_management", 
+  value: "Complete user management system",
+  category: "task",
+  priority: "high"
+});
+
+// Create subtasks and link them
+const subtasks = [
+  { key: "task_user_crud", value: "User CRUD operations" },
+  { key: "task_user_roles", value: "Role-based permissions" },
+  { key: "task_user_profile", value: "User profile page" }
+];
+
+for (const task of subtasks) {
+  await context_save(task);
+  await context_link({
+    sourceKey: "epic_user_management",
+    targetKey: task.key,
+    relationship: "contains"
+  });
+}
+
+// Add dependencies between tasks
+await context_link({
+  sourceKey: "task_user_profile",
+  targetKey: "task_user_crud",
+  relationship: "depends_on",
+  metadata: { reason: "Profile needs user data" }
+});
+
+// Find all epic subtasks
+const epicTasks = await context_get_related({
+  key: "epic_user_management",
+  relationship: "contains"
+});
+```
+
+### Tracking Documentation
+Link code changes to their documentation:
+
+```javascript
+// Save implementation note
+await context_save({
+  key: "impl_auth_service",
+  value: "Implemented JWT authentication in auth.service.ts",
+  category: "progress"
+});
+
+// Save documentation
+await context_save({
+  key: "doc_auth_guide",
+  value: "Authentication guide covering JWT setup and usage",
+  category: "note"
+});
+
+// Link them
+await context_link({
+  sourceKey: "impl_auth_service",
+  targetKey: "doc_auth_guide",
+  relationship: "documented_in"
+});
+
+// Later, find all items with documentation
+const documented = await context_get_related({
+  key: "doc_auth_guide",
+  direction: "incoming"
+});
+```
+
+### Analyzing Impact
+Understand what will be affected by changes:
+
+```javascript
+// Set up service dependencies
+await context_link({
+  sourceKey: "service_frontend",
+  targetKey: "service_api",
+  relationship: "depends_on"
+});
+
+await context_link({
+  sourceKey: "service_api",
+  targetKey: "service_database",
+  relationship: "depends_on"
+});
+
+await context_link({
+  sourceKey: "service_api",
+  targetKey: "service_cache",
+  relationship: "depends_on"
+});
+
+// Find everything that depends on the database
+const impacted = await context_get_related({
+  key: "service_database",
+  relationship: "depends_on",
+  direction: "incoming",
+  depth: 2  // Check 2 levels deep
+});
+
+console.log(`Database change will impact: ${impacted.items.map(i => i.key).join(', ')}`);
+```
+
+## Real-time Monitoring Examples
+
+### Watching for Changes
+Monitor context changes in real-time:
+
+```javascript
+// Create a watcher for high-priority tasks
+const watcher = await context_watch({
+  action: "create",
+  filters: {
+    categories: ["task"],
+    priorities: ["high"],
+    channels: ["sprint-15"]
+  }
+});
+
+console.log(`Watching for high-priority tasks. Watcher ID: ${watcher.watcherId}`);
+
+// Poll for changes every 30 seconds
+setInterval(async () => {
+  const changes = await context_watch({
+    action: "poll",
+    watcherId: watcher.watcherId,
+    timeout: 0  // Immediate return
+  });
+  
+  if (changes.items.length > 0) {
+    console.log(`New/updated items: ${changes.items.length}`);
+    changes.items.forEach(item => {
+      console.log(`- ${item.changeType}: ${item.key} - ${item.value}`);
+    });
+  }
+}, 30000);
+
+// Stop watching when done
+await context_watch({
+  action: "stop",
+  watcherId: watcher.watcherId
+});
+```
+
+### Team Activity Dashboard
+Monitor team progress across channels:
+
+```javascript
+// Watch all team channels
+const teamWatcher = await context_watch({
+  action: "create",
+  filters: {
+    channels: ["frontend", "backend", "devops"],
+    categories: ["progress", "task"]
+  }
+});
+
+// Check for updates
+const updates = await context_watch({
+  action: "poll",
+  watcherId: teamWatcher.watcherId
+});
+
+// Group by channel
+const byChannel = {};
+updates.items.forEach(item => {
+  if (!byChannel[item.channel]) byChannel[item.channel] = [];
+  byChannel[item.channel].push(item);
+});
+
+// Display summary
+Object.entries(byChannel).forEach(([channel, items]) => {
+  console.log(`${channel}: ${items.length} updates`);
+});
 ```
 
 ### Enhanced Timeline with Details

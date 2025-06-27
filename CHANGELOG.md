@@ -5,6 +5,40 @@ All notable changes to MCP Memory Keeper will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Batch Operations** - Atomic multi-item operations
+  - `context_batch_save` - Save multiple items in one transaction
+  - `context_batch_delete` - Delete multiple items by keys or pattern
+  - `context_batch_update` - Update multiple items with partial changes
+  - Ensures data consistency with all-or-nothing transactions
+
+- **Channel Reassignment** - Reorganize context items
+  - `context_reassign_channel` - Move items between channels
+  - Support for key patterns, specific keys, or entire channels
+  - Filter by category and priority during moves
+  - Dry run option to preview changes
+
+- **Context Relationships** - Build knowledge graphs
+  - `context_link` - Create typed relationships between items
+  - `context_get_related` - Find related items with traversal
+  - 14 relationship types (contains, depends_on, references, etc.)
+  - Multi-level depth traversal support
+  - Directional queries (incoming/outgoing/both)
+
+- **Real-time Monitoring** - Watch for context changes
+  - `context_watch` - Create filtered watchers for changes
+  - Support for long polling and immediate returns
+  - Filter by keys, categories, channels, priorities
+  - Track added vs updated items
+
+### Documentation
+- Added comprehensive documentation for all new features in API.md
+- Added practical examples in EXAMPLES.md
+- Added recipes for common patterns in RECIPES.md
+- Added troubleshooting tips for new features
+
 ## [0.10.0] - 2025-01-26
 
 ### Added

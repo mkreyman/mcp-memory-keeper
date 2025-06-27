@@ -252,7 +252,7 @@ describe('Project Directory Feature Tests', () => {
 
       const git = simpleGit(pathWithSpaces);
       await git.init();
-      
+
       // Configure git for this test to avoid CI failures
       await git.addConfig('user.name', 'Test User');
       await git.addConfig('user.email', 'test@example.com');

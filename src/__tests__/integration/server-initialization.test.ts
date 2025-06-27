@@ -143,7 +143,7 @@ describe('Server Initialization Tests', () => {
 
     // Change to temp directory
     const originalCwd = process.cwd();
-    
+
     try {
       process.chdir(tempDir);
 
