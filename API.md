@@ -560,7 +560,7 @@ Analyze context to extract entities and relationships.
 
 ### context_export
 
-Export context to JSON file.
+Export context data to a JSON file with enhanced validation and statistics.
 
 **Parameters:**
 ```typescript
@@ -570,10 +570,12 @@ Export context to JSON file.
   format?: 'json' | 'csv'; // Export format (default: json)
   outputPath?: string;     // Custom output path
   includeMetadata?: boolean; // Include system metadata
+  confirmEmpty?: boolean;  // Bypass empty export warning (default: false) [NEW v0.11.0]
+  includeStats?: boolean;  // Include detailed statistics (default: false) [NEW v0.11.0]
 }
 ```
 
-**Returns:**
+**Returns (Standard):**
 ```typescript
 {
   filePath: string;        // Output file path
@@ -586,6 +588,85 @@ Export context to JSON file.
   };
 }
 ```
+
+**Returns (With includeStats=true):**
+```typescript
+{
+  filePath: string;        // Output file path
+  stats: {
+    sessions: number;
+    items: number;
+    files: number;
+    checkpoints: number;
+    size: number;         // File size in bytes
+  };
+  detailedStats: {         // Additional statistics [NEW v0.11.0]
+    byCategory: Record<string, number>;     // Item count by category
+    byPriority: Record<string, number>;     // Item count by priority
+    byChannel: Record<string, number>;      // Item count by channel
+    dateRange: {
+      earliest: string;    // ISO timestamp of earliest item
+      latest: string;      // ISO timestamp of latest item
+    };
+    averageItemSize: number;  // Average item size in bytes
+    totalValueSize: number;   // Total size of all item values
+  };
+}
+```
+
+**Error Scenarios:**
+- `EMPTY_EXPORT`: Attempted to export with no data (unless confirmEmpty=true)
+- `NO_SESSION`: No active session and no sessionId provided
+- `SESSION_NOT_FOUND`: Specified session does not exist
+- `INVALID_FORMAT`: Unsupported export format
+- `FILE_WRITE_ERROR`: Failed to write export file
+- `DATABASE_ERROR`: Database read error during export
+
+**Examples:**
+```typescript
+// Basic export of current session
+await context_export();
+
+// Export with detailed statistics
+await context_export({
+  includeStats: true
+});
+
+// Export multiple sessions
+await context_export({
+  sessionIds: ["session-1", "session-2"],
+  outputPath: "./exports/multi-session-backup.json",
+  includeStats: true
+});
+
+// Force export even if empty
+await context_export({
+  confirmEmpty: true  // No warning for empty exports
+});
+
+// Handle empty export scenario
+try {
+  await context_export();
+} catch (error) {
+  if (error.code === 'EMPTY_EXPORT') {
+    console.log("No data to export. Use confirmEmpty:true to bypass.");
+    // Either add some data or confirm empty export
+    await context_export({ confirmEmpty: true });
+  }
+}
+```
+
+**Best Practices:**
+1. **Regular Backups**: Export important sessions regularly
+2. **Include Statistics**: Use `includeStats:true` for export verification
+3. **Check Empty Exports**: Handle EMPTY_EXPORT errors appropriately
+4. **Archive Old Sessions**: Export and compress old sessions to save space
+5. **Version Control**: Consider adding exports to version control for team sharing
+
+**Backward Compatibility:**
+- The `confirmEmpty` and `includeStats` parameters are optional
+- Existing code will continue to work without changes
+- Empty exports will show a warning but can be bypassed with `confirmEmpty:true`
 
 ### context_import
 

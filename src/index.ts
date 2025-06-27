@@ -1357,17 +1357,51 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
 
     // Phase 3: Export/Import
     case 'context_export': {
-      const { sessionId: specificSessionId, format = 'json' } = args;
-      const targetSessionId = specificSessionId || currentSessionId || ensureSession();
+      const {
+        sessionId: specificSessionId,
+        format = 'json',
+        includeStats = false,
+        confirmEmpty = false,
+      } = args;
+      const targetSessionId = specificSessionId || currentSessionId;
+
+      // Phase 1: Validation
+      if (!targetSessionId) {
+        throw new Error('No session ID provided and no current session active');
+      }
+
+      // Check if session exists
+      const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(targetSessionId) as any;
+      if (!session) {
+        throw new Error(`Session not found: ${targetSessionId}`);
+      }
 
       // Get session data
-      const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(targetSessionId) as any;
       const contextItems = db
         .prepare('SELECT * FROM context_items WHERE session_id = ?')
         .all(targetSessionId);
       const fileCache = db
         .prepare('SELECT * FROM file_cache WHERE session_id = ?')
         .all(targetSessionId);
+      const checkpoints = db
+        .prepare('SELECT * FROM checkpoints WHERE session_id = ?')
+        .all(targetSessionId);
+
+      // Check if session is empty
+      const isEmpty =
+        contextItems.length === 0 && fileCache.length === 0 && checkpoints.length === 0;
+      if (isEmpty && !confirmEmpty) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Warning: Session appears to be empty. No context items, files, or checkpoints found.\n\nTo export anyway, use confirmEmpty: true',
+            },
+          ],
+          isEmpty: true,
+          requiresConfirmation: true,
+        };
+      }
 
       const exportData = {
         version: '0.4.0',
@@ -1375,24 +1409,62 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
         session,
         contextItems,
         fileCache,
+        checkpoints,
+        metadata: {
+          itemCount: contextItems.length,
+          fileCount: fileCache.length,
+          checkpointCount: checkpoints.length,
+          totalSize: JSON.stringify({ contextItems, fileCache, checkpoints }).length,
+        },
       };
 
       if (format === 'json') {
-        const exportPath = `memory-keeper-export-${targetSessionId.substring(0, 8)}.json`;
-        fs.writeFileSync(exportPath, JSON.stringify(exportData, null, 2));
+        const exportPath = path.resolve(
+          `memory-keeper-export-${targetSessionId.substring(0, 8)}.json`
+        );
+
+        // Check write permissions
+        try {
+          fs.writeFileSync(exportPath, JSON.stringify(exportData, null, 2));
+        } catch (error: any) {
+          if (error.code === 'EACCES') {
+            throw new Error(`Permission denied: Cannot write to ${exportPath}`);
+          }
+          throw error;
+        }
+
+        const stats = {
+          items: contextItems.length,
+          files: fileCache.length,
+          checkpoints: checkpoints.length,
+          size: fs.statSync(exportPath).size,
+        };
 
         return {
           content: [
             {
               type: 'text',
-              text: `Exported session to: ${exportPath}
-Items: ${contextItems.length}
-Files: ${fileCache.length}`,
+              text: includeStats
+                ? `✅ Successfully exported session "${session.name}" to: ${exportPath}
+
+📊 Export Statistics:
+- Context Items: ${stats.items}
+- Cached Files: ${stats.files}
+- Checkpoints: ${stats.checkpoints}
+- Export Size: ${(stats.size / 1024).toFixed(2)} KB
+
+Session ID: ${targetSessionId}`
+                : `Exported session to: ${exportPath}
+Items: ${stats.items}
+Files: ${stats.files}`,
             },
           ],
+          exportPath,
+          statistics: stats,
         };
       }
 
+      // Inline format
       return {
         content: [
           {
@@ -1400,6 +1472,11 @@ Files: ${fileCache.length}`,
             text: JSON.stringify(exportData, null, 2),
           },
         ],
+        statistics: {
+          items: contextItems.length,
+          files: fileCache.length,
+          checkpoints: checkpoints.length,
+        },
       };
     }
 
