@@ -31,6 +31,10 @@ Claude Code users often face context loss when the conversation window fills up.
 - 🌿 Git integration with automatic context correlation
 - 📊 AI-friendly summarization with priority awareness
 - 🚀 Fast SQLite-based storage optimized for Claude
+- 🔁 **Batch operations** - Save, update, or delete multiple items atomically
+- 🔄 **Channel reassignment** - Move items between channels based on patterns
+- 🔗 **Context relationships** - Link related items with typed relationships
+- 👁️ **Real-time monitoring** - Watch for context changes with filters
 
 ## Installation
 
@@ -440,6 +444,97 @@ Example summary output:
 ## Decision
 - architecture_decision: Split settings into read/write modules
 - db_choice: Use PostgreSQL for better JSON support
+```
+
+### Batch Operations
+
+Perform multiple operations atomically:
+
+```javascript
+// Save multiple items at once
+mcp_context_batch_save({
+  items: [
+    { key: "config_api_url", value: "https://api.example.com", category: "note" },
+    { key: "config_timeout", value: "30000", category: "note" },
+    { key: "config_retries", value: "3", category: "note" }
+  ]
+})
+
+// Update multiple items
+mcp_context_batch_update({
+  updates: [
+    { key: "task_1", priority: "high" },
+    { key: "task_2", priority: "high" },
+    { key: "task_3", value: "Updated task description" }
+  ]
+})
+
+// Delete by pattern
+mcp_context_batch_delete({
+  keyPattern: "temp_*",
+  dryRun: true  // Preview first
+})
+```
+
+### Channel Management
+
+Reorganize context items between channels:
+
+```javascript
+// Move items to a new channel
+mcp_context_reassign_channel({
+  keyPattern: "auth_*",
+  toChannel: "feature-authentication"
+})
+
+// Move from one channel to another
+mcp_context_reassign_channel({
+  fromChannel: "sprint-14",
+  toChannel: "sprint-15",
+  category: "task",
+  priorities: ["high"]
+})
+```
+
+### Context Relationships
+
+Build a graph of related items:
+
+```javascript
+// Link related items
+mcp_context_link({
+  sourceKey: "epic_user_management",
+  targetKey: "task_create_user_api",
+  relationship: "contains"
+})
+
+// Find related items
+mcp_context_get_related({
+  key: "epic_user_management",
+  relationship: "contains",
+  depth: 2
+})
+```
+
+### Real-time Monitoring
+
+Watch for context changes:
+
+```javascript
+// Create a watcher
+const watcher = await mcp_context_watch({
+  action: "create",
+  filters: {
+    categories: ["task"],
+    priorities: ["high"]
+  }
+})
+
+// Poll for changes
+const changes = await mcp_context_watch({
+  action: "poll",
+  watcherId: watcher.watcherId
+})
 ```
 
 ### Smart Compaction (Phase 3)

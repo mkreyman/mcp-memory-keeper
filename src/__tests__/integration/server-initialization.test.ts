@@ -143,31 +143,42 @@ describe('Server Initialization Tests', () => {
 
     // Change to temp directory
     const originalCwd = process.cwd();
-    process.chdir(tempDir);
 
-    // Start the server
-    serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    try {
+      process.chdir(tempDir);
 
-    // Track for global cleanup
-    if (!(global as any).testProcesses) {
-      (global as any).testProcesses = [];
-    }
-    (global as any).testProcesses.push(serverProcess);
+      // Start the server
+      serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
-    // Wait for server to start
-    setTimeout(() => {
-      // Check if database file was created
-      expect(fs.existsSync(dbPath)).toBe(true);
+      // Track for global cleanup
+      if (!(global as any).testProcesses) {
+        (global as any).testProcesses = [];
+      }
+      (global as any).testProcesses.push(serverProcess);
 
-      // Check if it's a valid SQLite database
-      const header = fs.readFileSync(dbPath).slice(0, 16).toString();
-      expect(header).toBe('SQLite format 3\x00');
+      // Wait for server to start
+      setTimeout(() => {
+        try {
+          // Check if database file was created
+          expect(fs.existsSync(dbPath)).toBe(true);
 
+          // Check if it's a valid SQLite database
+          const header = fs.readFileSync(dbPath).slice(0, 16).toString();
+          expect(header).toBe('SQLite format 3\x00');
+
+          process.chdir(originalCwd);
+          done();
+        } catch (error) {
+          process.chdir(originalCwd);
+          done(error as Error);
+        }
+      }, 1000);
+    } catch (error) {
       process.chdir(originalCwd);
-      done();
-    }, 1000);
+      done(error as Error);
+    }
   });
 
   it('should handle invalid requests gracefully', done => {

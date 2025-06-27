@@ -576,7 +576,7 @@ export class ContextRepository extends BaseRepository {
       category,
       channel,
       channels,
-      sort = 'created_at_desc',
+      sort,
       limit,
       offset = 0,
       createdAfter,
@@ -584,6 +584,24 @@ export class ContextRepository extends BaseRepository {
       keyPattern,
       priorities,
     } = options;
+
+    // Apply default pagination parameters
+    // Default sort: created_desc (most recent first)
+    const effectiveSort = sort || 'created_desc';
+
+    // Default limit: 100 items (or unlimited if explicitly set to 0)
+    // Negative limits are treated as default
+    // Invalid types are treated as default
+    let effectiveLimit: number | undefined;
+    const numericLimit = typeof limit === 'number' ? limit : undefined;
+
+    if (numericLimit === 0) {
+      effectiveLimit = undefined; // Unlimited
+    } else if (numericLimit === undefined || numericLimit < 0) {
+      effectiveLimit = 100; // Default limit
+    } else {
+      effectiveLimit = numericLimit; // Use provided limit
+    }
 
     // Validate offset is not negative
     const validOffset = Math.max(0, offset || 0);
@@ -663,10 +681,10 @@ export class ContextRepository extends BaseRepository {
     const totalCount = this.getTotalCount(sql, params);
 
     // Add sorting
-    sql += ` ORDER BY ${this.buildSortClause(sort)}`;
+    sql += ` ORDER BY ${this.buildSortClause(effectiveSort)}`;
 
     // Add pagination
-    sql = this.addPaginationToQuery(sql, params, limit, validOffset);
+    sql = this.addPaginationToQuery(sql, params, effectiveLimit, validOffset);
 
     const stmt = this.db.prepare(sql);
     const items = stmt.all(...params) as ContextItem[];
@@ -1461,5 +1479,887 @@ export class ContextRepository extends BaseRepository {
     }
 
     return insights;
+  }
+
+  // Reassign channel for context items
+  reassignChannel(options: {
+    keys?: string[];
+    keyPattern?: string;
+    fromChannel?: string;
+    toChannel: string;
+    sessionId: string;
+    category?: string;
+    priorities?: string[];
+    dryRun?: boolean;
+  }): {
+    itemsAffected: number;
+    itemsMoved: Array<{
+      key: string;
+      oldChannel: string;
+      newChannel: string;
+    }>;
+    errors?: string[];
+  } {
+    const {
+      keys,
+      keyPattern,
+      fromChannel,
+      toChannel,
+      sessionId,
+      category,
+      priorities,
+      dryRun = false,
+    } = options;
+
+    const errors: string[] = [];
+    const itemsMoved: Array<{ key: string; oldChannel: string; newChannel: string }> = [];
+
+    try {
+      // Start transaction
+      this.db.prepare('BEGIN TRANSACTION').run();
+
+      // Build the base query
+      let sql = 'SELECT id, key, channel FROM context_items WHERE session_id = ?';
+      const params: any[] = [sessionId];
+
+      // Add conditions based on parameters
+      if (keys && keys.length > 0) {
+        const placeholders = keys.map(() => '?').join(',');
+        sql += ` AND key IN (${placeholders})`;
+        params.push(...keys);
+      } else if (keyPattern) {
+        // Convert wildcard pattern to SQL GLOB pattern
+        sql += ' AND key GLOB ?';
+        params.push(keyPattern);
+      } else if (fromChannel) {
+        sql += ' AND channel = ?';
+        params.push(fromChannel);
+      }
+
+      // Add category filter
+      if (category) {
+        sql += ' AND category = ?';
+        params.push(category);
+      }
+
+      // Add priority filter
+      if (priorities && priorities.length > 0) {
+        const placeholders = priorities.map(() => '?').join(',');
+        sql += ` AND priority IN (${placeholders})`;
+        params.push(...priorities);
+      }
+
+      // Get items to be moved
+      const itemsToMove = this.db.prepare(sql).all(...params) as any[];
+
+      if (itemsToMove.length === 0) {
+        this.db.prepare('ROLLBACK').run();
+        return {
+          itemsAffected: 0,
+          itemsMoved: [],
+          errors: ['No items found matching the specified criteria'],
+        };
+      }
+
+      // Prepare response data
+      for (const item of itemsToMove) {
+        itemsMoved.push({
+          key: item.key,
+          oldChannel: item.channel,
+          newChannel: toChannel,
+        });
+      }
+
+      // If dry run, rollback and return preview
+      if (dryRun) {
+        this.db.prepare('ROLLBACK').run();
+        return {
+          itemsAffected: itemsToMove.length,
+          itemsMoved,
+        };
+      }
+
+      // Perform the update
+      const updateSql = `
+        UPDATE context_items 
+        SET channel = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id IN (${itemsToMove.map(() => '?').join(',')})
+      `;
+      const updateParams = [toChannel, ...itemsToMove.map(item => item.id)];
+      const result = this.db.prepare(updateSql).run(...updateParams);
+
+      // Commit transaction
+      this.db.prepare('COMMIT').run();
+
+      return {
+        itemsAffected: result.changes,
+        itemsMoved,
+      };
+    } catch (error: any) {
+      // Rollback on error
+      try {
+        this.db.prepare('ROLLBACK').run();
+      } catch (_e) {
+        // Ignore rollback errors
+      }
+
+      errors.push(`Database error: ${error.message}`);
+      return {
+        itemsAffected: 0,
+        itemsMoved: [],
+        errors,
+      };
+    }
+  }
+
+  // Batch Operations
+
+  /**
+   * Save multiple context items in a single transaction
+   */
+  batchSave(
+    sessionId: string,
+    items: CreateContextItemInput[],
+    options: { updateExisting?: boolean } = {}
+  ): {
+    results: Array<{
+      index: number;
+      key: string;
+      success: boolean;
+      action?: string;
+      id?: string;
+      size?: number;
+      error?: string;
+    }>;
+    totalSize: number;
+  } {
+    const { updateExisting = true } = options;
+    const results: Array<{
+      index: number;
+      key: string;
+      success: boolean;
+      action?: string;
+      id?: string;
+      size?: number;
+      error?: string;
+    }> = [];
+    let totalSize = 0;
+
+    // Prepare statements
+    const checkStmt = this.db.prepare(
+      'SELECT id FROM context_items WHERE session_id = ? AND key = ?'
+    );
+    const insertStmt = this.db.prepare(`
+      INSERT INTO context_items (
+        id, session_id, key, value, category, priority, channel, 
+        created_at, updated_at, size, is_private
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const updateStmt = this.db.prepare(`
+      UPDATE context_items 
+      SET value = ?, category = ?, priority = ?, channel = ?, 
+          updated_at = ?, size = ?
+      WHERE session_id = ? AND key = ?
+    `);
+
+    // Get session default channel
+    const sessionStmt = this.db.prepare('SELECT default_channel FROM sessions WHERE id = ?');
+    const session = sessionStmt.get(sessionId) as any;
+    const defaultChannel = session?.default_channel || 'general';
+
+    items.forEach((item, index) => {
+      try {
+        // Skip items with missing required fields
+        if (!item.key || !item.value) {
+          throw new Error('Missing required fields');
+        }
+
+        const size = this.calculateSize(item.value);
+        totalSize += size;
+
+        // Check if key exists
+        const existing = checkStmt.get(sessionId, item.key);
+
+        if (existing && updateExisting) {
+          // Update existing
+          const now = ensureSQLiteFormat(new Date().toISOString());
+          updateStmt.run(
+            item.value,
+            item.category || null,
+            item.priority || 'normal',
+            item.channel || defaultChannel,
+            now,
+            size,
+            sessionId,
+            item.key
+          );
+
+          results.push({
+            index,
+            key: item.key,
+            success: true,
+            action: 'updated',
+            size,
+          });
+        } else if (!existing) {
+          // Insert new
+          const id = this.generateId();
+          const now = ensureSQLiteFormat(new Date().toISOString());
+
+          insertStmt.run(
+            id,
+            sessionId,
+            item.key,
+            item.value,
+            item.category || null,
+            item.priority || 'normal',
+            item.channel || defaultChannel,
+            now,
+            now,
+            size,
+            item.isPrivate ? 1 : 0
+          );
+
+          results.push({
+            index,
+            key: item.key,
+            success: true,
+            action: 'created',
+            id,
+            size,
+          });
+        } else {
+          // Existing but updateExisting is false
+          throw new Error('Item with this key already exists');
+        }
+      } catch (error: any) {
+        results.push({
+          index,
+          key: item.key,
+          success: false,
+          error: error.message,
+        });
+      }
+    });
+
+    return { results, totalSize };
+  }
+
+  /**
+   * Delete multiple context items in a single transaction
+   */
+  batchDelete(
+    sessionId: string,
+    options: { keys?: string[]; keyPattern?: string }
+  ): {
+    results?: Array<{
+      index: number;
+      key: string;
+      deleted: boolean;
+      count: number;
+      error?: string;
+    }>;
+    totalDeleted: number;
+  } {
+    const { keys, keyPattern } = options;
+    let totalDeleted = 0;
+
+    if (keys) {
+      // Delete by specific keys
+      const deleteStmt = this.db.prepare(
+        'DELETE FROM context_items WHERE session_id = ? AND key = ?'
+      );
+      const results: Array<{
+        index: number;
+        key: string;
+        deleted: boolean;
+        count: number;
+        error?: string;
+      }> = [];
+
+      keys.forEach((key, index) => {
+        if (key && key.trim()) {
+          const result = deleteStmt.run(sessionId, key);
+          const deleted = result.changes > 0;
+
+          results.push({
+            index,
+            key,
+            deleted,
+            count: result.changes,
+          });
+
+          totalDeleted += result.changes;
+        } else {
+          results.push({
+            index,
+            key: key || 'undefined',
+            deleted: false,
+            count: 0,
+            error: 'Key cannot be empty',
+          });
+        }
+      });
+
+      return { results, totalDeleted };
+    } else if (keyPattern) {
+      // Delete by pattern
+      const sqlPattern = keyPattern.replace(/\*/g, '%').replace(/\?/g, '_');
+      const result = this.db
+        .prepare('DELETE FROM context_items WHERE session_id = ? AND key LIKE ?')
+        .run(sessionId, sqlPattern);
+
+      totalDeleted = result.changes;
+      return { totalDeleted };
+    }
+
+    return { totalDeleted: 0 };
+  }
+
+  /**
+   * Update multiple context items in a single transaction
+   */
+  batchUpdate(
+    sessionId: string,
+    updates: Array<{
+      key: string;
+      value?: string;
+      category?: string;
+      priority?: string;
+      channel?: string;
+    }>
+  ): {
+    results: Array<{
+      index: number;
+      key: string;
+      updated: boolean;
+      fields?: string[];
+      error?: string;
+    }>;
+  } {
+    const results: Array<{
+      index: number;
+      key: string;
+      updated: boolean;
+      fields?: string[];
+      error?: string;
+    }> = [];
+
+    updates.forEach((update, index) => {
+      try {
+        // Build dynamic UPDATE statement
+        const setClauses: string[] = [];
+        const values: any[] = [];
+
+        if (update.value !== undefined) {
+          setClauses.push('value = ?');
+          values.push(update.value);
+          setClauses.push('size = ?');
+          values.push(this.calculateSize(update.value));
+        }
+        if (update.category !== undefined) {
+          setClauses.push('category = ?');
+          values.push(update.category);
+        }
+        if (update.priority !== undefined) {
+          setClauses.push('priority = ?');
+          values.push(update.priority);
+        }
+        if (update.channel !== undefined) {
+          setClauses.push('channel = ?');
+          values.push(update.channel);
+        }
+
+        if (setClauses.length === 0) {
+          throw new Error('No updates provided');
+        }
+
+        setClauses.push('updated_at = ?');
+        values.push(ensureSQLiteFormat(new Date().toISOString()));
+
+        const sql = `
+          UPDATE context_items 
+          SET ${setClauses.join(', ')}
+          WHERE session_id = ? AND key = ?
+        `;
+
+        values.push(sessionId, update.key);
+
+        const result = this.db.prepare(sql).run(...values);
+
+        if (result.changes === 0) {
+          throw new Error('Item not found');
+        }
+
+        results.push({
+          index,
+          key: update.key,
+          updated: true,
+          fields: Object.keys(update).filter(k => k !== 'key' && (update as any)[k] !== undefined),
+        });
+      } catch (error: any) {
+        results.push({
+          index,
+          key: update.key,
+          updated: false,
+          error: error.message,
+        });
+      }
+    });
+
+    return { results };
+  }
+
+  /**
+   * Get items for dry run operations
+   */
+  getDryRunItems(sessionId: string, options: { keys?: string[]; keyPattern?: string }): any[] {
+    const { keys, keyPattern } = options;
+    let items: any[] = [];
+
+    if (keys) {
+      const stmt = this.db.prepare(`
+        SELECT key, value, category, priority, channel 
+        FROM context_items 
+        WHERE session_id = ? AND key = ?
+      `);
+
+      keys.forEach(key => {
+        if (key && key.trim()) {
+          const item = stmt.get(sessionId, key) as any;
+          if (item) {
+            items.push({
+              ...item,
+              value: item.value.substring(0, 50) + (item.value.length > 50 ? '...' : ''),
+            });
+          }
+        }
+      });
+    } else if (keyPattern) {
+      const sqlPattern = keyPattern.replace(/\*/g, '%').replace(/\?/g, '_');
+      const stmt = this.db.prepare(`
+        SELECT key, value, category, priority, channel 
+        FROM context_items 
+        WHERE session_id = ? AND key LIKE ?
+      `);
+
+      const foundItems = stmt.all(sessionId, sqlPattern) as any[];
+      items = foundItems.map(item => ({
+        ...item,
+        value: item.value.substring(0, 50) + (item.value.length > 50 ? '...' : ''),
+      }));
+    }
+
+    return items;
+  }
+
+  // Context Relationships Methods
+
+  createRelationship(params: {
+    sessionId: string;
+    sourceKey: string;
+    targetKey: string;
+    relationship: string;
+    metadata?: any;
+  }): { id: string; created: boolean; error?: string } {
+    const { sessionId, sourceKey, targetKey, relationship, metadata } = params;
+
+    // Validate relationship type
+    const validTypes = [
+      'contains',
+      'depends_on',
+      'references',
+      'implements',
+      'extends',
+      'related_to',
+      'blocks',
+      'blocked_by',
+      'parent_of',
+      'child_of',
+      'has_task',
+      'documented_in',
+      'serves',
+      'leads_to',
+    ];
+
+    if (!validTypes.includes(relationship)) {
+      return { id: '', created: false, error: `Invalid relationship type: ${relationship}` };
+    }
+
+    // Check if both items exist
+    const sourceExists = this.db
+      .prepare('SELECT 1 FROM context_items WHERE session_id = ? AND key = ?')
+      .get(sessionId, sourceKey);
+    const targetExists = this.db
+      .prepare('SELECT 1 FROM context_items WHERE session_id = ? AND key = ?')
+      .get(sessionId, targetKey);
+
+    if (!sourceExists || !targetExists) {
+      const missingKeys = [];
+      if (!sourceExists) missingKeys.push(sourceKey);
+      if (!targetExists) missingKeys.push(targetKey);
+      return {
+        id: '',
+        created: false,
+        error: `The following items do not exist: ${missingKeys.join(', ')}`,
+      };
+    }
+
+    try {
+      const relationshipId = require('uuid').v4();
+      const metadataStr = metadata ? JSON.stringify(metadata) : null;
+
+      this.db
+        .prepare(
+          `INSERT INTO context_relationships (id, session_id, from_key, to_key, relationship_type, metadata)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .run(relationshipId, sessionId, sourceKey, targetKey, relationship, metadataStr);
+
+      return { id: relationshipId, created: true };
+    } catch (error: any) {
+      if (error.message.includes('UNIQUE constraint failed')) {
+        return { id: '', created: false, error: 'Relationship already exists' };
+      }
+      throw error;
+    }
+  }
+
+  getRelatedItems(params: {
+    sessionId: string;
+    key: string;
+    relationship?: string;
+    depth?: number;
+    direction?: 'outgoing' | 'incoming' | 'both';
+  }): {
+    outgoing: any[];
+    incoming: any[];
+    graph?: any;
+  } {
+    const { sessionId, key, relationship, depth = 1, direction = 'both' } = params;
+
+    const result: { outgoing: any[]; incoming: any[]; graph?: any } = {
+      outgoing: [],
+      incoming: [],
+    };
+
+    // Get direct relationships
+    if (direction === 'outgoing' || direction === 'both') {
+      let outgoingSql = `
+        SELECT r.*, ci.value, ci.category, ci.priority
+        FROM context_relationships r
+        JOIN context_items ci ON ci.key = r.to_key AND ci.session_id = r.session_id
+        WHERE r.session_id = ? AND r.from_key = ?
+      `;
+      const outgoingParams: any[] = [sessionId, key];
+
+      if (relationship) {
+        outgoingSql += ' AND r.relationship_type = ?';
+        outgoingParams.push(relationship);
+      }
+
+      const outgoingRels = this.db.prepare(outgoingSql).all(...outgoingParams) as any[];
+      result.outgoing = outgoingRels.map(r => ({
+        key: r.to_key,
+        value: r.value,
+        category: r.category,
+        priority: r.priority,
+        relationshipType: r.relationship_type,
+        relationshipId: r.id,
+        metadata: r.metadata ? JSON.parse(r.metadata) : null,
+        direction: 'outgoing',
+      }));
+    }
+
+    if (direction === 'incoming' || direction === 'both') {
+      let incomingSql = `
+        SELECT r.*, ci.value, ci.category, ci.priority
+        FROM context_relationships r
+        JOIN context_items ci ON ci.key = r.from_key AND ci.session_id = r.session_id
+        WHERE r.session_id = ? AND r.to_key = ?
+      `;
+      const incomingParams: any[] = [sessionId, key];
+
+      if (relationship) {
+        incomingSql += ' AND r.relationship_type = ?';
+        incomingParams.push(relationship);
+      }
+
+      const incomingRels = this.db.prepare(incomingSql).all(...incomingParams) as any[];
+      result.incoming = incomingRels.map(r => ({
+        key: r.from_key,
+        value: r.value,
+        category: r.category,
+        priority: r.priority,
+        relationshipType: r.relationship_type,
+        relationshipId: r.id,
+        metadata: r.metadata ? JSON.parse(r.metadata) : null,
+        direction: 'incoming',
+      }));
+    }
+
+    // Handle depth traversal if depth > 1
+    if (depth > 1) {
+      const visited = new Set<string>();
+      const relationships: any[] = [];
+      const nodes = new Map<string, any>();
+
+      // Add the starting node
+      const startItem = this.db
+        .prepare('SELECT * FROM context_items WHERE session_id = ? AND key = ?')
+        .get(sessionId, key) as any;
+
+      if (startItem) {
+        nodes.set(key, {
+          id: key,
+          label: startItem.value,
+          type: startItem.category || 'default',
+        });
+      }
+
+      // Traverse function
+      const traverse = (currentKey: string, currentDepth: number, path: string[]) => {
+        if (currentDepth > depth || visited.has(currentKey)) return;
+        visited.add(currentKey);
+
+        // Get outgoing relationships
+        let sql = `
+          SELECT r.*, ci.value, ci.category
+          FROM context_relationships r
+          JOIN context_items ci ON ci.key = r.to_key AND ci.session_id = r.session_id
+          WHERE r.session_id = ? AND r.from_key = ?
+        `;
+        const params: any[] = [sessionId, currentKey];
+
+        if (relationship) {
+          sql += ' AND r.relationship_type = ?';
+          params.push(relationship);
+        }
+
+        const rels = this.db.prepare(sql).all(...params) as any[];
+
+        rels.forEach(rel => {
+          // Add node if not exists
+          if (!nodes.has(rel.to_key)) {
+            nodes.set(rel.to_key, {
+              id: rel.to_key,
+              label: rel.value,
+              type: rel.category || 'default',
+            });
+          }
+
+          // Add relationship
+          relationships.push({
+            path: [...path, currentKey],
+            from: currentKey,
+            to: rel.to_key,
+            type: rel.relationship_type,
+            metadata: rel.metadata ? JSON.parse(rel.metadata) : null,
+            depth: currentDepth,
+          });
+
+          // Detect cycles
+          if (path.includes(rel.to_key)) {
+            // Cycle detected, don't traverse deeper
+            return;
+          }
+
+          // Traverse deeper
+          traverse(rel.to_key, currentDepth + 1, [...path, currentKey]);
+        });
+
+        // Also get incoming relationships if direction is 'both'
+        if (direction === 'both') {
+          let inSql = `
+            SELECT r.*, ci.value, ci.category
+            FROM context_relationships r
+            JOIN context_items ci ON ci.key = r.from_key AND ci.session_id = r.session_id
+            WHERE r.session_id = ? AND r.to_key = ?
+          `;
+          const inParams: any[] = [sessionId, currentKey];
+
+          if (relationship) {
+            inSql += ' AND r.relationship_type = ?';
+            inParams.push(relationship);
+          }
+
+          const inRels = this.db.prepare(inSql).all(...inParams) as any[];
+
+          inRels.forEach(rel => {
+            if (!nodes.has(rel.from_key)) {
+              nodes.set(rel.from_key, {
+                id: rel.from_key,
+                label: rel.value,
+                type: rel.category || 'default',
+              });
+            }
+
+            relationships.push({
+              path: [...path, currentKey],
+              from: rel.from_key,
+              to: currentKey,
+              type: rel.relationship_type,
+              metadata: rel.metadata ? JSON.parse(rel.metadata) : null,
+              depth: currentDepth,
+            });
+
+            if (!path.includes(rel.from_key)) {
+              traverse(rel.from_key, currentDepth + 1, [...path, currentKey]);
+            }
+          });
+        }
+      };
+
+      traverse(key, 1, []);
+
+      // Build graph structure
+      result.graph = {
+        nodes: Array.from(nodes.values()),
+        edges: relationships.map(r => ({
+          from: r.from,
+          to: r.to,
+          type: r.type,
+          label: r.type.replace(/_/g, ' '),
+          metadata: r.metadata,
+        })),
+        relationships: relationships,
+      };
+    }
+
+    return result;
+  }
+
+  deleteRelationship(params: {
+    sessionId: string;
+    sourceKey: string;
+    targetKey: string;
+    relationship: string;
+  }): { deleted: boolean } {
+    const { sessionId, sourceKey, targetKey, relationship } = params;
+
+    const result = this.db
+      .prepare(
+        `DELETE FROM context_relationships 
+         WHERE session_id = ? AND from_key = ? AND to_key = ? AND relationship_type = ?`
+      )
+      .run(sessionId, sourceKey, targetKey, relationship);
+
+    return { deleted: result.changes > 0 };
+  }
+
+  deleteAllRelationshipsForItem(sessionId: string, key: string): { deletedCount: number } {
+    const result = this.db
+      .prepare(
+        `DELETE FROM context_relationships 
+         WHERE session_id = ? AND (from_key = ? OR to_key = ?)`
+      )
+      .run(sessionId, key, key);
+
+    return { deletedCount: result.changes };
+  }
+
+  getRelationshipStats(sessionId: string): any {
+    const totalRelationships = (
+      this.db
+        .prepare('SELECT COUNT(*) as count FROM context_relationships WHERE session_id = ?')
+        .get(sessionId) as any
+    ).count;
+
+    const byType = this.db
+      .prepare(
+        `SELECT relationship_type AS type, COUNT(*) as count 
+         FROM context_relationships 
+         WHERE session_id = ? 
+         GROUP BY relationship_type
+         ORDER BY count DESC`
+      )
+      .all(sessionId) as any[];
+
+    const mostConnected = this.db
+      .prepare(
+        `SELECT key, COUNT(*) as connection_count
+         FROM (
+           SELECT from_key as key FROM context_relationships WHERE session_id = ?
+           UNION ALL
+           SELECT to_key as key FROM context_relationships WHERE session_id = ?
+         )
+         GROUP BY key
+         ORDER BY connection_count DESC
+         LIMIT 10`
+      )
+      .all(sessionId, sessionId) as any[];
+
+    const orphanedItems = this.db
+      .prepare(
+        `SELECT key, value FROM context_items
+         WHERE session_id = ?
+         AND key NOT IN (
+           SELECT from_key FROM context_relationships WHERE session_id = ?
+           UNION
+           SELECT to_key FROM context_relationships WHERE session_id = ?
+         )
+         LIMIT 20`
+      )
+      .all(sessionId, sessionId, sessionId) as any[];
+
+    return {
+      totalRelationships,
+      byType,
+      mostConnected,
+      orphanedItems,
+    };
+  }
+
+  findCycles(sessionId: string): string[][] {
+    const cycles: string[][] = [];
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+
+    const detectCycle = (key: string, path: string[]): void => {
+      visited.add(key);
+      recursionStack.add(key);
+
+      const neighbors = this.db
+        .prepare('SELECT to_key FROM context_relationships WHERE session_id = ? AND from_key = ?')
+        .all(sessionId, key) as any[];
+
+      for (const neighbor of neighbors) {
+        if (recursionStack.has(neighbor.to_key)) {
+          // Found cycle
+          const cycleStart = path.indexOf(neighbor.to_key);
+          if (cycleStart !== -1) {
+            cycles.push([...path.slice(cycleStart), neighbor.to_key]);
+          } else {
+            // The cycle doesn't include the current path, which means we found the target node
+            // but it's not in our current path. This can happen when the cycle was entered
+            // from a different starting point.
+            cycles.push([neighbor.to_key, key, neighbor.to_key]);
+          }
+        } else if (!visited.has(neighbor.to_key)) {
+          detectCycle(neighbor.to_key, [...path, neighbor.to_key]);
+        }
+      }
+
+      recursionStack.delete(key);
+    };
+
+    // Get all unique keys that have relationships
+    const allKeys = this.db
+      .prepare(
+        `SELECT DISTINCT key FROM (
+           SELECT from_key as key FROM context_relationships WHERE session_id = ?
+           UNION
+           SELECT to_key as key FROM context_relationships WHERE session_id = ?
+         )`
+      )
+      .all(sessionId, sessionId) as any[];
+
+    allKeys.forEach(item => {
+      if (!visited.has(item.key)) {
+        detectCycle(item.key, [item.key]);
+      }
+    });
+
+    return cycles;
   }
 }

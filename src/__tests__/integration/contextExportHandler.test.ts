@@ -88,7 +88,8 @@ describe('Enhanced context_export Handler Tests', () => {
     };
 
     if (format === 'json') {
-      const exportPath = path.resolve(
+      const exportPath = path.join(
+        os.tmpdir(),
         `memory-keeper-export-${targetSessionId.substring(0, 8)}.json`
       );
 
@@ -179,9 +180,17 @@ Files: ${stats.files}`,
       fs.unlinkSync(`${tempDbPath}-wal`);
       fs.unlinkSync(`${tempDbPath}-shm`);
       fs.rmSync(tempExportPath, { recursive: true, force: true });
-      // Clean up any export files
-      const exportFiles = fs.readdirSync('.').filter(f => f.startsWith('memory-keeper-export-'));
-      exportFiles.forEach(f => fs.unlinkSync(f));
+      // Clean up any export files from temp directory
+      const tempFiles = fs
+        .readdirSync(os.tmpdir())
+        .filter(f => f.startsWith('memory-keeper-export-'));
+      tempFiles.forEach(f => {
+        try {
+          fs.unlinkSync(path.join(os.tmpdir(), f));
+        } catch (_e) {
+          // Ignore
+        }
+      });
     } catch (_e) {
       // Ignore
     }
@@ -431,7 +440,8 @@ Files: ${stats.files}`,
           throw new Error(`Session not found: ${targetSessionId}`);
         }
 
-        const exportPath = path.resolve(
+        const exportPath = path.join(
+          os.tmpdir(),
           `memory-keeper-export-${targetSessionId.substring(0, 8)}.json`
         );
         const error: any = new Error('EACCES: permission denied');

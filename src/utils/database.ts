@@ -223,6 +223,23 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_journal_session ON journal_entries(session_id);
       CREATE INDEX IF NOT EXISTS idx_journal_created ON journal_entries(created_at);
 
+      -- Context Relationships table
+      CREATE TABLE IF NOT EXISTS context_relationships (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        from_key TEXT NOT NULL,
+        to_key TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        metadata TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        UNIQUE(session_id, from_key, to_key, relationship_type)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_relationships_from ON context_relationships(session_id, from_key);
+      CREATE INDEX IF NOT EXISTS idx_relationships_to ON context_relationships(session_id, to_key);
+      CREATE INDEX IF NOT EXISTS idx_relationships_type ON context_relationships(relationship_type);
+
       -- Compaction history table (Phase 4.4)
       CREATE TABLE IF NOT EXISTS compaction_history (
         id TEXT PRIMARY KEY,
