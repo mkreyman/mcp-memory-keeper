@@ -26,6 +26,7 @@ Claude Code users often face context loss when the conversation window fills up.
 - 🤖 Smart compaction helper that never loses critical info
 - 🔍 Full-text search across all saved context
 - 🕐 **Enhanced filtering** - Time-based queries, regex patterns, pagination
+- 📊 **Change tracking** - See what's been added, modified, or deleted since any point
 - 💾 Export/import for backup and sharing
 - 🌿 Git integration with automatic context correlation
 - 📊 AI-friendly summarization with priority awareness

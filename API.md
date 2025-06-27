@@ -420,6 +420,74 @@ await context_search({
 });
 ```
 
+### context_diff
+
+Track changes to context items since a specific point in time. Useful for understanding what has been added, modified, or deleted.
+
+**Parameters:**
+```typescript
+{
+  since: string;           // Required: ISO timestamp, checkpoint name/ID, or relative time (e.g., "2 hours ago")
+  sessionId?: string;      // Session to analyze (default: current)
+  category?: string;       // Filter by category
+  channel?: string;        // Filter by single channel
+  channels?: string[];     // Filter by multiple channels
+  includeValues?: boolean; // Include full item values (default: true)
+  limit?: number;          // Maximum items per category
+  offset?: number;         // Pagination offset
+}
+```
+
+**Returns:**
+```typescript
+{
+  added: Array<{
+    key: string;
+    value?: string;        // if includeValues is true
+    category?: string;
+    priority: string;
+    channel: string;
+    created_at: string;
+  }>;
+  modified: Array<{
+    key: string;
+    value?: string;        // if includeValues is true
+    category?: string;
+    priority: string;
+    channel: string;
+    updated_at: string;
+  }>;
+  deleted: string[];       // Array of deleted keys (only available with checkpoint comparison)
+  summary: string;         // e.g., "5 added, 3 modified, 2 deleted"
+  period: {
+    from: string;          // ISO timestamp
+    to: string;            // ISO timestamp (current time)
+  };
+}
+```
+
+**Examples:**
+```typescript
+// Compare with checkpoint
+await context_diff({ since: "my-checkpoint" });
+
+// Compare with timestamp
+await context_diff({ since: "2024-01-01T00:00:00Z" });
+
+// Compare with relative time
+await context_diff({ 
+  since: "2 hours ago",
+  channel: "feature-branch"
+});
+
+// Get summary without values
+await context_diff({
+  since: "yesterday",
+  includeValues: false,
+  category: "task"
+});
+```
+
 ### context_summarize
 
 Generate AI-friendly summary of context.
