@@ -20,16 +20,7 @@ describe('Context Watch Actual Implementation Tests', () => {
       walMode: true,
     });
 
-    // Apply the context watch migration
-    const db = dbManager.getDatabase();
-
-    // Import and run the migration
-    const migration004 = await import('../../migrations/004_add_context_watch');
-    migration004.up(db);
-
-    const migration005 = await import('../../migrations/005_add_context_watch');
-    migration005.up(db);
-
+    // Note: Watcher migrations are now automatically applied by DatabaseManager
     repositories = new RepositoryManager(dbManager);
 
     // Create test session

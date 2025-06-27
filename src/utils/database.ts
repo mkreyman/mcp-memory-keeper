@@ -47,6 +47,9 @@ export class DatabaseManager {
     // Create tables (will use CREATE TABLE IF NOT EXISTS, so safe to run after migrations)
     this.createTables();
 
+    // Apply watcher migrations if needed
+    this.applyWatcherMigrations();
+
     // Set up maintenance triggers
     this.setupMaintenanceTriggers();
   }
@@ -527,5 +530,276 @@ export class DatabaseManager {
     }
 
     return deletedCount;
+  }
+
+  private applyWatcherMigrations(): void {
+    try {
+      // Check if watcher tables are missing using the needsMigration logic
+      const result = this.db
+        .prepare(
+          `
+        SELECT COUNT(*) as count FROM sqlite_master 
+        WHERE type='table' AND name IN ('context_changes', 'context_watchers')
+      `
+        )
+        .get() as any;
+
+      const needsMigration = result.count < 2;
+
+      if (needsMigration) {
+        console.log('Applying watcher migrations...');
+        
+        // Apply migration 004 - context watch functionality
+        this.db.transaction(() => {
+          // Create change tracking table
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS context_changes (
+              sequence_id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              item_id TEXT NOT NULL,
+              key TEXT NOT NULL,
+              operation TEXT NOT NULL CHECK (operation IN ('CREATE', 'UPDATE', 'DELETE')),
+              old_value TEXT,
+              new_value TEXT,
+              old_metadata TEXT,
+              new_metadata TEXT,
+              category TEXT,
+              priority TEXT,
+              channel TEXT,
+              size_delta INTEGER DEFAULT 0,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              created_by TEXT,
+              FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+          `);
+
+          // Create watchers registry table
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS context_watchers (
+              id TEXT PRIMARY KEY,
+              session_id TEXT,
+              filter_keys TEXT,
+              filter_categories TEXT,
+              filter_channels TEXT,
+              filter_priorities TEXT,
+              last_sequence INTEGER DEFAULT 0,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              last_poll_at TIMESTAMP,
+              expires_at TIMESTAMP,
+              metadata TEXT,
+              FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+          `);
+
+          // Create indexes for performance
+          this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_changes_sequence ON context_changes(sequence_id);
+            CREATE INDEX IF NOT EXISTS idx_changes_session_seq ON context_changes(session_id, sequence_id);
+            CREATE INDEX IF NOT EXISTS idx_changes_created ON context_changes(created_at);
+            CREATE INDEX IF NOT EXISTS idx_watchers_expires ON context_watchers(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_watchers_session ON context_watchers(session_id);
+          `);
+
+          // Create triggers for change tracking
+          this.db.exec(`
+            -- Trigger for INSERT operations on context_items
+            CREATE TRIGGER IF NOT EXISTS track_context_insert
+            AFTER INSERT ON context_items
+            BEGIN
+              INSERT INTO context_changes (
+                session_id, item_id, key, operation, 
+                new_value, new_metadata, category, priority, channel,
+                size_delta, created_by
+              ) VALUES (
+                NEW.session_id, NEW.id, NEW.key, 'CREATE',
+                NEW.value, NEW.metadata, NEW.category, NEW.priority, NEW.channel,
+                NEW.size, 'context_save'
+              );
+            END;
+
+            -- Trigger for UPDATE operations on context_items
+            CREATE TRIGGER IF NOT EXISTS track_context_update
+            AFTER UPDATE ON context_items
+            WHEN OLD.value != NEW.value OR 
+                 IFNULL(OLD.metadata, '') != IFNULL(NEW.metadata, '') OR 
+                 IFNULL(OLD.category, '') != IFNULL(NEW.category, '') OR
+                 IFNULL(OLD.priority, '') != IFNULL(NEW.priority, '') OR
+                 IFNULL(OLD.channel, '') != IFNULL(NEW.channel, '')
+            BEGIN
+              INSERT INTO context_changes (
+                session_id, item_id, key, operation,
+                old_value, new_value, old_metadata, new_metadata,
+                category, priority, channel, size_delta, created_by
+              ) VALUES (
+                NEW.session_id, NEW.id, NEW.key, 'UPDATE',
+                OLD.value, NEW.value, OLD.metadata, NEW.metadata,
+                NEW.category, NEW.priority, NEW.channel,
+                NEW.size - OLD.size, 'context_save'
+              );
+            END;
+
+            -- Trigger for DELETE operations on context_items
+            CREATE TRIGGER IF NOT EXISTS track_context_delete
+            AFTER DELETE ON context_items
+            BEGIN
+              INSERT INTO context_changes (
+                session_id, item_id, key, operation,
+                old_value, old_metadata, category, priority, channel,
+                size_delta, created_by
+              ) VALUES (
+                OLD.session_id, OLD.id, OLD.key, 'DELETE',
+                OLD.value, OLD.metadata, OLD.category, OLD.priority, OLD.channel,
+                -OLD.size, 'context_delete'
+              );
+            END;
+          `);
+        })();
+
+        // Apply migration 005 - additional watcher functionality
+        this.db.transaction(() => {
+          // Add is_active column to context_watchers if not exists
+          const watchers_columns = this.db.prepare('PRAGMA table_info(context_watchers)').all() as any[];
+          if (!watchers_columns.some((col: any) => col.name === 'is_active')) {
+            this.db.exec('ALTER TABLE context_watchers ADD COLUMN is_active INTEGER DEFAULT 1');
+            this.db.exec('CREATE INDEX IF NOT EXISTS idx_watchers_active ON context_watchers(is_active)');
+          }
+
+          // Add sequence_number column to context_items if not exists
+          const columns = this.db.prepare('PRAGMA table_info(context_items)').all() as any[];
+          if (!columns.some((col: any) => col.name === 'sequence_number')) {
+            this.db.exec('ALTER TABLE context_items ADD COLUMN sequence_number INTEGER DEFAULT 0');
+
+            // Update existing rows with sequence numbers
+            this.db.exec(`
+              UPDATE context_items 
+              SET sequence_number = (
+                SELECT COUNT(*) 
+                FROM context_items c2 
+                WHERE c2.session_id = context_items.session_id 
+                AND c2.created_at <= context_items.created_at
+              )
+              WHERE sequence_number = 0
+            `);
+
+            // Create trigger to auto-increment sequence numbers for new inserts
+            this.db.exec(`
+              CREATE TRIGGER IF NOT EXISTS increment_sequence_insert
+              AFTER INSERT ON context_items
+              FOR EACH ROW
+              WHEN NEW.sequence_number = 0
+              BEGIN
+                UPDATE context_items 
+                SET sequence_number = (
+                  SELECT COALESCE(MAX(sequence_number), 0) + 1 
+                  FROM context_items 
+                  WHERE session_id = NEW.session_id
+                )
+                WHERE id = NEW.id;
+              END
+            `);
+
+            // Create trigger to update sequence numbers on updates
+            this.db.exec(`
+              CREATE TRIGGER IF NOT EXISTS increment_sequence_update
+              AFTER UPDATE OF value, metadata, category, priority, channel ON context_items
+              FOR EACH ROW
+              WHEN OLD.value != NEW.value OR 
+                   IFNULL(OLD.metadata, '') != IFNULL(NEW.metadata, '') OR 
+                   IFNULL(OLD.category, '') != IFNULL(NEW.category, '') OR
+                   IFNULL(OLD.priority, '') != IFNULL(NEW.priority, '') OR
+                   IFNULL(OLD.channel, '') != IFNULL(NEW.channel, '')
+              BEGIN
+                UPDATE context_items 
+                SET sequence_number = (
+                  SELECT COALESCE(MAX(sequence_number), 0) + 1 
+                  FROM context_items 
+                  WHERE session_id = NEW.session_id
+                )
+                WHERE id = NEW.id;
+              END
+            `);
+          }
+
+          // Create table for tracking deleted items (needed for tests)
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS deleted_items (
+              id TEXT PRIMARY KEY,
+              session_id TEXT NOT NULL,
+              key TEXT NOT NULL,
+              category TEXT,
+              channel TEXT,
+              sequence_number INTEGER NOT NULL,
+              deleted_at TEXT DEFAULT (datetime('now')),
+              FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+          `);
+
+          this.db.exec('CREATE INDEX IF NOT EXISTS idx_deleted_items_session ON deleted_items(session_id)');
+          this.db.exec('CREATE INDEX IF NOT EXISTS idx_deleted_items_key ON deleted_items(key)');
+        })();
+
+        // Record migrations in the migrations table for tracking
+        try {
+          // Check if migrations table exists
+          const migrationTableExists = this.db
+            .prepare(
+              `SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='migrations'`
+            )
+            .get() as any;
+
+          if (migrationTableExists.count > 0) {
+            // Record migration 004
+            const migration004Exists = this.db
+              .prepare('SELECT COUNT(*) as count FROM migrations WHERE version = ?')
+              .get('0.4.0') as any;
+            
+            if (migration004Exists.count === 0) {
+              this.db
+                .prepare(
+                  `INSERT INTO migrations (id, version, name, description, up_sql, applied_at) 
+                   VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+                )
+                .run(
+                  '004_add_context_watch',
+                  '0.4.0',
+                  '004_add_context_watch',
+                  'Add context watch functionality with change tracking',
+                  'See migration file for full SQL'
+                );
+            }
+
+            // Record migration 005
+            const migration005Exists = this.db
+              .prepare('SELECT COUNT(*) as count FROM migrations WHERE version = ?')
+              .get('0.5.0') as any;
+            
+            if (migration005Exists.count === 0) {
+              this.db
+                .prepare(
+                  `INSERT INTO migrations (id, version, name, description, up_sql, applied_at) 
+                   VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+                )
+                .run(
+                  '005_add_context_watch',
+                  '0.5.0',
+                  '005_add_context_watch',
+                  'Add missing context watch functionality',
+                  'See migration file for full SQL'
+                );
+            }
+          }
+        } catch (error) {
+          console.warn('Could not record migrations in tracking table:', error);
+        }
+
+        console.log('Watcher migrations applied successfully');
+      } else {
+        console.log('Watcher migrations already applied, skipping.');
+      }
+    } catch (error) {
+      console.error('Failed to apply watcher migrations:', error);
+      // For production, we should fail here since watcher functionality is critical
+      throw new Error(`Critical error: Watcher migrations failed - ${error}`);
+    }
   }
 }

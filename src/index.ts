@@ -48,8 +48,8 @@ const _retentionManager = new RetentionManager(dbManager);
 // Initialize feature flag manager
 const _featureFlagManager = new FeatureFlagManager(dbManager);
 
-// Initialize migration manager
-const _migrationManager = new MigrationManager(dbManager);
+// Initialize migration manager (watcher migrations are now applied by DatabaseManager)
+const migrationManager = new MigrationManager(dbManager);
 
 // Tables are now created by DatabaseManager in utils/database.ts
 
