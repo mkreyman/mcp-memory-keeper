@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { DatabaseManager } from './utils/database.js';
 import { KnowledgeGraphManager } from './utils/knowledge-graph.js';
 import { VectorStore } from './utils/vector-store.js';
@@ -81,6 +82,33 @@ function calculateFileHash(content: string): string {
 // Helper to calculate byte size of string
 function calculateSize(value: string): number {
   return Buffer.byteLength(value, 'utf8');
+}
+
+// Helper to estimate token count from text
+// Rough estimate: 1 token ≈ 4 characters
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+// Helper to calculate total response size and token estimate
+function calculateResponseMetrics(items: any[]): {
+  totalSize: number;
+  estimatedTokens: number;
+  averageSize: number;
+} {
+  let totalSize = 0;
+
+  for (const item of items) {
+    const itemSize = item.size || calculateSize(item.value);
+    totalSize += itemSize;
+  }
+
+  // Convert to JSON string to get actual response size
+  const jsonString = JSON.stringify(items);
+  const estimatedTokens = estimateTokens(jsonString);
+  const averageSize = items.length > 0 ? Math.round(totalSize / items.length) : 0;
+
+  return { totalSize, estimatedTokens, averageSize };
 }
 
 // Helper to parse relative time strings
@@ -550,17 +578,20 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
-      // Use new enhanced query for complex queries
+      // Use enhanced query for complex queries or when we need pagination
+      // This ensures default pagination is applied when needed
       if (
-        sort ||
-        limit ||
+        sort !== undefined ||
+        limit !== undefined ||
         offset ||
         createdAfter ||
         createdBefore ||
         keyPattern ||
         priorities ||
         channel ||
-        channels
+        channels ||
+        includeMetadata ||
+        (!key && !category) // If listing all items without filters, use pagination
       ) {
         const result = repositories.contexts.queryEnhanced({
           sessionId: targetSessionId,
@@ -589,6 +620,28 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           };
         }
 
+        // Calculate response metrics
+        const metrics = calculateResponseMetrics(result.items);
+        const TOKEN_LIMIT = 20000; // Conservative limit to stay well under MCP's 25k limit
+
+        // Check if we're approaching token limits
+        const isApproachingLimit = metrics.estimatedTokens > TOKEN_LIMIT;
+
+        // Calculate pagination metadata
+        const effectiveLimit = limit === undefined ? 100 : limit; // Default limit applied
+        const effectiveOffset = offset || 0;
+        const currentPage =
+          effectiveLimit > 0 ? Math.floor(effectiveOffset / effectiveLimit) + 1 : 1;
+        const totalPages = effectiveLimit > 0 ? Math.ceil(result.totalCount / effectiveLimit) : 1;
+        const hasNextPage = currentPage < totalPages;
+        const hasPreviousPage = currentPage > 1;
+
+        // Track whether defaults were applied
+        const defaultsApplied = {
+          limit: limit === undefined,
+          sort: sort === undefined,
+        };
+
         // Enhanced response format
         if (includeMetadata) {
           const itemsWithMetadata = result.items.map(item => ({
@@ -603,31 +656,71 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             updated_at: item.updated_at,
           }));
 
+          const response: any = {
+            items: itemsWithMetadata,
+            pagination: {
+              total: result.totalCount,
+              returned: result.items.length,
+              offset: effectiveOffset,
+              hasMore: hasNextPage,
+              nextOffset: hasNextPage ? effectiveOffset + effectiveLimit : null,
+              // Extended pagination metadata
+              totalCount: result.totalCount,
+              page: currentPage,
+              pageSize: effectiveLimit,
+              totalPages: totalPages,
+              hasNextPage: hasNextPage,
+              hasPreviousPage: hasPreviousPage,
+              previousOffset: hasPreviousPage
+                ? Math.max(0, effectiveOffset - effectiveLimit)
+                : null,
+              // Size information
+              totalSize: metrics.totalSize,
+              averageSize: metrics.averageSize,
+              // Defaults applied
+              defaultsApplied: defaultsApplied,
+            },
+          };
+
+          // Add warning if approaching token limits
+          if (isApproachingLimit) {
+            response.pagination.warning =
+              'Large result set. Consider using smaller limit or more specific filters.';
+          }
+
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify(
-                  {
-                    items: itemsWithMetadata,
-                    totalCount: result.totalCount,
-                    page: offset && limit ? Math.floor(offset / limit) + 1 : 1,
-                    pageSize: limit || result.items.length,
-                  },
-                  null,
-                  2
-                ),
+                text: JSON.stringify(response, null, 2),
               },
             ],
           };
         }
 
-        // Return items array for backward compatibility when using enhanced features
+        // Return enhanced format for all queries to support pagination
+        const response: any = {
+          items: result.items,
+          pagination: {
+            total: result.totalCount,
+            returned: result.items.length,
+            offset: effectiveOffset,
+            hasMore: hasNextPage,
+            nextOffset: hasNextPage ? effectiveOffset + effectiveLimit : null,
+          },
+        };
+
+        // Add warning if approaching token limits
+        if (isApproachingLimit) {
+          response.pagination.warning =
+            'Large result set. Consider using smaller limit or more specific filters.';
+        }
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(result.items),
+              text: JSON.stringify(response, null, 2),
             },
           ],
         };
@@ -1420,7 +1513,8 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
       };
 
       if (format === 'json') {
-        const exportPath = path.resolve(
+        const exportPath = path.join(
+          os.tmpdir(),
           `memory-keeper-export-${targetSessionId.substring(0, 8)}.json`
         );
 
@@ -2927,6 +3021,639 @@ Event ID: ${id.substring(0, 8)}`,
       return await handleContextWatch(args, repositories, ensureSession());
     }
 
+    // Context Reassign Channel
+    case 'context_reassign_channel': {
+      const {
+        keys,
+        keyPattern,
+        fromChannel,
+        toChannel,
+        sessionId,
+        category,
+        priorities,
+        dryRun = false,
+      } = args;
+
+      try {
+        // Validate input
+        if (!toChannel || !toChannel.trim()) {
+          throw new Error('Target channel name cannot be empty');
+        }
+
+        if (!keys && !keyPattern && !fromChannel) {
+          throw new Error('Must provide either keys array, keyPattern, or fromChannel');
+        }
+
+        if (fromChannel && fromChannel === toChannel) {
+          throw new Error('Source and destination channels cannot be the same');
+        }
+
+        const targetSessionId = sessionId || ensureSession();
+
+        // Call repository method
+        const result = await repositories.contexts.reassignChannel({
+          keys,
+          keyPattern,
+          fromChannel,
+          toChannel,
+          sessionId: targetSessionId,
+          category,
+          priorities,
+          dryRun,
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to reassign channel: ${error.message}`,
+            },
+          ],
+        };
+      }
+    }
+
+    // Batch Operations
+    case 'context_batch_save': {
+      const { items, updateExisting = true } = args;
+      const sessionId = ensureSession();
+
+      // Validate items
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'No items provided for batch save',
+            },
+          ],
+        };
+      }
+
+      // Enforce batch size limit
+      const maxBatchSize = 100;
+      if (items.length > maxBatchSize) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Batch size ${items.length} exceeds maximum allowed size of ${maxBatchSize}`,
+            },
+          ],
+        };
+      }
+
+      // Validate items
+      const validationErrors: any[] = [];
+      items.forEach((item, index) => {
+        try {
+          // Validate item
+          if (!item.key || !item.key.trim()) {
+            throw new Error('Key is required and cannot be empty');
+          }
+          if (!item.value) {
+            throw new Error('Value is required');
+          }
+
+          // Validate category
+          if (item.category) {
+            const validCategories = ['task', 'decision', 'progress', 'note', 'error', 'warning'];
+            if (!validCategories.includes(item.category)) {
+              throw new Error(`Invalid category: ${item.category}`);
+            }
+          }
+
+          // Validate priority
+          if (item.priority) {
+            const validPriorities = ['high', 'normal', 'low'];
+            if (!validPriorities.includes(item.priority)) {
+              throw new Error(`Invalid priority: ${item.priority}`);
+            }
+          }
+        } catch (error: any) {
+          validationErrors.push({
+            index,
+            key: item.key || 'undefined',
+            error: error.message,
+          });
+        }
+      });
+
+      // If all items have validation errors, return early
+      if (validationErrors.length === items.length) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  operation: 'batch_save',
+                  totalItems: items.length,
+                  succeeded: 0,
+                  failed: validationErrors.length,
+                  totalSize: 0,
+                  results: [],
+                  errors: validationErrors,
+                  timestamp: new Date().toISOString(),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      let results: any[] = [];
+      let errors: any[] = [];
+      let totalSize = 0;
+
+      // Begin transaction
+      db.prepare('BEGIN TRANSACTION').run();
+
+      try {
+        // Use repository method
+        const batchResult = repositories.contexts.batchSave(sessionId, items, { updateExisting });
+        totalSize = batchResult.totalSize;
+
+        // Merge validation errors with operation results
+        const allResults = batchResult.results.filter(r => r.success);
+        const allErrors = [
+          ...validationErrors,
+          ...batchResult.results
+            .filter(r => !r.success)
+            .map(r => ({
+              index: r.index,
+              key: r.key,
+              error: r.error,
+            })),
+        ];
+
+        // Commit transaction
+        db.prepare('COMMIT').run();
+
+        // Create embeddings for successful saves (async, don't wait)
+        allResults.forEach(async result => {
+          if (result.success && result.action === 'created') {
+            try {
+              const item = items[result.index];
+              const content = `${item.key}: ${item.value}`;
+              const metadata = { key: item.key, category: item.category, priority: item.priority };
+              await vectorStore.storeDocument(result.id!, content, metadata);
+            } catch (error) {
+              // Log but don't fail
+              console.error('Failed to create embedding:', error);
+            }
+          }
+        });
+
+        results = allResults;
+        errors = allErrors;
+      } catch (error) {
+        // Rollback transaction
+        db.prepare('ROLLBACK').run();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Batch save failed: ${(error as Error).message}`,
+            },
+          ],
+        };
+      }
+
+      // Prepare response
+      const response = {
+        operation: 'batch_save',
+        totalItems: items.length,
+        succeeded: results.length,
+        failed: errors.length,
+        totalSize: totalSize,
+        averageSize: results.length > 0 ? Math.round(totalSize / results.length) : 0,
+        results: results,
+        errors: errors,
+        timestamp: new Date().toISOString(),
+      };
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response, null, 2),
+          },
+        ],
+      };
+    }
+
+    case 'context_batch_delete': {
+      const { keys, keyPattern, sessionId: specificSessionId, dryRun = false } = args;
+      const targetSessionId = specificSessionId || currentSessionId || ensureSession();
+
+      // Validate input
+      if (!keys && !keyPattern) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Either keys array or keyPattern must be provided',
+            },
+          ],
+        };
+      }
+
+      if (keys && (!Array.isArray(keys) || keys.length === 0)) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Keys must be a non-empty array',
+            },
+          ],
+        };
+      }
+
+      let results: any[] = [];
+      let totalDeleted = 0;
+
+      try {
+        if (dryRun) {
+          // Dry run - just show what would be deleted
+          const itemsToDelete = repositories.contexts.getDryRunItems(targetSessionId, {
+            keys,
+            keyPattern,
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    operation: 'batch_delete',
+                    dryRun: true,
+                    keys: keys,
+                    pattern: keyPattern,
+                    itemsToDelete: itemsToDelete,
+                    totalItems: itemsToDelete.length,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        // Actual deletion
+        db.prepare('BEGIN TRANSACTION').run();
+
+        const deleteResult = repositories.contexts.batchDelete(targetSessionId, {
+          keys,
+          keyPattern,
+        });
+        results = deleteResult.results || [];
+        totalDeleted = deleteResult.totalDeleted;
+
+        db.prepare('COMMIT').run();
+      } catch (error) {
+        db.prepare('ROLLBACK').run();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Batch delete failed: ${(error as Error).message}`,
+            },
+          ],
+        };
+      }
+
+      // Prepare response
+      const response = keys
+        ? {
+            operation: 'batch_delete',
+            keys: keys,
+            totalRequested: keys.length,
+            totalDeleted: totalDeleted,
+            notFound: results.filter(r => !r.deleted).map(r => r.key),
+            results: results,
+          }
+        : {
+            operation: 'batch_delete',
+            pattern: keyPattern,
+            totalDeleted: totalDeleted,
+          };
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response, null, 2),
+          },
+        ],
+      };
+    }
+
+    case 'context_batch_update': {
+      const { updates, sessionId: specificSessionId } = args;
+      const targetSessionId = specificSessionId || currentSessionId || ensureSession();
+
+      // Validate input
+      if (!updates || !Array.isArray(updates) || updates.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Updates array must be provided and non-empty',
+            },
+          ],
+        };
+      }
+
+      // Validate updates
+      const validationErrors: any[] = [];
+      updates.forEach((update, index) => {
+        try {
+          // Validate update
+          if (!update.key || !update.key.trim()) {
+            throw new Error('Key is required and cannot be empty');
+          }
+
+          // Check if any updates are provided
+          const hasUpdates =
+            update.value !== undefined ||
+            update.category !== undefined ||
+            update.priority !== undefined ||
+            update.channel !== undefined;
+
+          if (!hasUpdates) {
+            throw new Error('No updates provided');
+          }
+
+          // Validate fields if provided
+          if (update.category !== undefined) {
+            const validCategories = ['task', 'decision', 'progress', 'note', 'error', 'warning'];
+            if (!validCategories.includes(update.category)) {
+              throw new Error(`Invalid category: ${update.category}`);
+            }
+          }
+
+          if (update.priority !== undefined) {
+            const validPriorities = ['high', 'normal', 'low'];
+            if (!validPriorities.includes(update.priority)) {
+              throw new Error(`Invalid priority: ${update.priority}`);
+            }
+          }
+
+          if (update.value !== undefined && update.value === '') {
+            throw new Error('Value cannot be empty');
+          }
+        } catch (error: any) {
+          validationErrors.push({
+            index,
+            key: update.key || 'undefined',
+            error: error.message,
+          });
+        }
+      });
+
+      // If all updates have validation errors, return early
+      if (validationErrors.length === updates.length) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  operation: 'batch_update',
+                  totalItems: updates.length,
+                  succeeded: 0,
+                  failed: validationErrors.length,
+                  results: [],
+                  errors: validationErrors,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      let results: any[] = [];
+      let errors: any[] = [];
+
+      // Begin transaction
+      db.prepare('BEGIN TRANSACTION').run();
+
+      try {
+        // Use repository method
+        const updateResult = repositories.contexts.batchUpdate(targetSessionId, updates);
+
+        // Merge validation errors with operation results
+        results = updateResult.results.filter(r => r.updated);
+        errors = [
+          ...validationErrors,
+          ...updateResult.results
+            .filter(r => !r.updated)
+            .map(r => ({
+              index: r.index,
+              key: r.key,
+              error: r.error,
+            })),
+        ];
+
+        // Commit transaction
+        db.prepare('COMMIT').run();
+      } catch (error) {
+        // Rollback transaction
+        db.prepare('ROLLBACK').run();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Batch update failed: ${(error as Error).message}`,
+            },
+          ],
+        };
+      }
+
+      // Prepare response
+      const response = {
+        operation: 'batch_update',
+        totalItems: updates.length,
+        succeeded: results.length,
+        failed: errors.length,
+        results: results,
+        errors: errors,
+      };
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response, null, 2),
+          },
+        ],
+      };
+    }
+
+    // Context Relationships
+    case 'context_link': {
+      const { sourceKey, targetKey, relationship, metadata } = args;
+      const sessionId = currentSessionId || ensureSession();
+
+      // Validate inputs
+      if (!sourceKey || !sourceKey.trim()) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: sourceKey cannot be empty',
+            },
+          ],
+        };
+      }
+
+      if (!targetKey || !targetKey.trim()) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: targetKey cannot be empty',
+            },
+          ],
+        };
+      }
+
+      if (!relationship || !relationship.trim()) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: relationship cannot be empty',
+            },
+          ],
+        };
+      }
+
+      // Create relationship
+      const result = repositories.contexts.createRelationship({
+        sessionId,
+        sourceKey,
+        targetKey,
+        relationship,
+        metadata,
+      });
+
+      if (!result.created) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: ${result.error}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                operation: 'context_link',
+                relationshipId: result.id,
+                sourceKey,
+                targetKey,
+                relationship,
+                metadata,
+                created: true,
+                timestamp: new Date().toISOString(),
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    case 'context_get_related': {
+      const { key, relationship, depth = 1, direction = 'both' } = args;
+      const sessionId = currentSessionId || ensureSession();
+
+      if (!key || !key.trim()) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: key cannot be empty',
+            },
+          ],
+        };
+      }
+
+      // Get related items
+      const result = repositories.contexts.getRelatedItems({
+        sessionId,
+        key,
+        relationship,
+        depth,
+        direction,
+      });
+
+      const totalRelated = result.outgoing.length + result.incoming.length;
+
+      // Prepare response
+      let response: any = {
+        operation: 'context_get_related',
+        key,
+        related: {
+          outgoing: result.outgoing,
+          incoming: result.incoming,
+        },
+        totalRelated,
+      };
+
+      // Add graph data if depth > 1
+      if (depth > 1 && result.graph) {
+        response.visualization = {
+          format: 'graph',
+          nodes: result.graph.nodes,
+          edges: result.graph.edges,
+        };
+        response.summary = {
+          totalNodes: result.graph.nodes.length,
+          totalEdges: result.graph.edges.length,
+          relationshipTypes: [...new Set(result.graph.edges.map((e: any) => e.type))],
+        };
+      }
+
+      // Add message if no relationships found
+      if (totalRelated === 0) {
+        response.message = 'No relationships found for this item';
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response, null, 2),
+          },
+        ],
+      };
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -3816,6 +4543,240 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['action'],
+        },
+      },
+      // Context Reassign Channel
+      {
+        name: 'context_reassign_channel',
+        description:
+          'Move context items between channels based on keys, patterns, or entire channel',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            keys: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Specific keys to reassign',
+            },
+            keyPattern: {
+              type: 'string',
+              description: 'Pattern to match keys (supports wildcards: *, ?)',
+            },
+            fromChannel: {
+              type: 'string',
+              description: 'Source channel to move all items from',
+            },
+            toChannel: {
+              type: 'string',
+              description: 'Target channel to move items to',
+            },
+            sessionId: {
+              type: 'string',
+              description: 'Session ID (defaults to current)',
+            },
+            category: {
+              type: 'string',
+              enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+              description: 'Filter by category',
+            },
+            priorities: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['high', 'normal', 'low'],
+              },
+              description: 'Filter by priority levels',
+            },
+            dryRun: {
+              type: 'boolean',
+              description: 'Preview changes without applying them',
+              default: false,
+            },
+          },
+          required: ['toChannel'],
+        },
+      },
+      // Batch Operations
+      {
+        name: 'context_batch_save',
+        description: 'Save multiple context items in a single atomic operation',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            items: {
+              type: 'array',
+              description: 'Array of items to save',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string', description: 'Unique key for the context item' },
+                  value: { type: 'string', description: 'Context value to save' },
+                  category: {
+                    type: 'string',
+                    description: 'Category (e.g., task, decision, progress)',
+                    enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+                  },
+                  priority: {
+                    type: 'string',
+                    description: 'Priority level',
+                    enum: ['high', 'normal', 'low'],
+                  },
+                  channel: {
+                    type: 'string',
+                    description: 'Channel to organize this item',
+                  },
+                },
+                required: ['key', 'value'],
+              },
+            },
+            updateExisting: {
+              type: 'boolean',
+              description: 'Update existing items with same key (default: true)',
+              default: true,
+            },
+          },
+          required: ['items'],
+        },
+      },
+      {
+        name: 'context_batch_delete',
+        description:
+          'Delete multiple context items by keys or pattern in a single atomic operation',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            keys: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Array of specific keys to delete',
+            },
+            keyPattern: {
+              type: 'string',
+              description: 'Pattern to match keys for deletion (supports wildcards: *, ?)',
+            },
+            sessionId: {
+              type: 'string',
+              description: 'Session ID (defaults to current)',
+            },
+            dryRun: {
+              type: 'boolean',
+              description: 'Preview items to be deleted without actually deleting',
+              default: false,
+            },
+          },
+        },
+      },
+      {
+        name: 'context_batch_update',
+        description:
+          'Update multiple context items with partial updates in a single atomic operation',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            updates: {
+              type: 'array',
+              description: 'Array of updates to apply',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string', description: 'Key of the item to update' },
+                  value: { type: 'string', description: 'New value (optional)' },
+                  category: {
+                    type: 'string',
+                    description: 'New category (optional)',
+                    enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+                  },
+                  priority: {
+                    type: 'string',
+                    description: 'New priority (optional)',
+                    enum: ['high', 'normal', 'low'],
+                  },
+                  channel: {
+                    type: 'string',
+                    description: 'New channel (optional)',
+                  },
+                },
+                required: ['key'],
+              },
+            },
+            sessionId: {
+              type: 'string',
+              description: 'Session ID (defaults to current)',
+            },
+          },
+          required: ['updates'],
+        },
+      },
+      // Context Relationships
+      {
+        name: 'context_link',
+        description: 'Create a relationship between two context items',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sourceKey: {
+              type: 'string',
+              description: 'Key of the source context item',
+            },
+            targetKey: {
+              type: 'string',
+              description: 'Key of the target context item',
+            },
+            relationship: {
+              type: 'string',
+              description: 'Type of relationship',
+              enum: [
+                'contains',
+                'depends_on',
+                'references',
+                'implements',
+                'extends',
+                'related_to',
+                'blocks',
+                'blocked_by',
+                'parent_of',
+                'child_of',
+                'has_task',
+                'documented_in',
+                'serves',
+                'leads_to',
+              ],
+            },
+            metadata: {
+              type: 'object',
+              description: 'Optional metadata for the relationship',
+            },
+          },
+          required: ['sourceKey', 'targetKey', 'relationship'],
+        },
+      },
+      {
+        name: 'context_get_related',
+        description: 'Get items related to a given context item',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: {
+              type: 'string',
+              description: 'Key of the context item to find relationships for',
+            },
+            relationship: {
+              type: 'string',
+              description: 'Filter by specific relationship type',
+            },
+            depth: {
+              type: 'number',
+              description: 'Traversal depth for multi-level relationships (default: 1)',
+              default: 1,
+            },
+            direction: {
+              type: 'string',
+              description: 'Direction of relationships to retrieve',
+              enum: ['outgoing', 'incoming', 'both'],
+              default: 'both',
+            },
+          },
+          required: ['key'],
         },
       },
     ],

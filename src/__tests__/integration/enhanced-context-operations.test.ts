@@ -663,8 +663,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
       todayAfternoon.setHours(14, 0, 0, 0); // 2 PM today
 
       const timeOffsets = [
-        { timestamp: todayMorning, key: 'recent_1', category: 'task' }, // Today 9 AM
-        { timestamp: todayAfternoon, key: 'recent_2', category: 'note' }, // Today 2 PM
+        { hours: -1, key: 'recent_1', category: 'task' }, // 1 hour ago
+        { hours: -2, key: 'recent_2', category: 'note' }, // 2 hours ago
         { hours: -5, key: 'today_1', category: 'task' }, // 5 hours ago
         { hours: -8, key: 'today_2', category: 'decision' }, // 8 hours ago
         { timestamp: yesterday, key: 'yesterday_1', category: 'task' }, // Yesterday 10 AM
