@@ -113,8 +113,8 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
 
     const stmt = db.prepare(`
       INSERT INTO context_items (
-        id, session_id, key, value, category, priority, created_at, updated_at, size
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, session_id, key, value, category, priority, channel, created_at, updated_at, size
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     items.forEach((item, index) => {
@@ -127,6 +127,7 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
         value,
         item.category,
         item.priority,
+        'test-channel',
         item.time.toISOString(),
         item.time.toISOString(),
         Buffer.byteLength(value, 'utf8')
@@ -160,8 +161,8 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
         minItemsPerPeriod: 0,
       });
 
-      // Should include all 5 periods that have data
-      expect(timeline.length).toBe(5);
+      // Should include all 7 periods that have data
+      expect(timeline.length).toBe(7);
     });
 
     it('should handle negative minItemsPerPeriod by treating as 0', () => {
@@ -172,7 +173,7 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
       });
 
       // Should include all periods (same as 0)
-      expect(timeline.length).toBe(5);
+      expect(timeline.length).toBe(7);
     });
 
     it('should work with category filters and minItemsPerPeriod', () => {
@@ -579,8 +580,8 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
       // Create many items
       const stmt = db.prepare(`
         INSERT INTO context_items (
-          id, session_id, key, value, category, created_at, size
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          id, session_id, key, value, category, channel, created_at, size
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const batchSize = 1000;
@@ -595,6 +596,7 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
           `perf.test.${i}`,
           `Performance test item ${i}`,
           'performance',
+          'test-channel',
           date.toISOString(),
           20
         );
