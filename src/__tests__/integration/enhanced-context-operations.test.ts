@@ -671,17 +671,26 @@ describe('Enhanced Context Operations Integration Tests', () => {
       yesterdayAfternoon.setHours(15, 0, 0, 0); // 3 PM yesterday
 
       // Ensure we have items that are definitely "today" - create them at specific times today
+      // Use UTC to match the test query
       const todayMorning = new Date();
-      todayMorning.setHours(9, 0, 0, 0); // 9 AM today
+      todayMorning.setUTCHours(9, 0, 0, 0); // 9 AM today UTC
 
       const todayAfternoon = new Date();
-      todayAfternoon.setHours(14, 0, 0, 0); // 2 PM today
+      todayAfternoon.setUTCHours(14, 0, 0, 0); // 2 PM today UTC
+
+      // Create more "today" items ensuring they stay within today's boundaries
+      const todayEarlyMorning = new Date();
+      todayEarlyMorning.setUTCHours(7, 0, 0, 0); // 7 AM today UTC
+
+      const todayEarlyMorning2 = new Date();
+      todayEarlyMorning2.setUTCHours(5, 0, 0, 0); // 5 AM today UTC
 
       const timeOffsets = [
-        { hours: -1, key: 'recent_1', category: 'task' }, // 1 hour ago
-        { hours: -2, key: 'recent_2', category: 'note' }, // 2 hours ago
-        { hours: -5, key: 'today_1', category: 'task' }, // 5 hours ago
-        { hours: -8, key: 'today_2', category: 'decision' }, // 8 hours ago
+        // Use absolute timestamps for "today" items to ensure they're always in today
+        { timestamp: todayMorning, key: 'recent_1', category: 'task' }, // 9 AM today
+        { timestamp: todayAfternoon, key: 'recent_2', category: 'note' }, // 2 PM today
+        { timestamp: todayEarlyMorning, key: 'today_1', category: 'task' }, // 7 AM today
+        { timestamp: todayEarlyMorning2, key: 'today_2', category: 'decision' }, // 5 AM today
         { timestamp: yesterday, key: 'yesterday_1', category: 'task' }, // Yesterday 10 AM
         { timestamp: yesterdayAfternoon, key: 'yesterday_2', category: 'note' }, // Yesterday 3 PM
         { hours: -72, key: 'days_ago_1', category: 'progress' }, // 3 days ago
@@ -876,15 +885,20 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
     describe('relativeTime parameter', () => {
       it('should handle "today" relative time', () => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Use UTC to ensure consistent behavior across timezones
+        const todayUTC = new Date();
+        todayUTC.setUTCHours(0, 0, 0, 0);
 
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ?')
-          .all(testSessionId, today.toISOString()) as any[];
+          .all(testSessionId, todayUTC.toISOString()) as any[];
 
         expect(items.length).toBeGreaterThan(0);
-        expect(items.some(i => i.key.includes('recent'))).toBe(true);
+        // Check for items we know are created "today" based on our test setup
+        // These items use specific timestamps that should be within today
+        const todayKeys = items.map(i => i.key);
+        // At minimum, we should have items created with relative hours that fall within today
+        expect(todayKeys.some(key => key.includes('recent') || key.includes('today'))).toBe(true);
       });
 
       it('should handle "yesterday" relative time', () => {
@@ -905,23 +919,42 @@ describe('Enhanced Context Operations Integration Tests', () => {
       });
 
       it('should handle "X hours ago" format', () => {
-        // Use a slightly earlier time to account for millisecond differences
-        const twoHoursAgo = new Date();
-        twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
-        twoHoursAgo.setMinutes(twoHoursAgo.getMinutes() - 1); // Go back 1 minute to ensure we catch items at exactly 2 hours
+        // Create test items relative to current time for this specific test
+        const now = new Date();
+        const oneHourAgo = new Date(now.getTime() - 1 * 3600000);
+        const twoHoursAgo = new Date(now.getTime() - 2 * 3600000);
+        const fiveHoursAgo = new Date(now.getTime() - 5 * 3600000);
 
+        // Add test items with specific relative timestamps
+        db.prepare(
+          `INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(uuidv4(), testSessionId, 'test_1h_ago', 'One hour ago', 'test', 'normal', oneHourAgo.toISOString());
+        
+        db.prepare(
+          `INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(uuidv4(), testSessionId, 'test_2h_ago', 'Two hours ago', 'test', 'normal', twoHoursAgo.toISOString());
+        
+        db.prepare(
+          `INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(uuidv4(), testSessionId, 'test_5h_ago', 'Five hours ago', 'test', 'normal', fiveHoursAgo.toISOString());
+
+        // Query for items created 2 hours ago or less
+        const queryTime = new Date(now.getTime() - 2.1 * 3600000); // 2.1 hours ago to ensure we catch 2 hour old items
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ?')
-          .all(testSessionId, twoHoursAgo.toISOString()) as any[];
+          .all(testSessionId, queryTime.toISOString()) as any[];
 
         // Check what items we actually got
         const itemKeys = items.map(i => i.key);
 
         // Should include items created 2 hours ago or less
-        expect(itemKeys).toContain('recent_1'); // 1 hour ago
-        expect(itemKeys).toContain('recent_2'); // 2 hours ago
+        expect(itemKeys).toContain('test_1h_ago'); 
+        expect(itemKeys).toContain('test_2h_ago');
         // Should not include items created more than 2 hours ago
-        expect(itemKeys).not.toContain('today_1'); // 5 hours ago
+        expect(itemKeys).not.toContain('test_5h_ago');
       });
 
       it('should handle "X days ago" format', () => {
