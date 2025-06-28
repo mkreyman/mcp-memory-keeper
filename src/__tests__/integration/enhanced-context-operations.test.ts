@@ -929,17 +929,41 @@ describe('Enhanced Context Operations Integration Tests', () => {
         db.prepare(
           `INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
            VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(uuidv4(), testSessionId, 'test_1h_ago', 'One hour ago', 'test', 'normal', oneHourAgo.toISOString());
-        
+        ).run(
+          uuidv4(),
+          testSessionId,
+          'test_1h_ago',
+          'One hour ago',
+          'test',
+          'normal',
+          oneHourAgo.toISOString()
+        );
+
         db.prepare(
           `INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
            VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(uuidv4(), testSessionId, 'test_2h_ago', 'Two hours ago', 'test', 'normal', twoHoursAgo.toISOString());
-        
+        ).run(
+          uuidv4(),
+          testSessionId,
+          'test_2h_ago',
+          'Two hours ago',
+          'test',
+          'normal',
+          twoHoursAgo.toISOString()
+        );
+
         db.prepare(
           `INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
            VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(uuidv4(), testSessionId, 'test_5h_ago', 'Five hours ago', 'test', 'normal', fiveHoursAgo.toISOString());
+        ).run(
+          uuidv4(),
+          testSessionId,
+          'test_5h_ago',
+          'Five hours ago',
+          'test',
+          'normal',
+          fiveHoursAgo.toISOString()
+        );
 
         // Query for items created 2 hours ago or less
         const queryTime = new Date(now.getTime() - 2.1 * 3600000); // 2.1 hours ago to ensure we catch 2 hour old items
@@ -951,7 +975,7 @@ describe('Enhanced Context Operations Integration Tests', () => {
         const itemKeys = items.map(i => i.key);
 
         // Should include items created 2 hours ago or less
-        expect(itemKeys).toContain('test_1h_ago'); 
+        expect(itemKeys).toContain('test_1h_ago');
         expect(itemKeys).toContain('test_2h_ago');
         // Should not include items created more than 2 hours ago
         expect(itemKeys).not.toContain('test_5h_ago');
