@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { createUTCDateByHours, validateTimezoneSafety } from '../utils/timezone-safe-dates';
 
 describe('Context Diff Integration Tests', () => {
   let dbManager: DatabaseManager;
@@ -52,22 +53,23 @@ describe('Context Diff Integration Tests', () => {
 
   describe('Basic Diff Operations', () => {
     it('should detect added items since timestamp', () => {
-      const baseTime = new Date();
-      baseTime.setHours(baseTime.getHours() - 2);
+      // TIMEZONE-SAFE: Use UTC-based date calculations
+      validateTimezoneSafety();
+      const baseTime = createUTCDateByHours(-2);
 
       // Add items at different times
       const oldItem = {
         id: uuidv4(),
         key: 'old_item',
         value: 'This existed before',
-        created_at: new Date(baseTime.getTime() - 1000).toISOString(),
+        created_at: createUTCDateByHours(-2.1).toISOString(), // Slightly before base time
       };
 
       const newItem = {
         id: uuidv4(),
         key: 'new_item',
         value: 'This was added recently',
-        created_at: new Date().toISOString(),
+        created_at: createUTCDateByHours(0).toISOString(), // Now
       };
 
       db.prepare(

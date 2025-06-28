@@ -47,12 +47,87 @@ const _retentionManager = new RetentionManager(dbManager);
 // Initialize feature flag manager
 const _featureFlagManager = new FeatureFlagManager(dbManager);
 
+// Initialize debug logging flag if it doesn't exist
+try {
+  if (!_featureFlagManager.getFlagByKey('debug_logging')) {
+    _featureFlagManager.createFlag({
+      name: 'Debug Logging',
+      key: 'debug_logging',
+      enabled: Boolean(process.env.MCP_DEBUG_LOGGING),
+      description: 'Enable debug logging for development and troubleshooting',
+      category: 'debug',
+      tags: ['debug', 'logging'],
+    });
+  }
+} catch (_error) {
+  // Silently continue if flag creation fails (migrations might not be complete)
+}
+
 // Migration manager is no longer needed - watcher migrations are now applied by DatabaseManager
 
 // Tables are now created by DatabaseManager in utils/database.ts
 
 // Track current session
 let currentSessionId: string | null = null;
+
+// Debug logging utility
+function debugLog(message: string, ...args: any[]): void {
+  try {
+    if (_featureFlagManager.isEnabled('debug_logging') || process.env.MCP_DEBUG_LOGGING) {
+      // eslint-disable-next-line no-console
+      console.log(`[MCP-Memory-Keeper DEBUG] ${message}`, ...args);
+    }
+  } catch (_error) {
+    // Silently fail if feature flags aren't available yet
+  }
+}
+
+// Pagination validation utility
+interface PaginationParams {
+  limit?: any;
+  offset?: any;
+}
+
+interface ValidatedPagination {
+  limit: number;
+  offset: number;
+  errors: string[];
+}
+
+function validatePaginationParams(params: PaginationParams): ValidatedPagination {
+  const errors: string[] = [];
+  let limit = 25; // default
+  let offset = 0; // default
+
+  // Validate limit
+  if (params.limit !== undefined && params.limit !== null) {
+    const rawLimit = params.limit;
+    if (!Number.isInteger(rawLimit) || rawLimit <= 0) {
+      errors.push(`Invalid limit: expected positive integer, got ${typeof rawLimit} '${rawLimit}'`);
+      debugLog(`Pagination validation: Invalid limit ${rawLimit}, using default ${limit}`);
+    } else {
+      limit = Math.min(Math.max(1, rawLimit), 100); // clamp between 1-100
+      if (limit !== rawLimit) {
+        debugLog(`Pagination validation: Clamped limit from ${rawLimit} to ${limit}`);
+      }
+    }
+  }
+
+  // Validate offset
+  if (params.offset !== undefined && params.offset !== null) {
+    const rawOffset = params.offset;
+    if (!Number.isInteger(rawOffset) || rawOffset < 0) {
+      errors.push(
+        `Invalid offset: expected non-negative integer, got ${typeof rawOffset} '${rawOffset}'`
+      );
+      debugLog(`Pagination validation: Invalid offset ${rawOffset}, using default ${offset}`);
+    } else {
+      offset = rawOffset;
+    }
+  }
+
+  return { limit, offset, errors };
+}
 
 // Helper function to get or create default session
 function ensureSession(): string {
@@ -2796,45 +2871,125 @@ Event ID: ${id.substring(0, 8)}`,
     */
 
     case 'context_search_all': {
-      const { query } = args;
+      const {
+        query,
+        sessions,
+        includeShared = true,
+        limit: rawLimit = 25,
+        offset: rawOffset = 0,
+        sort = 'created_desc',
+        category,
+        channel,
+        channels,
+        priorities,
+        createdAfter,
+        createdBefore,
+        keyPattern,
+        searchIn = ['key', 'value'],
+        includeMetadata = false,
+      } = args;
+
+      // Enhanced pagination validation with proper error handling
+      const paginationValidation = validatePaginationParams({ limit: rawLimit, offset: rawOffset });
+      const { limit, offset, errors: paginationErrors } = paginationValidation;
       const currentSession = currentSessionId || ensureSession();
 
-      try {
-        // Search across all sessions, including private items from current session
-        const results = repositories.contexts.searchAcrossSessions(query, currentSession);
+      // Log pagination validation errors for debugging
+      if (paginationErrors.length > 0) {
+        debugLog('Pagination validation errors:', paginationErrors);
+      }
 
-        if (results.length === 0) {
+      try {
+        // Use enhanced search across sessions with pagination
+        const result = repositories.contexts.searchAcrossSessionsEnhanced({
+          query,
+          currentSessionId: currentSession,
+          sessions,
+          includeShared,
+          searchIn,
+          limit,
+          offset,
+          sort,
+          category,
+          channel,
+          channels,
+          priorities,
+          createdAfter,
+          createdBefore,
+          keyPattern,
+          includeMetadata,
+        });
+
+        // PAGINATION VALIDATION: Ensure pagination is working as expected
+        if (result.items.length > limit && limit < result.totalCount) {
+          debugLog(
+            `Pagination warning: Expected max ${limit} items, got ${result.items.length}. This may indicate a pagination implementation issue.`
+          );
+        }
+
+        if (result.items.length === 0) {
           return {
             content: [
               {
                 type: 'text',
-                text: `No results found for: "${query}"`,
+                text: `No results found for: "${query}"${result.totalCount > 0 ? ` (showing page ${result.pagination.currentPage} of ${result.pagination.totalPages})` : ''}`,
               },
             ],
           };
         }
 
-        const resultsList = results
+        const resultsList = result.items
           .map(
             (item: any) =>
               `• [${item.session_id.substring(0, 8)}] ${item.key}: ${item.value.substring(0, 100)}${item.value.length > 100 ? '...' : ''}`
           )
           .join('\n');
 
+        // Build pagination info
+        const paginationInfo =
+          result.pagination.totalPages > 1
+            ? `\n\nPagination: Page ${result.pagination.currentPage} of ${result.pagination.totalPages} (${result.pagination.totalItems} total items)${
+                result.pagination.hasNextPage
+                  ? `\nNext page: offset=${result.pagination.nextOffset}, limit=${result.pagination.itemsPerPage}`
+                  : ''
+              }${
+                result.pagination.hasPreviousPage
+                  ? `\nPrevious page: offset=${result.pagination.previousOffset}, limit=${result.pagination.itemsPerPage}`
+                  : ''
+              }`
+            : '';
+
         return {
           content: [
             {
               type: 'text',
-              text: `Found ${results.length} results across sessions:\n\n${resultsList}`,
+              text: `Found ${result.items.length} results on this page (${result.totalCount} total across sessions):\n\n${resultsList}${paginationInfo}`,
             },
           ],
         };
       } catch (error: any) {
+        // Enhanced error handling to distinguish pagination errors from search errors
+        let errorMessage = 'Search failed';
+
+        if (paginationErrors.length > 0) {
+          errorMessage = `Search failed due to pagination validation errors: ${paginationErrors.join(', ')}. ${error.message}`;
+        } else if (
+          error.message.includes('pagination') ||
+          error.message.includes('limit') ||
+          error.message.includes('offset')
+        ) {
+          errorMessage = `Search failed due to pagination parameter issue: ${error.message}`;
+        } else {
+          errorMessage = `Search failed: ${error.message}`;
+        }
+
+        debugLog('Search error:', { error: error.message, paginationErrors, limit, offset });
+
         return {
           content: [
             {
               type: 'text',
-              text: `Search failed: ${error.message}`,
+              text: errorMessage,
             },
           ],
         };
@@ -3791,8 +3946,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
               description: 'Sort order for results',
             },
-            limit: { type: 'number', description: 'Maximum items to return' },
-            offset: { type: 'number', description: 'Pagination offset' },
+            limit: {
+              type: 'number',
+              description:
+                'Maximum items to return. Must be a positive integer. Invalid values will cause validation error. (default: auto-derived)',
+            },
+            offset: {
+              type: 'number',
+              description:
+                'Pagination offset. Must be a non-negative integer. Invalid values will cause validation error. (default: 0)',
+            },
             createdAfter: {
               type: 'string',
               description: 'ISO date - items created after this time',
@@ -3984,8 +4147,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
               description: 'Sort order for results',
             },
-            limit: { type: 'number', description: 'Maximum items to return' },
-            offset: { type: 'number', description: 'Pagination offset' },
+            limit: {
+              type: 'number',
+              description:
+                'Maximum items to return. Must be a positive integer. Invalid values will cause validation error. (default: auto-derived)',
+            },
+            offset: {
+              type: 'number',
+              description:
+                'Pagination offset. Must be a non-negative integer. Invalid values will cause validation error. (default: 0)',
+            },
             includeMetadata: {
               type: 'boolean',
               description: 'Include timestamps and size info',
@@ -4038,7 +4209,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       */
       {
         name: 'context_search_all',
-        description: 'Search across multiple or all sessions',
+        description: 'Search across multiple or all sessions with pagination support',
         inputSchema: {
           type: 'object',
           properties: {
@@ -4052,6 +4223,69 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Include shared items in search',
               default: true,
+            },
+            limit: {
+              type: 'number',
+              description:
+                'Maximum number of items to return. Must be a positive integer between 1-100. Non-integer values will be rejected with validation error. (default: 25)',
+              minimum: 1,
+              maximum: 100,
+              default: 25,
+            },
+            offset: {
+              type: 'number',
+              description:
+                'Number of items to skip for pagination. Must be a non-negative integer (0 or higher). Non-integer values will be rejected with validation error. (default: 0)',
+              minimum: 0,
+              default: 0,
+            },
+            sort: {
+              type: 'string',
+              description: 'Sort order for results',
+              enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
+              default: 'created_desc',
+            },
+            category: {
+              type: 'string',
+              description: 'Filter by category',
+              enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+            },
+            channel: {
+              type: 'string',
+              description: 'Filter by single channel',
+            },
+            channels: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by multiple channels',
+            },
+            priorities: {
+              type: 'array',
+              items: { type: 'string', enum: ['high', 'normal', 'low'] },
+              description: 'Filter by priority levels',
+            },
+            createdAfter: {
+              type: 'string',
+              description: 'Filter items created after this date (ISO format or relative time)',
+            },
+            createdBefore: {
+              type: 'string',
+              description: 'Filter items created before this date (ISO format or relative time)',
+            },
+            keyPattern: {
+              type: 'string',
+              description: 'Pattern to match keys (supports wildcards: *, ?)',
+            },
+            searchIn: {
+              type: 'array',
+              items: { type: 'string', enum: ['key', 'value'] },
+              description: 'Fields to search in',
+              default: ['key', 'value'],
+            },
+            includeMetadata: {
+              type: 'boolean',
+              description: 'Include timestamps and size info',
+              default: false,
             },
           },
           required: ['query'],
@@ -4799,6 +5033,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     ],
   };
 });
+
+// Export utilities for testing and verification
+export { debugLog, validatePaginationParams, _featureFlagManager, dbManager };
 
 // Start server
 const transport = new StdioServerTransport();

@@ -40,72 +40,138 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
   });
 
   function createTestDataWithTimeline() {
-    const now = new Date();
+    // TIMEZONE-SAFE PATTERN: Use fixed UTC dates to ensure consistent behavior
+    // across all environments regardless of system timezone
+
+    // Create a fixed reference point in UTC (2025-06-20 12:00:00 UTC)
+    // This ensures consistent timeline grouping in all environments
+    const baseDate = new Date('2025-06-20T12:00:00.000Z');
+
+    // Create calendar-day-aligned dates in UTC by using UTC methods
+    const today = new Date(
+      Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth(), baseDate.getUTCDate(), 12, 0, 0)
+    );
+    const yesterday = new Date(
+      Date.UTC(
+        baseDate.getUTCFullYear(),
+        baseDate.getUTCMonth(),
+        baseDate.getUTCDate() - 1,
+        12,
+        0,
+        0
+      )
+    );
+    const threeDaysAgo = new Date(
+      Date.UTC(
+        baseDate.getUTCFullYear(),
+        baseDate.getUTCMonth(),
+        baseDate.getUTCDate() - 3,
+        12,
+        0,
+        0
+      )
+    );
+    const fiveDaysAgo = new Date(
+      Date.UTC(
+        baseDate.getUTCFullYear(),
+        baseDate.getUTCMonth(),
+        baseDate.getUTCDate() - 5,
+        12,
+        0,
+        0
+      )
+    );
+    const sevenDaysAgo = new Date(
+      Date.UTC(
+        baseDate.getUTCFullYear(),
+        baseDate.getUTCMonth(),
+        baseDate.getUTCDate() - 7,
+        12,
+        0,
+        0
+      )
+    );
 
     // Create items across different time periods
     const items = [
-      // Today - 6 items
-      { time: new Date(now.getTime() - 1 * 60 * 60 * 1000), category: 'task', priority: 'high' },
-      { time: new Date(now.getTime() - 2 * 60 * 60 * 1000), category: 'task', priority: 'normal' },
-      { time: new Date(now.getTime() - 3 * 60 * 60 * 1000), category: 'note', priority: 'normal' },
+      // Today - 6 items (all at noon on same day)
+      { time: new Date(today.getTime() + 1 * 60 * 60 * 1000), category: 'task', priority: 'high' },
       {
-        time: new Date(now.getTime() - 4 * 60 * 60 * 1000),
+        time: new Date(today.getTime() + 2 * 60 * 60 * 1000),
+        category: 'task',
+        priority: 'normal',
+      },
+      {
+        time: new Date(today.getTime() + 3 * 60 * 60 * 1000),
+        category: 'note',
+        priority: 'normal',
+      },
+      {
+        time: new Date(today.getTime() + 4 * 60 * 60 * 1000),
         category: 'decision',
         priority: 'high',
       },
       {
-        time: new Date(now.getTime() - 5 * 60 * 60 * 1000),
+        time: new Date(today.getTime() + 5 * 60 * 60 * 1000),
         category: 'progress',
         priority: 'normal',
       },
-      { time: new Date(now.getTime() - 6 * 60 * 60 * 1000), category: 'task', priority: 'low' },
+      { time: new Date(today.getTime() + 6 * 60 * 60 * 1000), category: 'task', priority: 'low' },
 
-      // Yesterday - 3 items
-      { time: new Date(now.getTime() - 26 * 60 * 60 * 1000), category: 'task', priority: 'high' },
-      { time: new Date(now.getTime() - 28 * 60 * 60 * 1000), category: 'note', priority: 'normal' },
+      // Yesterday - 3 items (all on previous day)
       {
-        time: new Date(now.getTime() - 30 * 60 * 60 * 1000),
+        time: new Date(yesterday.getTime() + 1 * 60 * 60 * 1000),
+        category: 'task',
+        priority: 'high',
+      },
+      {
+        time: new Date(yesterday.getTime() + 2 * 60 * 60 * 1000),
+        category: 'note',
+        priority: 'normal',
+      },
+      {
+        time: new Date(yesterday.getTime() + 3 * 60 * 60 * 1000),
         category: 'progress',
         priority: 'low',
       },
 
       // 3 days ago - 1 item
       {
-        time: new Date(now.getTime() - 72 * 60 * 60 * 1000),
+        time: new Date(threeDaysAgo.getTime() + 1 * 60 * 60 * 1000),
         category: 'decision',
         priority: 'high',
       },
 
       // 5 days ago - 2 items
       {
-        time: new Date(now.getTime() - 120 * 60 * 60 * 1000),
+        time: new Date(fiveDaysAgo.getTime() + 1 * 60 * 60 * 1000),
         category: 'task',
         priority: 'normal',
       },
       {
-        time: new Date(now.getTime() - 121 * 60 * 60 * 1000),
+        time: new Date(fiveDaysAgo.getTime() + 2 * 60 * 60 * 1000),
         category: 'note',
         priority: 'normal',
       },
 
-      // 7 days ago - 4 items
+      // 7 days ago - 4 items (all on same day)
       {
-        time: new Date(now.getTime() - 168 * 60 * 60 * 1000),
+        time: new Date(sevenDaysAgo.getTime() + 1 * 60 * 60 * 1000),
         category: 'progress',
         priority: 'high',
       },
       {
-        time: new Date(now.getTime() - 169 * 60 * 60 * 1000),
+        time: new Date(sevenDaysAgo.getTime() + 2 * 60 * 60 * 1000),
         category: 'task',
         priority: 'normal',
       },
       {
-        time: new Date(now.getTime() - 170 * 60 * 60 * 1000),
+        time: new Date(sevenDaysAgo.getTime() + 3 * 60 * 60 * 1000),
         category: 'decision',
         priority: 'low',
       },
       {
-        time: new Date(now.getTime() - 171 * 60 * 60 * 1000),
+        time: new Date(sevenDaysAgo.getTime() + 4 * 60 * 60 * 1000),
         category: 'note',
         priority: 'normal',
       },
@@ -161,8 +227,13 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
         minItemsPerPeriod: 0,
       });
 
-      // Should include all 7 periods that have data
-      expect(timeline.length).toBe(7);
+      // Should include all 5 periods that have data:
+      // - Today (2025-06-20): 6 items
+      // - Yesterday (2025-06-19): 3 items
+      // - 3 days ago (2025-06-17): 1 item
+      // - 5 days ago (2025-06-15): 2 items
+      // - 7 days ago (2025-06-13): 4 items
+      expect(timeline.length).toBe(5);
     });
 
     it('should handle negative minItemsPerPeriod by treating as 0', () => {
@@ -173,7 +244,7 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
       });
 
       // Should include all periods (same as 0)
-      expect(timeline.length).toBe(7);
+      expect(timeline.length).toBe(5);
     });
 
     it('should work with category filters and minItemsPerPeriod', () => {
@@ -241,9 +312,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should generate empty periods when showEmpty is true', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 10);
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth(),
+          endDate.getUTCDate() - 10,
+          12,
+          0,
+          0
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -266,9 +346,9 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should handle showEmpty with hour grouping', () => {
-      const startDate = new Date();
-      startDate.setHours(startDate.getHours() - 24);
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -283,9 +363,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should handle showEmpty with week grouping', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 28); // 4 weeks ago
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth(),
+          endDate.getUTCDate() - 28,
+          12,
+          0,
+          0
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -301,9 +390,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should include empty periods with categories filter', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 5);
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth(),
+          endDate.getUTCDate() - 5,
+          12,
+          0,
+          0
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -331,9 +429,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should enforce reasonable limits on empty period generation', () => {
-      const startDate = new Date();
-      startDate.setFullYear(startDate.getFullYear() - 1); // 1 year ago
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear() - 1,
+          endDate.getUTCMonth(),
+          endDate.getUTCDate(),
+          12,
+          0,
+          0
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -348,9 +455,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should include items in non-empty periods when showEmpty is true', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 3);
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth(),
+          endDate.getUTCDate() - 3,
+          12,
+          0,
+          0
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -384,9 +500,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should have showEmpty override minItemsPerPeriod', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 5);
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth(),
+          endDate.getUTCDate() - 5,
+          12,
+          0,
+          0
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -406,9 +531,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should work with all parameters combined', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 7);
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth(),
+          endDate.getUTCDate() - 7,
+          12,
+          0,
+          0
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -459,13 +593,29 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should respect date ranges with both new parameters', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 2);
-      startDate.setHours(0, 0, 0, 0);
-
-      const endDate = new Date();
-      endDate.setDate(endDate.getDate() - 1);
-      endDate.setHours(23, 59, 59, 999);
+      // Use UTC-based dates for consistent behavior across timezones
+      const baseDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          baseDate.getUTCFullYear(),
+          baseDate.getUTCMonth(),
+          baseDate.getUTCDate() - 2,
+          0,
+          0,
+          0
+        )
+      );
+      const endDate = new Date(
+        Date.UTC(
+          baseDate.getUTCFullYear(),
+          baseDate.getUTCMonth(),
+          baseDate.getUTCDate() - 1,
+          23,
+          59,
+          59,
+          999
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -545,7 +695,8 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should handle showEmpty with very narrow time windows', () => {
-      const startDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const startDate = new Date('2025-06-20T12:00:00.000Z');
       const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour later
 
       const timeline = contextRepo.getTimelineData({
@@ -585,10 +736,19 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
       `);
 
       const batchSize = 1000;
+      const baseDate = new Date('2025-06-20T12:00:00.000Z');
       for (let i = 0; i < batchSize; i++) {
         const daysAgo = Math.floor(Math.random() * 30);
-        const date = new Date();
-        date.setDate(date.getDate() - daysAgo);
+        const date = new Date(
+          Date.UTC(
+            baseDate.getUTCFullYear(),
+            baseDate.getUTCMonth(),
+            baseDate.getUTCDate() - daysAgo,
+            12,
+            0,
+            0
+          )
+        );
 
         stmt.run(
           uuidv4(),
@@ -618,9 +778,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should handle showEmpty efficiently for large date ranges', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 90); // 3 months
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth(),
+          endDate.getUTCDate() - 90,
+          12,
+          0,
+          0
+        )
+      );
 
       const startTime = Date.now();
       const timeline = contextRepo.getTimelineData({
@@ -742,9 +911,18 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
     });
 
     it('should include empty periods in response when showEmpty is true', () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 3);
-      const endDate = new Date();
+      // Use UTC-based dates for consistent behavior across timezones
+      const endDate = new Date('2025-06-20T12:00:00.000Z');
+      const startDate = new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth(),
+          endDate.getUTCDate() - 3,
+          12,
+          0,
+          0
+        )
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,
@@ -769,7 +947,12 @@ describe('Enhanced Context Timeline Handler Integration Tests', () => {
         INSERT INTO journal_entries (id, session_id, entry, created_at)
         VALUES (?, ?, ?, ?)
       `
-      ).run(uuidv4(), testSessionId, 'Test journal entry', new Date().toISOString());
+      ).run(
+        uuidv4(),
+        testSessionId,
+        'Test journal entry',
+        new Date('2025-06-20T12:00:00.000Z').toISOString()
+      );
 
       const timeline = contextRepo.getTimelineData({
         sessionId: testSessionId,

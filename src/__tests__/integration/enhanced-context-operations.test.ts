@@ -5,6 +5,12 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  createTimelineTestDates,
+  createUTCDate,
+  createUTCDateByHours,
+  validateTimezoneSafety,
+} from '../utils/timezone-safe-dates';
 
 describe('Enhanced Context Operations Integration Tests', () => {
   let dbManager: DatabaseManager;
@@ -658,48 +664,34 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
   describe('Enhanced context_timeline', () => {
     beforeEach(() => {
-      // Create items across different time periods
-      const now = new Date();
+      // TIMEZONE-SAFE: Use fixed UTC dates to ensure consistent behavior across all environments
+      validateTimezoneSafety();
 
-      // Calculate proper timestamps for yesterday to ensure they fall within yesterday's date range
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      yesterday.setHours(10, 0, 0, 0); // 10 AM yesterday
+      const { today: _today, yesterday: _yesterday } = createTimelineTestDates();
 
-      const yesterdayAfternoon = new Date();
-      yesterdayAfternoon.setDate(yesterdayAfternoon.getDate() - 1);
-      yesterdayAfternoon.setHours(15, 0, 0, 0); // 3 PM yesterday
-
-      // Ensure we have items that are definitely "today" - create them at specific times today
-      // Use UTC to match the test query
-      const todayMorning = new Date();
-      todayMorning.setUTCHours(9, 0, 0, 0); // 9 AM today UTC
-
-      const todayAfternoon = new Date();
-      todayAfternoon.setUTCHours(14, 0, 0, 0); // 2 PM today UTC
-
-      // Create more "today" items ensuring they stay within today's boundaries
-      const todayEarlyMorning = new Date();
-      todayEarlyMorning.setUTCHours(7, 0, 0, 0); // 7 AM today UTC
-
-      const todayEarlyMorning2 = new Date();
-      todayEarlyMorning2.setUTCHours(5, 0, 0, 0); // 5 AM today UTC
+      // Create timezone-safe timestamps at specific hours
+      const yesterdayMorning = createUTCDate(-1, 10, 0, 0); // 10 AM yesterday UTC
+      const yesterdayAfternoon = createUTCDate(-1, 15, 0, 0); // 3 PM yesterday UTC
+      const todayEarlyMorning = createUTCDate(0, 5, 0, 0); // 5 AM today UTC
+      const todayEarlyMorning2 = createUTCDate(0, 7, 0, 0); // 7 AM today UTC
+      const todayMorning = createUTCDate(0, 9, 0, 0); // 9 AM today UTC
+      const todayAfternoon = createUTCDate(0, 14, 0, 0); // 2 PM today UTC
 
       const timeOffsets = [
-        // Use absolute timestamps for "today" items to ensure they're always in today
+        // Use timezone-safe absolute timestamps
         { timestamp: todayMorning, key: 'recent_1', category: 'task' }, // 9 AM today
         { timestamp: todayAfternoon, key: 'recent_2', category: 'note' }, // 2 PM today
-        { timestamp: todayEarlyMorning, key: 'today_1', category: 'task' }, // 7 AM today
-        { timestamp: todayEarlyMorning2, key: 'today_2', category: 'decision' }, // 5 AM today
-        { timestamp: yesterday, key: 'yesterday_1', category: 'task' }, // Yesterday 10 AM
+        { timestamp: todayEarlyMorning2, key: 'today_1', category: 'task' }, // 7 AM today
+        { timestamp: todayEarlyMorning, key: 'today_2', category: 'decision' }, // 5 AM today
+        { timestamp: yesterdayMorning, key: 'yesterday_1', category: 'task' }, // Yesterday 10 AM
         { timestamp: yesterdayAfternoon, key: 'yesterday_2', category: 'note' }, // Yesterday 3 PM
-        { hours: -72, key: 'days_ago_1', category: 'progress' }, // 3 days ago
-        { hours: -168, key: 'week_ago_1', category: 'task' }, // 1 week ago
-        { hours: -336, key: 'weeks_ago_1', category: 'error' }, // 2 weeks ago
+        { timestamp: createUTCDateByHours(-72), key: 'days_ago_1', category: 'progress' }, // 3 days ago
+        { timestamp: createUTCDateByHours(-168), key: 'week_ago_1', category: 'task' }, // 1 week ago
+        { timestamp: createUTCDateByHours(-336), key: 'weeks_ago_1', category: 'error' }, // 2 weeks ago
       ];
 
-      timeOffsets.forEach(({ hours, timestamp, key, category }) => {
-        const createdAt = timestamp || new Date(now.getTime() + hours * 3600000);
+      timeOffsets.forEach(({ timestamp, key, category }) => {
+        const createdAt = timestamp;
         db.prepare(
           `
           INSERT INTO context_items (id, session_id, key, value, category, priority, created_at) 
@@ -724,7 +716,7 @@ describe('Enhanced Context Operations Integration Tests', () => {
       ];
 
       journalEntries.forEach(({ hours, entry, mood }) => {
-        const createdAt = new Date(now.getTime() + hours * 3600000);
+        const createdAt = createUTCDateByHours(hours);
         db.prepare(
           `
           INSERT INTO journal_entries (id, session_id, entry, mood, created_at) 
@@ -736,9 +728,10 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
     describe('Basic timeline functionality', () => {
       it('should group items by time period', () => {
-        const now = new Date();
-        const oneDayAgo = new Date(now.getTime() - 24 * 3600000);
-        const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 3600000);
+        // TIMEZONE-SAFE: Use UTC-based date calculations
+        const { today: _today } = createTimelineTestDates();
+        const oneDayAgo = createUTCDateByHours(-24);
+        const oneWeekAgo = createUTCDateByHours(-7 * 24);
 
         // Get items from different periods
         const todayItems = db
@@ -885,13 +878,12 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
     describe('relativeTime parameter', () => {
       it('should handle "today" relative time', () => {
-        // Use UTC to ensure consistent behavior across timezones
-        const todayUTC = new Date();
-        todayUTC.setUTCHours(0, 0, 0, 0);
+        // TIMEZONE-SAFE: Use UTC start of day
+        const todayStart = createUTCDate(0, 0, 0, 0);
 
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ?')
-          .all(testSessionId, todayUTC.toISOString()) as any[];
+          .all(testSessionId, todayStart.toISOString()) as any[];
 
         expect(items.length).toBeGreaterThan(0);
         // Check for items we know are created "today" based on our test setup
@@ -902,28 +894,25 @@ describe('Enhanced Context Operations Integration Tests', () => {
       });
 
       it('should handle "yesterday" relative time', () => {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        yesterday.setHours(0, 0, 0, 0);
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // TIMEZONE-SAFE: Use UTC dates for day boundaries
+        const yesterdayStart = createUTCDate(-1, 0, 0, 0);
+        const todayStart = createUTCDate(0, 0, 0, 0);
 
         const items = db
           .prepare(
             'SELECT * FROM context_items WHERE session_id = ? AND created_at >= ? AND created_at < ?'
           )
-          .all(testSessionId, yesterday.toISOString(), today.toISOString()) as any[];
+          .all(testSessionId, yesterdayStart.toISOString(), todayStart.toISOString()) as any[];
 
         expect(items.some(i => i.key.includes('yesterday'))).toBe(true);
       });
 
       it('should handle "X hours ago" format', () => {
-        // Create test items relative to current time for this specific test
-        const now = new Date();
-        const oneHourAgo = new Date(now.getTime() - 1 * 3600000);
-        const twoHoursAgo = new Date(now.getTime() - 2 * 3600000);
-        const fiveHoursAgo = new Date(now.getTime() - 5 * 3600000);
+        // TIMEZONE-SAFE: Use UTC-based hour calculations
+        const { today: _today } = createTimelineTestDates();
+        const oneHourAgo = createUTCDateByHours(-1);
+        const twoHoursAgo = createUTCDateByHours(-2);
+        const fiveHoursAgo = createUTCDateByHours(-5);
 
         // Add test items with specific relative timestamps
         db.prepare(
@@ -966,7 +955,7 @@ describe('Enhanced Context Operations Integration Tests', () => {
         );
 
         // Query for items created 2 hours ago or less
-        const queryTime = new Date(now.getTime() - 2.1 * 3600000); // 2.1 hours ago to ensure we catch 2 hour old items
+        const queryTime = createUTCDateByHours(-2.1); // 2.1 hours ago to ensure we catch 2 hour old items
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ?')
           .all(testSessionId, queryTime.toISOString()) as any[];
@@ -982,8 +971,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
       });
 
       it('should handle "X days ago" format', () => {
-        const threeDaysAgo = new Date();
-        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+        // TIMEZONE-SAFE: Use UTC date arithmetic
+        const threeDaysAgo = createUTCDate(-3);
 
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ?')
@@ -1003,11 +992,10 @@ describe('Enhanced Context Operations Integration Tests', () => {
       });
 
       it('should handle "this week" relative time', () => {
-        const startOfWeek = new Date();
-        const day = startOfWeek.getDay();
-        const diff = startOfWeek.getDate() - day;
-        startOfWeek.setDate(diff);
-        startOfWeek.setHours(0, 0, 0, 0);
+        // TIMEZONE-SAFE: Calculate start of week in UTC
+        const { today: _today } = createTimelineTestDates();
+        const dayOfWeek = _today.getUTCDay();
+        const startOfWeek = createUTCDate(-dayOfWeek, 0, 0, 0);
 
         const items = db
           .prepare('SELECT * FROM context_items WHERE session_id = ? AND created_at >= ?')
@@ -1017,14 +1005,11 @@ describe('Enhanced Context Operations Integration Tests', () => {
       });
 
       it('should handle "last week" relative time', () => {
-        const startOfLastWeek = new Date();
-        const day = startOfLastWeek.getDay();
-        const diff = startOfLastWeek.getDate() - day - 7;
-        startOfLastWeek.setDate(diff);
-        startOfLastWeek.setHours(0, 0, 0, 0);
-
-        const endOfLastWeek = new Date(startOfLastWeek);
-        endOfLastWeek.setDate(endOfLastWeek.getDate() + 7);
+        // TIMEZONE-SAFE: Calculate last week's boundaries in UTC
+        const { today: _today } = createTimelineTestDates();
+        const dayOfWeek = _today.getUTCDay();
+        const startOfLastWeek = createUTCDate(-dayOfWeek - 7, 0, 0, 0);
+        const endOfLastWeek = createUTCDate(-dayOfWeek, 0, 0, 0);
 
         const items = db
           .prepare(
@@ -1219,8 +1204,8 @@ describe('Enhanced Context Operations Integration Tests', () => {
 
     describe('Combining timeline parameters', () => {
       it('should combine categories and date filters', () => {
-        const twoDaysAgo = new Date();
-        twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+        // TIMEZONE-SAFE: Use UTC date calculations
+        const twoDaysAgo = createUTCDate(-2);
 
         const items = db
           .prepare(
@@ -1297,9 +1282,10 @@ describe('Enhanced Context Operations Integration Tests', () => {
       });
 
       it('should work with only startDate and endDate as before', () => {
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - 7);
+        // TIMEZONE-SAFE: Use UTC date range
+        const { today: _today } = createTimelineTestDates();
+        const startDate = createUTCDate(-7);
+        const endDate = _today;
 
         const items = db
           .prepare(
