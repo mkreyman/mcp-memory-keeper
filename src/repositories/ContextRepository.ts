@@ -478,6 +478,182 @@ export class ContextRepository extends BaseRepository {
     return stmt.all(...params) as ContextItem[];
   }
 
+  // Enhanced search across sessions with pagination support
+  searchAcrossSessionsEnhanced(options: {
+    query: string;
+    currentSessionId?: string;
+    sessions?: string[];
+    includeShared?: boolean;
+    searchIn?: string[];
+    limit?: number;
+    offset?: number;
+    sort?: string;
+    category?: string;
+    channel?: string;
+    channels?: string[];
+    priorities?: string[];
+    createdAfter?: string;
+    createdBefore?: string;
+    keyPattern?: string;
+    includeMetadata?: boolean;
+  }): { items: ContextItem[]; totalCount: number; pagination: any } {
+    const {
+      query,
+      currentSessionId,
+      sessions,
+      includeShared = true,
+      searchIn = ['key', 'value'],
+      limit = 25, // Default pagination limit
+      offset = 0,
+      sort = 'created_desc',
+      category,
+      channel,
+      channels,
+      priorities,
+      createdAfter,
+      createdBefore,
+      keyPattern,
+    } = options;
+
+    // Validate pagination parameters
+    const validLimit = Math.min(Math.max(1, limit), 100); // 1-100 range
+    const validOffset = Math.max(0, offset);
+
+    // Build the base query for cross-session search
+    let sql = `
+      SELECT * FROM context_items 
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    // Handle privacy filtering
+    if (currentSessionId && includeShared) {
+      sql += ' AND (is_private = 0 OR session_id = ?)';
+      params.push(currentSessionId);
+    } else if (includeShared) {
+      sql += ' AND is_private = 0';
+    } else if (currentSessionId) {
+      sql += ' AND session_id = ?';
+      params.push(currentSessionId);
+    } else {
+      sql += ' AND is_private = 0';
+    }
+
+    // Session filtering
+    if (sessions && sessions.length > 0) {
+      sql += ` AND session_id IN (${sessions.map(() => '?').join(',')})`;
+      params.push(...sessions);
+    }
+
+    // Add search query with searchIn support
+    if (query) {
+      const searchConditions: string[] = [];
+      const escapedQuery = query.replace(/[%_\\]/g, `${ContextRepository.SQLITE_ESCAPE_CHAR}$&`);
+
+      if (searchIn.includes('key')) {
+        searchConditions.push(`key LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
+        params.push(`%${escapedQuery}%`);
+      }
+
+      if (searchIn.includes('value')) {
+        searchConditions.push(`value LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
+        params.push(`%${escapedQuery}%`);
+      }
+
+      if (searchConditions.length > 0) {
+        sql += ` AND (${searchConditions.join(' OR ')})`;
+      }
+    }
+
+    // Add filters (same pattern as searchEnhanced)
+    if (category) {
+      sql += ' AND category = ?';
+      params.push(category);
+    }
+
+    if (channel) {
+      sql += ' AND channel = ?';
+      params.push(channel);
+    }
+
+    if (channels && channels.length > 0) {
+      sql += ` AND channel IN (${channels.map(() => '?').join(',')})`;
+      params.push(...channels);
+    }
+
+    if (createdAfter) {
+      const parsedDate = this.parseRelativeTime(createdAfter);
+      const effectiveDate = parsedDate || createdAfter;
+      sql += ' AND created_at > ?';
+      params.push(effectiveDate);
+    }
+
+    if (createdBefore) {
+      let effectiveDate = createdBefore;
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      if (createdBefore === 'today') {
+        effectiveDate = today.toISOString();
+      } else if (createdBefore === 'yesterday') {
+        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+        effectiveDate = yesterday.toISOString();
+      } else {
+        const parsedDate = this.parseRelativeTime(createdBefore);
+        if (parsedDate) {
+          effectiveDate = parsedDate;
+        }
+      }
+
+      sql += ' AND created_at < ?';
+      params.push(effectiveDate);
+    }
+
+    if (keyPattern) {
+      const globPattern = this.convertToGlobPattern(keyPattern);
+      sql += ' AND key GLOB ?';
+      params.push(globPattern);
+    }
+
+    if (priorities && priorities.length > 0) {
+      sql += ` AND priority IN (${priorities.map(() => '?').join(',')})`;
+      params.push(...priorities);
+    }
+
+    // Count total before pagination
+    const totalCount = this.getTotalCount(sql, params);
+
+    // Add sorting
+    sql += ` ORDER BY ${this.buildSortClause(sort)}`;
+
+    // Add pagination
+    sql = this.addPaginationToQuery(sql, params, validLimit, validOffset);
+
+    const stmt = this.db.prepare(sql);
+    const items = stmt.all(...params) as ContextItem[];
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / validLimit);
+    const currentPage = Math.floor(validOffset / validLimit) + 1;
+    const hasNextPage = currentPage < totalPages;
+    const hasPreviousPage = currentPage > 1;
+    const nextOffset = hasNextPage ? validOffset + validLimit : null;
+    const previousOffset = hasPreviousPage ? Math.max(0, validOffset - validLimit) : null;
+
+    const pagination = {
+      currentPage,
+      totalPages,
+      totalItems: totalCount,
+      itemsPerPage: validLimit,
+      hasNextPage,
+      hasPreviousPage,
+      nextOffset,
+      previousOffset,
+    };
+
+    return { items, totalCount, pagination };
+  }
+
   getStatsBySession(sessionId: string): {
     count: number;
     totalSize: number;

@@ -2796,36 +2796,98 @@ Event ID: ${id.substring(0, 8)}`,
     */
 
     case 'context_search_all': {
-      const { query } = args;
+      const {
+        query,
+        sessions,
+        includeShared = true,
+        limit: rawLimit = 25,
+        offset: rawOffset = 0,
+        sort = 'created_desc',
+        category,
+        channel,
+        channels,
+        priorities,
+        createdAfter,
+        createdBefore,
+        keyPattern,
+        searchIn = ['key', 'value'],
+        includeMetadata = false,
+      } = args;
+
+      // CRITICAL FIX: Ensure pagination parameters are properly typed and validated
+      const limit =
+        Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(Math.max(1, rawLimit), 100) : 25;
+      const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
       const currentSession = currentSessionId || ensureSession();
 
-      try {
-        // Search across all sessions, including private items from current session
-        const results = repositories.contexts.searchAcrossSessions(query, currentSession);
+      // PAGINATION FIX: Enhanced parameter validation to prevent type conversion issues
+      // This ensures that string numbers, floats, or invalid values don't break pagination
 
-        if (results.length === 0) {
+      try {
+        // Use enhanced search across sessions with pagination
+        const result = repositories.contexts.searchAcrossSessionsEnhanced({
+          query,
+          currentSessionId: currentSession,
+          sessions,
+          includeShared,
+          searchIn,
+          limit,
+          offset,
+          sort,
+          category,
+          channel,
+          channels,
+          priorities,
+          createdAfter,
+          createdBefore,
+          keyPattern,
+          includeMetadata,
+        });
+
+        // PAGINATION VALIDATION: Ensure pagination is working as expected
+        if (result.items.length > limit && limit < result.totalCount) {
+          console.warn(
+            `⚠️ Pagination warning: Expected max ${limit} items, got ${result.items.length}`
+          );
+        }
+
+        if (result.items.length === 0) {
           return {
             content: [
               {
                 type: 'text',
-                text: `No results found for: "${query}"`,
+                text: `No results found for: "${query}"${result.totalCount > 0 ? ` (showing page ${result.pagination.currentPage} of ${result.pagination.totalPages})` : ''}`,
               },
             ],
           };
         }
 
-        const resultsList = results
+        const resultsList = result.items
           .map(
             (item: any) =>
               `• [${item.session_id.substring(0, 8)}] ${item.key}: ${item.value.substring(0, 100)}${item.value.length > 100 ? '...' : ''}`
           )
           .join('\n');
 
+        // Build pagination info
+        const paginationInfo =
+          result.pagination.totalPages > 1
+            ? `\n\nPagination: Page ${result.pagination.currentPage} of ${result.pagination.totalPages} (${result.pagination.totalItems} total items)${
+                result.pagination.hasNextPage
+                  ? `\nNext page: offset=${result.pagination.nextOffset}, limit=${result.pagination.itemsPerPage}`
+                  : ''
+              }${
+                result.pagination.hasPreviousPage
+                  ? `\nPrevious page: offset=${result.pagination.previousOffset}, limit=${result.pagination.itemsPerPage}`
+                  : ''
+              }`
+            : '';
+
         return {
           content: [
             {
               type: 'text',
-              text: `Found ${results.length} results across sessions:\n\n${resultsList}`,
+              text: `Found ${result.items.length} results on this page (${result.totalCount} total across sessions):\n\n${resultsList}${paginationInfo}`,
             },
           ],
         };
@@ -4038,7 +4100,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       */
       {
         name: 'context_search_all',
-        description: 'Search across multiple or all sessions',
+        description: 'Search across multiple or all sessions with pagination support',
         inputSchema: {
           type: 'object',
           properties: {
@@ -4052,6 +4114,67 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Include shared items in search',
               default: true,
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of items to return (1-100, default: 25)',
+              minimum: 1,
+              maximum: 100,
+              default: 25,
+            },
+            offset: {
+              type: 'number',
+              description: 'Number of items to skip for pagination (default: 0)',
+              minimum: 0,
+              default: 0,
+            },
+            sort: {
+              type: 'string',
+              description: 'Sort order for results',
+              enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
+              default: 'created_desc',
+            },
+            category: {
+              type: 'string',
+              description: 'Filter by category',
+              enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+            },
+            channel: {
+              type: 'string',
+              description: 'Filter by single channel',
+            },
+            channels: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by multiple channels',
+            },
+            priorities: {
+              type: 'array',
+              items: { type: 'string', enum: ['high', 'normal', 'low'] },
+              description: 'Filter by priority levels',
+            },
+            createdAfter: {
+              type: 'string',
+              description: 'Filter items created after this date (ISO format or relative time)',
+            },
+            createdBefore: {
+              type: 'string',
+              description: 'Filter items created before this date (ISO format or relative time)',
+            },
+            keyPattern: {
+              type: 'string',
+              description: 'Pattern to match keys (supports wildcards: *, ?)',
+            },
+            searchIn: {
+              type: 'array',
+              items: { type: 'string', enum: ['key', 'value'] },
+              description: 'Fields to search in',
+              default: ['key', 'value'],
+            },
+            includeMetadata: {
+              type: 'boolean',
+              description: 'Include timestamps and size info',
+              default: false,
             },
           },
           required: ['query'],
