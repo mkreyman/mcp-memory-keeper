@@ -651,21 +651,10 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
-      // Use enhanced query for complex queries or when we need pagination
-      // This ensures default pagination is applied when needed
-      if (
-        sort !== undefined ||
-        limit !== undefined ||
-        offset ||
-        createdAfter ||
-        createdBefore ||
-        keyPattern ||
-        priorities ||
-        channel ||
-        channels ||
-        includeMetadata ||
-        (!key && !category) // If listing all items without filters, use pagination
-      ) {
+      // Always use enhanced query to ensure consistent pagination
+      // This prevents token limit issues when querying large datasets
+      // Removed the conditional check since we always want to use this path
+      {
         const result = repositories.contexts.queryEnhanced({
           sessionId: targetSessionId,
           key,
@@ -798,58 +787,6 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           ],
         };
       }
-
-      // Backward compatible simple queries
-      let rows;
-      if (key) {
-        // Use getAccessibleByKey to respect privacy
-        const item = repositories.contexts.getAccessibleByKey(targetSessionId, key);
-        rows = item ? [item] : [];
-      } else {
-        // Use getAccessibleItems for listing
-        rows = repositories.contexts.getAccessibleItems(targetSessionId, { category });
-      }
-
-      if (rows.length === 0) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'No matching context found',
-            },
-          ],
-        };
-      }
-
-      if (key && rows.length === 1) {
-        // Single item requested
-        const item = rows[0] as any;
-        return {
-          content: [
-            {
-              type: 'text',
-              text: item.value,
-            },
-          ],
-        };
-      }
-
-      // Multiple items
-      const items = rows
-        .map(
-          (r: any) =>
-            `• [${r.priority}] ${r.key}: ${r.value.substring(0, 100)}${r.value.length > 100 ? '...' : ''}`
-        )
-        .join('\n');
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Found ${rows.length} context items:\n\n${items}`,
-          },
-        ],
-      };
     }
 
     // File Caching
