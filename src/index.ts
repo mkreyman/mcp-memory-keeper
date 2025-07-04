@@ -642,14 +642,27 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         sessionId: specificSessionId,
         includeMetadata,
         sort,
-        limit,
-        offset,
+        limit: rawLimit,
+        offset: rawOffset,
         createdAfter,
         createdBefore,
         keyPattern,
         priorities,
       } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
+
+      // Validate pagination parameters with proper defaults
+      // Default limit for context_get should be 100 to match repository defaults
+      const paginationValidation = validatePaginationParams({
+        limit: rawLimit !== undefined ? rawLimit : 100,
+        offset: rawOffset,
+      });
+      const { limit, offset, errors: paginationErrors } = paginationValidation;
+
+      // Log pagination validation errors for debugging
+      if (paginationErrors.length > 0) {
+        debugLog('context_get pagination validation errors:', paginationErrors);
+      }
 
       // Always use enhanced query to ensure consistent pagination
       // This prevents token limit issues when querying large datasets
@@ -690,8 +703,9 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         const isApproachingLimit = metrics.estimatedTokens > TOKEN_LIMIT;
 
         // Calculate pagination metadata
-        const effectiveLimit = limit === undefined ? 100 : limit; // Default limit applied
-        const effectiveOffset = offset || 0;
+        // Use the validated limit and offset from paginationValidation
+        const effectiveLimit = limit; // Already validated and defaulted
+        const effectiveOffset = offset; // Already validated and defaulted
         const currentPage =
           effectiveLimit > 0 ? Math.floor(effectiveOffset / effectiveLimit) + 1 : 1;
         const totalPages = effectiveLimit > 0 ? Math.ceil(result.totalCount / effectiveLimit) : 1;
@@ -700,7 +714,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
         // Track whether defaults were applied
         const defaultsApplied = {
-          limit: limit === undefined,
+          limit: rawLimit === undefined,
           sort: sort === undefined,
         };
 

@@ -7,20 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pagination Defaults in context_get** - Improved consistency
+  - Added proper validation of pagination parameters at handler level
+  - Default limit of 100 items now properly applied when not specified
+  - Invalid limit/offset values are validated and fallback to defaults
+  - Response includes `defaultsApplied` metadata to indicate when defaults were used
+  - Consistent behavior with `context_search_all` and other paginated endpoints
+
 ### Added
+
 - **Batch Operations** - Atomic multi-item operations
+
   - `context_batch_save` - Save multiple items in one transaction
   - `context_batch_delete` - Delete multiple items by keys or pattern
   - `context_batch_update` - Update multiple items with partial changes
   - Ensures data consistency with all-or-nothing transactions
 
 - **Channel Reassignment** - Reorganize context items
+
   - `context_reassign_channel` - Move items between channels
   - Support for key patterns, specific keys, or entire channels
   - Filter by category and priority during moves
   - Dry run option to preview changes
 
 - **Context Relationships** - Build knowledge graphs
+
   - `context_link` - Create typed relationships between items
   - `context_get_related` - Find related items with traversal
   - 14 relationship types (contains, depends_on, references, etc.)
@@ -34,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Track added vs updated items
 
 ### Documentation
+
 - Added comprehensive documentation for all new features in API.md
 - Added practical examples in EXAMPLES.md
 - Added recipes for common patterns in RECIPES.md
@@ -42,7 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.10.0] - 2025-01-26
 
 ### Added
+
 - **Channels** - Persistent topic-based organization (#22)
+
   - Auto-derived from git branch names (20 chars max)
   - Survives session crashes and restarts
   - `defaultChannel` parameter in `context_session_start`
@@ -50,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Perfect for multi-branch development and team collaboration
 
 - **Enhanced Filtering** in `context_get` (#21)
+
   - `includeMetadata` - Get timestamps and size information
   - `sort` - Sort by created/updated time (asc/desc) or priority
   - `limit` and `offset` - Pagination support
@@ -64,11 +81,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `itemsPerPeriod` - Limit items shown per time period
 
 ### Changed
+
 - Database schema updated with `channel` column in context_items table
 - Improved query performance with channel indexing
 - Better support for cross-branch context queries
 
 ### Technical
+
 - Added channels migration (003_add_channels.ts)
 - Enhanced validation for channel names
 - Backward compatible - existing items default to 'default' channel
@@ -76,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.0] - 2025-01-20
 
 ### Changed (BREAKING)
+
 - **Simplified Sharing Model** (#19)
   - Context items are now shared across all sessions by default (public)
   - Removed broken `context_share` and `context_get_shared` commands
@@ -84,11 +104,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Migration included to make ALL existing items public (accessible across sessions)
 
 ### Fixed
+
 - Cross-session collaboration now works reliably
 - Context accessibility is consistent across all retrieval methods
 - Search operations properly respect privacy settings
 
 ### Removed
+
 - `context_share` tool (sharing is now automatic)
 - `context_get_shared` tool (use `context_get` instead)
 - Complex sharing mechanism that was causing inconsistencies
@@ -96,11 +118,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.4] - 2025-01-19
 
 ### Fixed
+
 - Critical fix for "table sessions has no column named working_directory" error
 - Added defensive checks before using working_directory column
 - Gracefully handles existing databases without the new column
 
 ### Added
+
 - Tiered storage and retention policies (planned)
 - Feature flags system (planned)
 - Database migration system (planned)
@@ -108,24 +132,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.3] - 2025-01-19
 
 ### Added
+
 - **Smart Project Directory Management**
   - `context_session_start` provides intelligent suggestions when no project directory is set
   - Detects git repositories in current directory and subdirectories
   - Suggests appropriate project paths based on directory structure
   - Working directory is stored in the sessions table when explicitly provided
   - Git-dependent tools now prompt for project directory setup when needed
-  
+
 ### Changed
+
 - Sessions table now includes a `working_directory` column
 - Improved user guidance for setting up git tracking
 - More helpful messages when project directory is not set
 
 ### Fixed
+
 - Automatic schema migration for existing databases to add the `working_directory` column
 
 ## [0.8.0] - 2024-01-18
 
 ### Added
+
 - **Session Branching & Merging** (#14)
   - `context_branch_session` tool for creating session branches
   - Support for shallow (high-priority only) and deep (full copy) branching
@@ -151,11 +179,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Support for tool event metadata storage
 
 ### Changed
+
 - Updated database schema to support new features
 - Enhanced documentation with comprehensive examples
 - Improved test coverage with 19 new test cases
 
 ### Technical
+
 - Added `parent_id` column to sessions table
 - New tables: `journal_entries`, `compressed_context`, `tool_events`
 - All 255 tests passing
@@ -163,6 +193,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.0] - 2024-01-18
 
 ### Added
+
 - **Multi-Agent System** (#9)
   - Agent framework with specialized roles
   - `AnalyzerAgent` for pattern detection and relationship analysis
@@ -173,10 +204,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Confidence scoring for agent outputs
 
 ### Changed
+
 - Improved documentation with multi-agent examples
 - Enhanced EXAMPLES.md with agent usage patterns
 
 ### Technical
+
 - Created `src/utils/agents.ts` with complete agent implementation
 - Added comprehensive test coverage (30 new tests)
 - All 236 tests passing
@@ -184,6 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2024-01-17
 
 ### Added
+
 - **Semantic Search** (#4)
   - `context_semantic_search` tool for natural language queries
   - Lightweight vector embeddings using character n-grams
@@ -192,10 +226,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integration with existing search infrastructure
 
 ### Changed
+
 - Updated examples with semantic search patterns
 - Enhanced documentation for natural language queries
 
 ### Technical
+
 - Implemented `VectorStore` class for embedding management
 - Added `vector_embeddings` table to database schema
 - Comprehensive test coverage for semantic search
@@ -204,6 +240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2024-01-17
 
 ### Added
+
 - **Knowledge Graph Integration** (#3)
   - Automatic entity extraction from context
   - Relationship detection between entities
@@ -213,10 +250,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Confidence scoring for relationships
 
 ### Changed
+
 - Enhanced database schema for knowledge graph support
 - Improved context analysis capabilities
 
 ### Technical
+
 - New tables: `entities`, `relations`, `observations`
 - Added `knowledge-graph.ts` utility module
 - Comprehensive test coverage for graph operations
@@ -224,29 +263,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.2] - 2024-01-16
 
 ### Added
+
 - **Documentation Improvements**
   - Comprehensive TROUBLESHOOTING.md guide
   - Enhanced EXAMPLES.md with real-world scenarios
   - Started RECIPES.md for common patterns
 
 ### Fixed
+
 - Git integration error handling
 - Session list date filtering
 
 ## [0.4.1] - 2024-01-16
 
 ### Fixed
+
 - Database initialization race condition
 - Checkpoint restoration with missing files
 - Search result ranking accuracy
 
 ### Changed
+
 - Improved error messages for better debugging
 - Enhanced validation for file paths
 
 ## [0.4.0] - 2024-01-15
 
 ### Added
+
 - **Git Integration** (#2)
   - `context_git_commit` tool with auto-save
   - Automatic context correlation with commits
@@ -254,10 +298,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Branch tracking
 
 ### Changed
+
 - Checkpoint system now includes git information
 - Enhanced session metadata with git branch
 
 ### Technical
+
 - Added `simple-git` dependency
 - Created `git.ts` utility module
 - 97% test coverage maintained
@@ -265,6 +311,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2024-01-14
 
 ### Added
+
 - **Smart Compaction** (#1)
   - `context_prepare_compaction` tool
   - Automatic identification of critical items
@@ -280,10 +327,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Session backup and restore capability
 
 ### Changed
+
 - Improved checkpoint metadata
 - Enhanced error handling across all tools
 
 ### Technical
+
 - Added search indexes for performance
 - Implemented streaming for large exports
 - Transaction support for atomic operations
@@ -291,6 +340,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2024-01-13
 
 ### Added
+
 - **Checkpoint System**
   - `context_checkpoint` tool for complete snapshots
   - `context_restore_checkpoint` for state restoration
@@ -307,17 +357,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic cache invalidation
 
 ### Changed
+
 - Improved session management with metadata
 - Better error messages with error codes
 - Enhanced validation for all inputs
 
 ### Fixed
+
 - Memory leak in file cache operations
 - Session switching race condition
 
 ## [0.1.0] - 2024-01-12
 
 ### Added
+
 - Initial release
 - **Core Features**
   - `context_save` and `context_get` tools
@@ -335,6 +388,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Error handling and reporting
 
 ### Technical
+
 - TypeScript implementation
 - Comprehensive test suite
 - Zero runtime dependencies (except MCP SDK and SQLite)
@@ -342,10 +396,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Development Releases
 
 ### [0.1.0-beta.2] - 2024-01-11
+
 - Fixed Windows path handling
 - Added Node.js 18+ compatibility
 
 ### [0.1.0-beta.1] - 2024-01-10
+
 - Initial beta release
 - Basic functionality testing
 - Community feedback integration
