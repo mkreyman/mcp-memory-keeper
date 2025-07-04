@@ -1,6 +1,7 @@
 # MCP Memory Keeper - API Reference
 
 ## Table of Contents
+
 - [Session Management](#session-management)
 - [Context Storage](#context-storage)
 - [Channel Management](#channel-management)
@@ -24,6 +25,7 @@
 Start a new session or continue from a previous one.
 
 **Parameters:**
+
 ```typescript
 {
   name?: string;           // Optional session name
@@ -35,6 +37,7 @@ Start a new session or continue from a previous one.
 ```
 
 **Returns:**
+
 ```typescript
 {
   sessionId: string;       // Unique session identifier
@@ -46,17 +49,18 @@ Start a new session or continue from a previous one.
 ```
 
 **Example:**
+
 ```typescript
 // Start new session
 await context_session_start({
-  name: "Feature Development",
-  description: "Implementing user authentication"
+  name: 'Feature Development',
+  description: 'Implementing user authentication',
 });
 
 // Continue from previous
 await context_session_start({
-  name: "Feature Dev Day 2",
-  continueFrom: "previous-session-id"
+  name: 'Feature Dev Day 2',
+  continueFrom: 'previous-session-id',
 });
 ```
 
@@ -65,6 +69,7 @@ await context_session_start({
 List recent sessions with optional filtering.
 
 **Parameters:**
+
 ```typescript
 {
   limit?: number;          // Number of sessions to return (default: 10)
@@ -74,6 +79,7 @@ List recent sessions with optional filtering.
 ```
 
 **Returns:**
+
 ```typescript
 {
   sessions: Array<{
@@ -96,6 +102,7 @@ List recent sessions with optional filtering.
 Save context information with categories and priorities.
 
 **Parameters:**
+
 ```typescript
 {
   key: string;             // Unique identifier for the context item
@@ -109,32 +116,34 @@ Save context information with categories and priorities.
 ```
 
 **Returns:**
+
 ```typescript
 {
-  id: string;              // Unique item ID
-  key: string;             // The provided key
-  sessionId: string;       // Current session ID
-  createdAt: string;       // ISO timestamp
+  id: string; // Unique item ID
+  key: string; // The provided key
+  sessionId: string; // Current session ID
+  createdAt: string; // ISO timestamp
 }
 ```
 
 **Example:**
+
 ```typescript
 // Save public context (default - accessible from all sessions)
 await context_save({
-  key: "auth_decision",
-  value: "Using JWT with 24h expiry and refresh tokens",
-  category: "decision",
-  priority: "high",
-  metadata: { reviewedBy: "team", approvedDate: "2024-01-15" }
+  key: 'auth_decision',
+  value: 'Using JWT with 24h expiry and refresh tokens',
+  category: 'decision',
+  priority: 'high',
+  metadata: { reviewedBy: 'team', approvedDate: '2024-01-15' },
 });
 
 // Save private context (only visible in current session)
 await context_save({
-  key: "debug_notes",
-  value: "Local testing with mock API keys",
-  category: "note",
-  private: true
+  key: 'debug_notes',
+  value: 'Local testing with mock API keys',
+  category: 'note',
+  private: true,
 });
 ```
 
@@ -143,6 +152,7 @@ await context_save({
 Retrieve context items with flexible filtering. By default, returns all accessible items (public items from all sessions + private items from current session).
 
 **Parameters:**
+
 ```typescript
 {
   key?: string;            // Specific key to retrieve
@@ -150,63 +160,96 @@ Retrieve context items with flexible filtering. By default, returns all accessib
   priority?: string;       // Filter by priority (deprecated - use priorities)
   priorities?: string[];   // Filter by multiple priorities (NEW v0.10.0)
   sessionId?: string;      // Specific session (default: current)
-  limit?: number;          // Maximum items to return
-  offset?: number;         // Pagination offset (NEW v0.10.0)
+  limit?: number;          // Maximum items to return (default: 100, 0 = unlimited)
+  offset?: number;         // Pagination offset (default: 0) (NEW v0.10.0)
   channel?: string;        // Filter by channel (NEW v0.10.0)
   includeMetadata?: boolean; // Include timestamps and size info (NEW v0.10.0)
-  sort?: 'created_asc' | 'created_desc' | 'updated_asc' | 'updated_desc' | 'priority'; // Sort order (NEW v0.10.0)
+  sort?: 'created_asc' | 'created_desc' | 'updated_asc' | 'updated_desc' | 'priority'; // Sort order (default: 'created_desc') (NEW v0.10.0)
   createdAfter?: string;   // ISO date - items created after this time (NEW v0.10.0)
   createdBefore?: string;  // ISO date - items created before this time (NEW v0.10.0)
   keyPattern?: string;     // Regex pattern to match keys (NEW v0.10.0)
 }
 ```
 
+**Pagination Defaults:**
+
+- `limit`: 100 (returns first 100 items by default)
+- `offset`: 0 (starts from the beginning)
+- `sort`: 'created_desc' (newest items first)
+- To retrieve all items, set `limit` to 0
+- Limits are clamped between 1-100 (except 0 for unlimited)
+
 **Returns:**
+
 ```typescript
 {
   items: Array<{
-    id: string;
     key: string;
     value: string;
     category?: string;
     priority?: string;
-    metadata?: any;
-    createdAt: string;
-    updatedAt?: string;      // When includeMetadata: true
+    channel?: string;
+    metadata?: any;          // When includeMetadata: true
     size?: number;           // When includeMetadata: true
-    channel?: string;        // When includeMetadata: true
+    created_at?: string;     // When includeMetadata: true
+    updated_at?: string;     // When includeMetadata: true
   }>;
-  count: number;
+  pagination: {
+    total: number;           // Total count of matching items
+    returned: number;        // Number of items in this response
+    offset: number;          // Current offset
+    hasMore: boolean;        // Whether more items exist
+    nextOffset?: number;     // Offset for next page (if hasMore is true)
+
+    // Extended pagination metadata
+    totalCount: number;      // Same as total
+    page: number;            // Current page number (1-based)
+    pageSize: number;        // Items per page (same as limit)
+    totalPages: number;      // Total number of pages
+    hasNextPage: boolean;    // Whether next page exists
+    hasPreviousPage: boolean; // Whether previous page exists
+    previousOffset?: number; // Offset for previous page
+
+    // Additional metadata
+    totalSize?: number;      // Combined size of all returned items (when includeMetadata: true)
+    averageSize?: number;    // Average size per item (when includeMetadata: true)
+    defaultsApplied?: {      // Which defaults were applied
+      limit: boolean;
+      sort: boolean;
+    };
+    warning?: string;        // Warning if approaching token limits
+  };
 }
 ```
 
 **Examples:**
+
 ```typescript
 // Get items from specific channel
-await context_get({ 
-  channel: "feature-auth" 
+await context_get({
+  channel: 'feature-auth',
 });
 
 // Get recent high-priority items with metadata
 await context_get({
-  priorities: ["high", "critical"],
-  createdAfter: new Date(Date.now() - 24*60*60*1000).toISOString(),
+  priorities: ['high', 'critical'],
+  createdAfter: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
   includeMetadata: true,
-  sort: "created_desc"
+  sort: 'created_desc',
 });
 
 // Paginated results
 await context_get({
-  category: "task",
+  category: 'task',
   limit: 20,
-  offset: 40,  // Skip first 40 items
-  sort: "priority"
+  offset: 40, // Skip first 40 items
+  sort: 'priority',
 });
 
 // Pattern matching
 await context_get({
-  keyPattern: "auth_.*|login_.*",
-  channel: "feature-auth"
+  keyPattern: 'auth_.*|login_.*',
+  channel: 'feature-auth',
 });
 ```
 
@@ -215,6 +258,7 @@ await context_get({
 Delete a specific context item.
 
 **Parameters:**
+
 ```typescript
 {
   key: string;             // Key of item to delete
@@ -223,6 +267,7 @@ Delete a specific context item.
 ```
 
 **Returns:**
+
 ```typescript
 {
   success: boolean;
@@ -237,6 +282,7 @@ Delete a specific context item.
 List all channels across sessions with comprehensive statistics and insights.
 
 **Parameters:**
+
 ```typescript
 {
   sessionId?: string;      // Filter by specific session (default: all sessions)
@@ -248,50 +294,53 @@ List all channels across sessions with comprehensive statistics and insights.
 ```
 
 **Returns:**
+
 ```typescript
 {
   channels: Array<{
-    channel: string;       // Channel name
-    itemCount: number;     // Total items in this channel
-    sessions: number;      // Number of sessions using this channel
-    lastActivity: string;  // ISO timestamp of most recent activity
+    channel: string; // Channel name
+    itemCount: number; // Total items in this channel
+    sessions: number; // Number of sessions using this channel
+    lastActivity: string; // ISO timestamp of most recent activity
     categories: Record<string, number>; // Item count by category
     priorities: Record<string, number>; // Item count by priority
   }>;
-  totalChannels: number;   // Total number of channels found
+  totalChannels: number; // Total number of channels found
   stats: {
-    totalItems: number;    // Total items across all channels
+    totalItems: number; // Total items across all channels
     averageItemsPerChannel: number;
     mostActiveChannel: string;
     leastActiveChannel: string;
-  };
+  }
 }
 ```
 
 **Examples:**
+
 ```typescript
 // List all active channels
 await context_list_channels();
 
 // List channels for current session only
 await context_list_channels({
-  sessionId: "current"
+  sessionId: 'current',
 });
 
 // Get top 10 most active channels
 await context_list_channels({
-  sort: "item_count",
-  limit: 10
+  sort: 'item_count',
+  limit: 10,
 });
 
 // Include empty channels for cleanup
 await context_list_channels({
   includeEmpty: true,
-  sort: "last_activity"
+  sort: 'last_activity',
 });
 ```
 
 **Use Cases:**
+
 1. **Channel Discovery**: Find all channels being used across your project
 2. **Activity Monitoring**: Identify most/least active channels
 3. **Organization Review**: See how work is distributed across channels
@@ -303,6 +352,7 @@ await context_list_channels({
 Get detailed statistics and insights for a specific channel.
 
 **Parameters:**
+
 ```typescript
 {
   channel: string;         // Channel name (required)
@@ -316,6 +366,7 @@ Get detailed statistics and insights for a specific channel.
 ```
 
 **Returns:**
+
 ```typescript
 {
   channel: string;         // Channel name
@@ -324,7 +375,7 @@ Get detailed statistics and insights for a specific channel.
     totalSessions: number; // Sessions using this channel
     privateItems: number;  // Number of private items
     publicItems: number;   // Number of public items
-    
+
     byCategory: Record<string, number>;  // Item distribution by category
     byPriority: Record<string, number>;  // Item distribution by priority
     bySession: Array<{     // Per-session breakdown
@@ -333,7 +384,7 @@ Get detailed statistics and insights for a specific channel.
       itemCount: number;
       lastActivity: string;
     }>;
-    
+
     activity: {
       firstItem: string;   // ISO timestamp of first item
       lastItem: string;    // ISO timestamp of last item
@@ -341,12 +392,12 @@ Get detailed statistics and insights for a specific channel.
       averageItemsPerDay: number;
       activityTrend: 'increasing' | 'stable' | 'decreasing';
     };
-    
+
     topKeys: Array<{       // Most common keys
       key: string;
       count: number;
     }>;
-    
+
     sizeMetrics: {         // Storage metrics
       totalSize: number;   // Total size in bytes
       averageSize: number; // Average item size
@@ -356,7 +407,7 @@ Get detailed statistics and insights for a specific channel.
       };
     };
   };
-  
+
   insights?: {             // When includeInsights: true
     summary: string;       // Natural language summary
     patterns: string[];    // Identified patterns
@@ -367,34 +418,36 @@ Get detailed statistics and insights for a specific channel.
 ```
 
 **Examples:**
+
 ```typescript
 // Get comprehensive stats for a channel
 await context_channel_stats({
-  channel: "feature-auth"
+  channel: 'feature-auth',
 });
 
 // Focus on recent activity
 await context_channel_stats({
-  channel: "debugging",
+  channel: 'debugging',
   timeRange: {
-    start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() // Last 7 days
-  }
+    start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // Last 7 days
+  },
 });
 
 // Get stats without AI insights (faster)
 await context_channel_stats({
-  channel: "feature-payments",
-  includeInsights: false
+  channel: 'feature-payments',
+  includeInsights: false,
 });
 
 // Session-specific channel stats
 await context_channel_stats({
-  channel: "main",
-  sessionId: "current"
+  channel: 'main',
+  sessionId: 'current',
 });
 ```
 
 **Use Cases:**
+
 1. **Progress Tracking**: Monitor activity and trends in feature channels
 2. **Resource Planning**: Identify channels consuming most storage
 3. **Quality Analysis**: Review priority and category distributions
@@ -402,17 +455,20 @@ await context_channel_stats({
 5. **Decision Making**: Use AI insights to guide channel organization
 
 **Error Scenarios:**
+
 - `CHANNEL_NOT_FOUND`: Specified channel does not exist
 - `INVALID_PARAMS`: Missing required channel parameter
 - `DATABASE_ERROR`: Database read error during analysis
 
 **Performance Considerations:**
+
 - Channel stats are computed in real-time from the database
 - For large channels (>1000 items), consider using `includeInsights: false` for faster response
 - Results are not cached, so repeated calls will re-compute statistics
 - Time range filtering can significantly improve performance for historical channels
 
 **Best Practices:**
+
 1. **Regular Monitoring**: Check channel stats periodically to maintain organization
 2. **Channel Naming**: Use consistent, descriptive channel names (e.g., "feature-{name}", "bugfix-{id}")
 3. **Privacy Boundaries**: Remember that private items are only visible in their creating session
@@ -424,6 +480,7 @@ await context_channel_stats({
 Move context items between channels based on keys, patterns, or entire channels. This is useful for reorganizing work when branches are renamed, features are merged, or you need to consolidate related items.
 
 **Parameters:**
+
 ```typescript
 {
   toChannel: string;         // Target channel to move items to (required)
@@ -438,11 +495,13 @@ Move context items between channels based on keys, patterns, or entire channels.
 ```
 
 **Returns:**
+
 ```typescript
 {
   success: boolean;
-  movedCount: number;        // Number of items moved
-  items: Array<{             // Details of moved items (or items that would be moved if dryRun)
+  movedCount: number; // Number of items moved
+  items: Array<{
+    // Details of moved items (or items that would be moved if dryRun)
     id: string;
     key: string;
     fromChannel: string;
@@ -452,43 +511,45 @@ Move context items between channels based on keys, patterns, or entire channels.
 ```
 
 **Examples:**
+
 ```typescript
 // Move specific items to a new channel
 await context_reassign_channel({
-  keys: ["auth_config", "auth_tokens", "auth_middleware"],
-  toChannel: "feature-authentication"
+  keys: ['auth_config', 'auth_tokens', 'auth_middleware'],
+  toChannel: 'feature-authentication',
 });
 
 // Move all items matching a pattern
 await context_reassign_channel({
-  keyPattern: "test_*",
-  toChannel: "testing"
+  keyPattern: 'test_*',
+  toChannel: 'testing',
 });
 
 // Move entire channel contents
 await context_reassign_channel({
-  fromChannel: "feature-old-auth",
-  toChannel: "feature-new-auth"
+  fromChannel: 'feature-old-auth',
+  toChannel: 'feature-new-auth',
 });
 
 // Move high-priority tasks only
 await context_reassign_channel({
-  fromChannel: "backlog",
-  toChannel: "sprint-15",
-  category: "task",
-  priorities: ["high"]
+  fromChannel: 'backlog',
+  toChannel: 'sprint-15',
+  category: 'task',
+  priorities: ['high'],
 });
 
 // Preview changes before applying
 const preview = await context_reassign_channel({
-  keyPattern: "legacy_*",
-  toChannel: "archive",
-  dryRun: true
+  keyPattern: 'legacy_*',
+  toChannel: 'archive',
+  dryRun: true,
 });
 console.log(`Would move ${preview.movedCount} items`);
 ```
 
 **Use Cases:**
+
 1. **Branch Renaming**: When git branches are renamed, move all items to match
 2. **Feature Consolidation**: Merge items from multiple feature branches
 3. **Sprint Planning**: Move high-priority items to current sprint channel
@@ -496,6 +557,7 @@ console.log(`Would move ${preview.movedCount} items`);
 5. **Team Handoffs**: Reassign work items between team channels
 
 **Best Practices:**
+
 1. Always use `dryRun: true` first to preview large moves
 2. Create the target channel through normal saves if it doesn't exist
 3. Use specific filters (category, priority) to avoid moving unintended items
@@ -508,6 +570,7 @@ console.log(`Would move ${preview.movedCount} items`);
 Save multiple context items in a single atomic operation. This ensures all items are saved together or none are saved, maintaining data consistency.
 
 **Parameters:**
+
 ```typescript
 {
   items: Array<{
@@ -522,50 +585,54 @@ Save multiple context items in a single atomic operation. This ensures all items
 ```
 
 **Returns:**
+
 ```typescript
 {
   success: boolean;
-  savedCount: number;        // Number of items saved
-  updatedCount: number;      // Number of existing items updated
-  items: Array<{             // Details of saved items
+  savedCount: number; // Number of items saved
+  updatedCount: number; // Number of existing items updated
+  items: Array<{
+    // Details of saved items
     id: string;
     key: string;
-    isNew: boolean;          // true if newly created, false if updated
+    isNew: boolean; // true if newly created, false if updated
   }>;
 }
 ```
 
 **Examples:**
+
 ```typescript
 // Save multiple related configuration items
 await context_batch_save({
   items: [
-    { key: "db_host", value: "localhost", category: "note" },
-    { key: "db_port", value: "5432", category: "note" },
-    { key: "db_name", value: "myapp", category: "note" },
-    { key: "db_pool_size", value: "10", category: "note" }
-  ]
+    { key: 'db_host', value: 'localhost', category: 'note' },
+    { key: 'db_port', value: '5432', category: 'note' },
+    { key: 'db_name', value: 'myapp', category: 'note' },
+    { key: 'db_pool_size', value: '10', category: 'note' },
+  ],
 });
 
 // Import task list with priorities
 const tasks = [
-  { key: "task_auth", value: "Implement OAuth2", priority: "high", category: "task" },
-  { key: "task_tests", value: "Add integration tests", priority: "normal", category: "task" },
-  { key: "task_docs", value: "Update API docs", priority: "low", category: "task" }
+  { key: 'task_auth', value: 'Implement OAuth2', priority: 'high', category: 'task' },
+  { key: 'task_tests', value: 'Add integration tests', priority: 'normal', category: 'task' },
+  { key: 'task_docs', value: 'Update API docs', priority: 'low', category: 'task' },
 ];
 await context_batch_save({ items: tasks });
 
 // Save items to specific channel
 await context_batch_save({
   items: [
-    { key: "sprint_15_goal", value: "Complete user management", channel: "sprint-15" },
-    { key: "sprint_15_capacity", value: "40 story points", channel: "sprint-15" },
-    { key: "sprint_15_risks", value: "Backend API delays", channel: "sprint-15" }
-  ]
+    { key: 'sprint_15_goal', value: 'Complete user management', channel: 'sprint-15' },
+    { key: 'sprint_15_capacity', value: '40 story points', channel: 'sprint-15' },
+    { key: 'sprint_15_risks', value: 'Backend API delays', channel: 'sprint-15' },
+  ],
 });
 ```
 
 **Use Cases:**
+
 1. **Bulk Import**: Import configuration, tasks, or notes from external sources
 2. **Atomic Updates**: Ensure related items are saved together
 3. **Template Application**: Apply predefined sets of context items
@@ -576,6 +643,7 @@ await context_batch_save({
 Delete multiple context items by keys or pattern in a single atomic operation.
 
 **Parameters:**
+
 ```typescript
 {
   keys?: string[];           // Array of specific keys to delete
@@ -586,45 +654,49 @@ Delete multiple context items by keys or pattern in a single atomic operation.
 ```
 
 **Returns:**
+
 ```typescript
 {
   success: boolean;
-  deletedCount: number;      // Number of items deleted
-  items: Array<{             // Details of deleted items (or items that would be deleted if dryRun)
+  deletedCount: number; // Number of items deleted
+  items: Array<{
+    // Details of deleted items (or items that would be deleted if dryRun)
     id: string;
     key: string;
-    value: string;           // Included in dryRun to help identify items
+    value: string; // Included in dryRun to help identify items
   }>;
 }
 ```
 
 **Examples:**
+
 ```typescript
 // Delete specific items
 await context_batch_delete({
-  keys: ["temp_file_1", "temp_file_2", "temp_cache"]
+  keys: ['temp_file_1', 'temp_file_2', 'temp_cache'],
 });
 
 // Delete all items matching pattern
 await context_batch_delete({
-  keyPattern: "test_*"
+  keyPattern: 'test_*',
 });
 
 // Preview deletion
 const preview = await context_batch_delete({
-  keyPattern: "old_*",
-  dryRun: true
+  keyPattern: 'old_*',
+  dryRun: true,
 });
 console.log(`Would delete ${preview.deletedCount} items`);
 
 // Clean up session-specific temporary items
 await context_batch_delete({
-  keyPattern: "tmp_*",
-  sessionId: "specific-session-id"
+  keyPattern: 'tmp_*',
+  sessionId: 'specific-session-id',
 });
 ```
 
 **Use Cases:**
+
 1. **Cleanup**: Remove temporary or obsolete items
 2. **Reset**: Clear specific categories of data
 3. **Testing**: Clean up test data after test runs
@@ -635,6 +707,7 @@ await context_batch_delete({
 Update multiple context items with partial updates in a single atomic operation. Only specified fields are updated; others remain unchanged.
 
 **Parameters:**
+
 ```typescript
 {
   updates: Array<{
@@ -649,16 +722,19 @@ Update multiple context items with partial updates in a single atomic operation.
 ```
 
 **Returns:**
+
 ```typescript
 {
   success: boolean;
-  updatedCount: number;      // Number of items updated
-  failedCount: number;       // Number of items that couldn't be updated
-  results: Array<{           // Details of update results
+  updatedCount: number; // Number of items updated
+  failedCount: number; // Number of items that couldn't be updated
+  results: Array<{
+    // Details of update results
     key: string;
     success: boolean;
-    error?: string;          // Error message if update failed
-    changes?: {              // What was changed
+    error?: string; // Error message if update failed
+    changes?: {
+      // What was changed
       value?: boolean;
       category?: boolean;
       priority?: boolean;
@@ -669,42 +745,45 @@ Update multiple context items with partial updates in a single atomic operation.
 ```
 
 **Examples:**
+
 ```typescript
 // Update priorities for multiple tasks
 await context_batch_update({
   updates: [
-    { key: "task_auth", priority: "high" },
-    { key: "task_ui", priority: "high" },
-    { key: "task_docs", priority: "low" }
-  ]
+    { key: 'task_auth', priority: 'high' },
+    { key: 'task_ui', priority: 'high' },
+    { key: 'task_docs', priority: 'low' },
+  ],
 });
 
 // Move items to new channel and update category
 await context_batch_update({
   updates: [
-    { key: "decision_1", channel: "archived", category: "note" },
-    { key: "decision_2", channel: "archived", category: "note" },
-    { key: "decision_3", channel: "archived", category: "note" }
-  ]
+    { key: 'decision_1', channel: 'archived', category: 'note' },
+    { key: 'decision_2', channel: 'archived', category: 'note' },
+    { key: 'decision_3', channel: 'archived', category: 'note' },
+  ],
 });
 
 // Update values while keeping other fields
 await context_batch_update({
   updates: [
-    { key: "config_timeout", value: "30000" },
-    { key: "config_retries", value: "5" },
-    { key: "config_batch_size", value: "100" }
-  ]
+    { key: 'config_timeout', value: '30000' },
+    { key: 'config_retries', value: '5' },
+    { key: 'config_batch_size', value: '100' },
+  ],
 });
 ```
 
 **Use Cases:**
+
 1. **Bulk Status Updates**: Update multiple task statuses or priorities
 2. **Reorganization**: Move groups of items to different channels
 3. **Metadata Updates**: Update categories or priorities in bulk
 4. **Configuration Changes**: Update multiple configuration values
 
 **Best Practices for Batch Operations:**
+
 1. Use transactions to ensure atomicity - all operations succeed or all fail
 2. Always validate data before batch operations
 3. Use `dryRun` for delete operations to preview effects
@@ -718,6 +797,7 @@ await context_batch_update({
 Create a relationship between two context items. This enables building a graph of related items for better organization and discovery.
 
 **Parameters:**
+
 ```typescript
 {
   sourceKey: string;         // Key of the source context item
@@ -728,6 +808,7 @@ Create a relationship between two context items. This enables building a graph o
 ```
 
 **Relationship Types:**
+
 - `contains` - Source contains target (e.g., epic contains task)
 - `depends_on` - Source depends on target
 - `references` - Source references target
@@ -744,50 +825,52 @@ Create a relationship between two context items. This enables building a graph o
 - `leads_to` - Source leads to target
 
 **Returns:**
+
 ```typescript
 {
   success: boolean;
-  relationshipId: string;    // Unique ID for the relationship
+  relationshipId: string; // Unique ID for the relationship
   source: {
     key: string;
-    exists: boolean;         // Whether source item exists
-  };
+    exists: boolean; // Whether source item exists
+  }
   target: {
     key: string;
-    exists: boolean;         // Whether target item exists
-  };
+    exists: boolean; // Whether target item exists
+  }
 }
 ```
 
 **Examples:**
+
 ```typescript
 // Link epic to its tasks
 await context_link({
-  sourceKey: "epic_user_management",
-  targetKey: "task_create_user_api",
-  relationship: "contains"
+  sourceKey: 'epic_user_management',
+  targetKey: 'task_create_user_api',
+  relationship: 'contains',
 });
 
 // Document dependencies
 await context_link({
-  sourceKey: "service_auth",
-  targetKey: "service_database",
-  relationship: "depends_on",
-  metadata: { critical: true, version: "1.0" }
+  sourceKey: 'service_auth',
+  targetKey: 'service_database',
+  relationship: 'depends_on',
+  metadata: { critical: true, version: '1.0' },
 });
 
 // Track blocking relationships
 await context_link({
-  sourceKey: "task_frontend_integration",
-  targetKey: "task_api_completion",
-  relationship: "blocked_by"
+  sourceKey: 'task_frontend_integration',
+  targetKey: 'task_api_completion',
+  relationship: 'blocked_by',
 });
 
 // Reference documentation
 await context_link({
-  sourceKey: "feature_oauth",
-  targetKey: "doc_oauth_setup",
-  relationship: "documented_in"
+  sourceKey: 'feature_oauth',
+  targetKey: 'doc_oauth_setup',
+  relationship: 'documented_in',
 });
 ```
 
@@ -796,6 +879,7 @@ await context_link({
 Get items related to a given context item, with support for multi-level traversal and filtering.
 
 **Parameters:**
+
 ```typescript
 {
   key: string;               // Key of the context item to find relationships for
@@ -806,6 +890,7 @@ Get items related to a given context item, with support for multi-level traversa
 ```
 
 **Returns:**
+
 ```typescript
 {
   items: Array<{
@@ -813,51 +898,54 @@ Get items related to a given context item, with support for multi-level traversa
     value: string;
     category?: string;
     priority: string;
-    relationship: string;    // How this item is related
+    relationship: string; // How this item is related
     direction: 'outgoing' | 'incoming';
-    distance: number;        // How many hops from source (1 = direct)
-    path: string[];          // Path of keys from source to this item
-    metadata?: object;       // Relationship metadata
+    distance: number; // How many hops from source (1 = direct)
+    path: string[]; // Path of keys from source to this item
+    metadata?: object; // Relationship metadata
   }>;
   totalCount: number;
-  graph: {                   // Summary of the relationship graph
-    nodes: number;           // Total unique items in graph
-    edges: number;           // Total relationships
-    maxDepth: number;        // Deepest connection found
-  };
+  graph: {
+    // Summary of the relationship graph
+    nodes: number; // Total unique items in graph
+    edges: number; // Total relationships
+    maxDepth: number; // Deepest connection found
+  }
 }
 ```
 
 **Examples:**
+
 ```typescript
 // Get all directly related items
 const related = await context_get_related({
-  key: "epic_user_management"
+  key: 'epic_user_management',
 });
 
 // Get only dependencies
 const deps = await context_get_related({
-  key: "service_api",
-  relationship: "depends_on",
-  direction: "outgoing"
+  key: 'service_api',
+  relationship: 'depends_on',
+  direction: 'outgoing',
 });
 
 // Find what blocks a task (incoming "blocks" = outgoing "blocked_by")
 const blockers = await context_get_related({
-  key: "task_deploy",
-  relationship: "blocked_by",
-  direction: "outgoing"
+  key: 'task_deploy',
+  relationship: 'blocked_by',
+  direction: 'outgoing',
 });
 
 // Traverse multiple levels to find all connected items
 const fullGraph = await context_get_related({
-  key: "feature_auth",
+  key: 'feature_auth',
   depth: 3,
-  direction: "both"
+  direction: 'both',
 });
 ```
 
 **Use Cases:**
+
 1. **Dependency Analysis**: Understand what a component depends on
 2. **Impact Assessment**: Find all items affected by a change
 3. **Task Management**: Track blockers and dependencies
@@ -865,6 +953,7 @@ const fullGraph = await context_get_related({
 5. **Feature Mapping**: Understand all components of a feature
 
 **Best Practices:**
+
 1. Use specific relationship types for clearer organization
 2. Limit depth for large graphs to avoid performance issues
 3. Add metadata to relationships for richer context
@@ -878,6 +967,7 @@ const fullGraph = await context_get_related({
 Cache file content for change detection.
 
 **Parameters:**
+
 ```typescript
 {
   filePath: string;        // Absolute or relative file path
@@ -887,12 +977,13 @@ Cache file content for change detection.
 ```
 
 **Returns:**
+
 ```typescript
 {
-  id: string;              // Cache entry ID
-  filePath: string;        // Normalized file path
-  hash: string;            // SHA-256 hash of content
-  size: number;            // Content size in bytes
+  id: string; // Cache entry ID
+  filePath: string; // Normalized file path
+  hash: string; // SHA-256 hash of content
+  size: number; // Content size in bytes
 }
 ```
 
@@ -901,6 +992,7 @@ Cache file content for change detection.
 Check if a file has changed since last cache.
 
 **Parameters:**
+
 ```typescript
 {
   filePath: string;        // File path to check
@@ -909,6 +1001,7 @@ Check if a file has changed since last cache.
 ```
 
 **Returns:**
+
 ```typescript
 {
   changed: boolean;        // True if file changed
@@ -925,6 +1018,7 @@ Check if a file has changed since last cache.
 Create a complete snapshot of current context.
 
 **Parameters:**
+
 ```typescript
 {
   name: string;            // Checkpoint name
@@ -935,6 +1029,7 @@ Create a complete snapshot of current context.
 ```
 
 **Returns:**
+
 ```typescript
 {
   checkpointId: string;    // Unique checkpoint ID
@@ -954,6 +1049,7 @@ Restore context from a checkpoint by creating a new session with the checkpoint 
 **Important**: This operation creates a NEW session to preserve data safety. Your current session and all its data remain accessible.
 
 **Parameters:**
+
 ```typescript
 {
   name?: string;           // Checkpoint name (latest if not specified)
@@ -964,12 +1060,14 @@ Restore context from a checkpoint by creating a new session with the checkpoint 
 
 **Returns:**
 Enhanced user-friendly message explaining:
+
 - New session creation for data safety
 - How to access your previous work
 - Session switching guidance
 - Data recovery instructions
 
 **Behavior:**
+
 1. Creates a new session named "Restored from: {checkpoint-name}"
 2. Copies all checkpoint data to the new session
 3. Switches you to the new session
@@ -977,6 +1075,7 @@ Enhanced user-friendly message explaining:
 5. Provides clear guidance for session management
 
 **Example Response:**
+
 ```
 ✅ Successfully restored from checkpoint: My Checkpoint
 
@@ -1008,9 +1107,11 @@ Create, manage, and poll real-time watchers for context changes. This powerful f
 #### Actions
 
 ##### create
+
 Create a new watcher with filters for real-time monitoring.
 
 **Parameters:**
+
 ```typescript
 {
   action: 'create';
@@ -1027,6 +1128,7 @@ Create a new watcher with filters for real-time monitoring.
 ```
 
 **Returns:**
+
 ```typescript
 {
   watcherId: string;         // Unique watcher identifier
@@ -1044,9 +1146,11 @@ Create a new watcher with filters for real-time monitoring.
 ```
 
 ##### poll
+
 Poll for changes since last check. Returns only new or updated items.
 
 **Parameters:**
+
 ```typescript
 {
   action: 'poll';
@@ -1056,6 +1160,7 @@ Poll for changes since last check. Returns only new or updated items.
 ```
 
 **Returns:**
+
 ```typescript
 {
   items: Array<{
@@ -1068,43 +1173,48 @@ Poll for changes since last check. Returns only new or updated items.
     sessionId: string;
     createdAt: string;
     updatedAt?: string;
-    changeType: 'added' | 'updated';  // Type of change
+    changeType: 'added' | 'updated'; // Type of change
   }>;
-  lastSequence: number;      // Updated sequence number
-  hasMore: boolean;          // If more changes are available
+  lastSequence: number; // Updated sequence number
+  hasMore: boolean; // If more changes are available
   metadata: {
-    pollTime: string;        // ISO timestamp of poll
-    itemCount: number;       // Number of items returned
-    expired: boolean;        // If watcher has expired
-  };
+    pollTime: string; // ISO timestamp of poll
+    itemCount: number; // Number of items returned
+    expired: boolean; // If watcher has expired
+  }
 }
 ```
 
 ##### stop
+
 Stop and remove a watcher.
 
 **Parameters:**
+
 ```typescript
 {
   action: 'stop';
-  watcherId: string;         // Watcher ID to stop
+  watcherId: string; // Watcher ID to stop
 }
 ```
 
 **Returns:**
+
 ```typescript
 {
   success: boolean;
   watcherId: string;
-  itemsDelivered: number;    // Total items delivered by this watcher
-  duration: number;          // How long watcher was active (seconds)
+  itemsDelivered: number; // Total items delivered by this watcher
+  duration: number; // How long watcher was active (seconds)
 }
 ```
 
 ##### list
+
 List all active watchers for the current session.
 
 **Parameters:**
+
 ```typescript
 {
   action: 'list';
@@ -1113,6 +1223,7 @@ List all active watchers for the current session.
 ```
 
 **Returns:**
+
 ```typescript
 {
   watchers: Array<{
@@ -1126,10 +1237,10 @@ List all active watchers for the current session.
     };
     createdAt: string;
     expiresAt: string;
-    lastPoll?: string;       // Last poll timestamp
+    lastPoll?: string; // Last poll timestamp
     lastSequence: number;
-    itemsDelivered: number;  // Total items delivered
-    active: boolean;         // If watcher is still active
+    itemsDelivered: number; // Total items delivered
+    active: boolean; // If watcher is still active
   }>;
   total: number;
 }
@@ -1138,20 +1249,21 @@ List all active watchers for the current session.
 #### Examples
 
 **Basic Monitoring:**
+
 ```typescript
 // Watch for high-priority tasks
 const watcher = await context_watch({
   action: 'create',
   filters: {
     categories: ['task'],
-    priorities: ['high', 'critical']
-  }
+    priorities: ['high', 'critical'],
+  },
 });
 
 // Poll for changes
 const changes = await context_watch({
   action: 'poll',
-  watcherId: watcher.watcherId
+  watcherId: watcher.watcherId,
 });
 
 if (changes.items.length > 0) {
@@ -1160,58 +1272,63 @@ if (changes.items.length > 0) {
 ```
 
 **Wildcard Key Monitoring:**
+
 ```typescript
 // Watch for all user-related and config changes
 const watcher = await context_watch({
   action: 'create',
   filters: {
-    keys: ['user_*', '*_config', 'auth_*']
+    keys: ['user_*', '*_config', 'auth_*'],
   },
-  includeExisting: true  // Get current state first
+  includeExisting: true, // Get current state first
 });
 ```
 
 **Channel-specific Monitoring:**
+
 ```typescript
 // Monitor specific feature channels
 const watcher = await context_watch({
   action: 'create',
   filters: {
     channels: ['feature-auth', 'feature-payments'],
-    categories: ['error', 'warning']
+    categories: ['error', 'warning'],
   },
-  expiresIn: 7200  // 2-hour expiration
+  expiresIn: 7200, // 2-hour expiration
 });
 ```
 
 **Long Polling:**
+
 ```typescript
 // Wait up to 30 seconds for changes
 const changes = await context_watch({
   action: 'poll',
   watcherId: watcher.watcherId,
-  timeout: 30  // Wait up to 30 seconds
+  timeout: 30, // Wait up to 30 seconds
 });
 ```
 
 **Multi-session Monitoring:**
+
 ```typescript
 // Watch across multiple sessions
 const watcher = await context_watch({
   action: 'create',
   filters: {
     sessionIds: ['session-1', 'session-2', 'current'],
-    categories: ['decision']
-  }
+    categories: ['decision'],
+  },
 });
 ```
 
 **Continuous Monitoring Loop:**
+
 ```typescript
 // Create watcher
 const watcher = await context_watch({
   action: 'create',
-  filters: { categories: ['error', 'warning'] }
+  filters: { categories: ['error', 'warning'] },
 });
 
 // Monitoring loop
@@ -1221,32 +1338,33 @@ while (running) {
     const changes = await context_watch({
       action: 'poll',
       watcherId: watcher.watcherId,
-      timeout: 30  // Long poll
+      timeout: 30, // Long poll
     });
-    
+
     for (const item of changes.items) {
       console.log(`[${item.changeType}] ${item.category}: ${item.key}`);
       // Process changes...
     }
-    
+
     if (changes.metadata.expired) {
       console.log('Watcher expired');
       running = false;
     }
   } catch (error) {
     console.error('Poll error:', error);
-    await new Promise(r => setTimeout(r, 5000));  // Wait 5s on error
+    await new Promise(r => setTimeout(r, 5000)); // Wait 5s on error
   }
 }
 
 // Cleanup
 await context_watch({
   action: 'stop',
-  watcherId: watcher.watcherId
+  watcherId: watcher.watcherId,
 });
 ```
 
 **Managing Multiple Watchers:**
+
 ```typescript
 // List all active watchers
 const { watchers } = await context_watch({ action: 'list' });
@@ -1263,7 +1381,7 @@ for (const w of watchers) {
 for (const w of watchers) {
   await context_watch({
     action: 'stop',
-    watcherId: w.watcherId
+    watcherId: w.watcherId,
   });
 }
 ```
@@ -1322,24 +1440,25 @@ for (const w of watchers) {
 Full-text search across context items with advanced filtering and sorting.
 
 **Parameters:**
+
 ```typescript
 {
   query: string;           // Search query (required)
   searchIn?: ('key' | 'value')[];  // Fields to search (default: ['key', 'value'])
   sessionId?: string;      // Session to search (default: current)
-  
+
   // Filtering options
   category?: string;       // Filter by category
   channel?: string;        // Filter by single channel
   channels?: string[];     // Filter by multiple channels
   priorities?: ('high' | 'normal' | 'low')[];  // Filter by priorities
   keyPattern?: string;     // GLOB pattern for key matching (e.g., "user_*")
-  
+
   // Time filtering
   createdAfter?: string;   // ISO date string
   createdBefore?: string;  // ISO date string
   relativeTime?: string;   // Natural language time (e.g., "2 hours ago", "yesterday")
-  
+
   // Sorting and pagination
   sort?: 'created_desc' | 'created_asc' | 'updated_desc' | 'key_asc' | 'key_desc';
   limit?: number;          // Maximum results
@@ -1349,6 +1468,7 @@ Full-text search across context items with advanced filtering and sorting.
 ```
 
 **Returns (without metadata):**
+
 ```typescript
 {
   results: Array<{
@@ -1361,6 +1481,7 @@ Full-text search across context items with advanced filtering and sorting.
 ```
 
 **Returns (with metadata):**
+
 ```typescript
 {
   items: Array<{
@@ -1382,26 +1503,27 @@ Full-text search across context items with advanced filtering and sorting.
 ```
 
 **Examples:**
+
 ```typescript
 // Simple search
-await context_search({ query: "api key" });
+await context_search({ query: 'api key' });
 
 // Search with time filtering
 await context_search({
-  query: "error",
-  relativeTime: "2 hours ago",
-  channel: "debugging"
+  query: 'error',
+  relativeTime: '2 hours ago',
+  channel: 'debugging',
 });
 
 // Advanced filtering with pagination
 await context_search({
-  query: "config",
-  keyPattern: "app_*",
-  priorities: ["high"],
-  sort: "created_desc",
+  query: 'config',
+  keyPattern: 'app_*',
+  priorities: ['high'],
+  sort: 'created_desc',
   limit: 20,
   offset: 0,
-  includeMetadata: true
+  includeMetadata: true,
 });
 ```
 
@@ -1410,6 +1532,7 @@ await context_search({
 Track changes to context items since a specific point in time. Useful for understanding what has been added, modified, or deleted.
 
 **Parameters:**
+
 ```typescript
 {
   since: string;           // Required: ISO timestamp, checkpoint name/ID, or relative time (e.g., "2 hours ago")
@@ -1424,6 +1547,7 @@ Track changes to context items since a specific point in time. Useful for unders
 ```
 
 **Returns:**
+
 ```typescript
 {
   added: Array<{
@@ -1452,24 +1576,25 @@ Track changes to context items since a specific point in time. Useful for unders
 ```
 
 **Examples:**
+
 ```typescript
 // Compare with checkpoint
-await context_diff({ since: "my-checkpoint" });
+await context_diff({ since: 'my-checkpoint' });
 
 // Compare with timestamp
-await context_diff({ since: "2024-01-01T00:00:00Z" });
+await context_diff({ since: '2024-01-01T00:00:00Z' });
 
 // Compare with relative time
-await context_diff({ 
-  since: "2 hours ago",
-  channel: "feature-branch"
+await context_diff({
+  since: '2 hours ago',
+  channel: 'feature-branch',
 });
 
 // Get summary without values
 await context_diff({
-  since: "yesterday",
+  since: 'yesterday',
   includeValues: false,
-  category: "task"
+  category: 'task',
 });
 ```
 
@@ -1478,6 +1603,7 @@ await context_diff({
 Generate AI-friendly summary of context.
 
 **Parameters:**
+
 ```typescript
 {
   categories?: string[];   // Categories to include
@@ -1488,19 +1614,20 @@ Generate AI-friendly summary of context.
 ```
 
 **Returns:**
+
 ```typescript
 {
-  summary: string;         // Formatted summary
+  summary: string; // Formatted summary
   stats: {
     totalItems: number;
     byCategory: Record<string, number>;
     byPriority: Record<string, number>;
-  };
+  }
   sessionInfo: {
     id: string;
     name: string;
     duration: string;
-  };
+  }
 }
 ```
 
@@ -1509,6 +1636,7 @@ Generate AI-friendly summary of context.
 Analyze context to extract entities and relationships.
 
 **Parameters:**
+
 ```typescript
 {
   categories?: string[];   // Categories to analyze
@@ -1518,6 +1646,7 @@ Analyze context to extract entities and relationships.
 ```
 
 **Returns:**
+
 ```typescript
 {
   entities: Array<{
@@ -1537,7 +1666,7 @@ Analyze context to extract entities and relationships.
     totalEntities: number;
     totalRelations: number;
     types: Record<string, number>;
-  };
+  }
 }
 ```
 
@@ -1548,6 +1677,7 @@ Analyze context to extract entities and relationships.
 Export context data to a JSON file with enhanced validation and statistics.
 
 **Parameters:**
+
 ```typescript
 {
   sessionId?: string;      // Session to export (default: current)
@@ -1561,45 +1691,49 @@ Export context data to a JSON file with enhanced validation and statistics.
 ```
 
 **Returns (Standard):**
+
 ```typescript
 {
-  filePath: string;        // Output file path
+  filePath: string; // Output file path
   stats: {
     sessions: number;
     items: number;
     files: number;
     checkpoints: number;
-    size: number;         // File size in bytes
-  };
+    size: number; // File size in bytes
+  }
 }
 ```
 
 **Returns (With includeStats=true):**
+
 ```typescript
 {
-  filePath: string;        // Output file path
+  filePath: string; // Output file path
   stats: {
     sessions: number;
     items: number;
     files: number;
     checkpoints: number;
-    size: number;         // File size in bytes
-  };
-  detailedStats: {         // Additional statistics [NEW v0.11.0]
-    byCategory: Record<string, number>;     // Item count by category
-    byPriority: Record<string, number>;     // Item count by priority
-    byChannel: Record<string, number>;      // Item count by channel
+    size: number; // File size in bytes
+  }
+  detailedStats: {
+    // Additional statistics [NEW v0.11.0]
+    byCategory: Record<string, number>; // Item count by category
+    byPriority: Record<string, number>; // Item count by priority
+    byChannel: Record<string, number>; // Item count by channel
     dateRange: {
-      earliest: string;    // ISO timestamp of earliest item
-      latest: string;      // ISO timestamp of latest item
-    };
-    averageItemSize: number;  // Average item size in bytes
-    totalValueSize: number;   // Total size of all item values
-  };
+      earliest: string; // ISO timestamp of earliest item
+      latest: string; // ISO timestamp of latest item
+    }
+    averageItemSize: number; // Average item size in bytes
+    totalValueSize: number; // Total size of all item values
+  }
 }
 ```
 
 **Error Scenarios:**
+
 - `EMPTY_EXPORT`: Attempted to export with no data (unless confirmEmpty=true)
 - `NO_SESSION`: No active session and no sessionId provided
 - `SESSION_NOT_FOUND`: Specified session does not exist
@@ -1608,25 +1742,26 @@ Export context data to a JSON file with enhanced validation and statistics.
 - `DATABASE_ERROR`: Database read error during export
 
 **Examples:**
+
 ```typescript
 // Basic export of current session
 await context_export();
 
 // Export with detailed statistics
 await context_export({
-  includeStats: true
+  includeStats: true,
 });
 
 // Export multiple sessions
 await context_export({
-  sessionIds: ["session-1", "session-2"],
-  outputPath: "./exports/multi-session-backup.json",
-  includeStats: true
+  sessionIds: ['session-1', 'session-2'],
+  outputPath: './exports/multi-session-backup.json',
+  includeStats: true,
 });
 
 // Force export even if empty
 await context_export({
-  confirmEmpty: true  // No warning for empty exports
+  confirmEmpty: true, // No warning for empty exports
 });
 
 // Handle empty export scenario
@@ -1634,7 +1769,7 @@ try {
   await context_export();
 } catch (error) {
   if (error.code === 'EMPTY_EXPORT') {
-    console.log("No data to export. Use confirmEmpty:true to bypass.");
+    console.log('No data to export. Use confirmEmpty:true to bypass.');
     // Either add some data or confirm empty export
     await context_export({ confirmEmpty: true });
   }
@@ -1642,6 +1777,7 @@ try {
 ```
 
 **Best Practices:**
+
 1. **Regular Backups**: Export important sessions regularly
 2. **Include Statistics**: Use `includeStats:true` for export verification
 3. **Check Empty Exports**: Handle EMPTY_EXPORT errors appropriately
@@ -1649,6 +1785,7 @@ try {
 5. **Version Control**: Consider adding exports to version control for team sharing
 
 **Backward Compatibility:**
+
 - The `confirmEmpty` and `includeStats` parameters are optional
 - Existing code will continue to work without changes
 - Empty exports will show a warning but can be bypassed with `confirmEmpty:true`
@@ -1658,6 +1795,7 @@ try {
 Import context from file.
 
 **Parameters:**
+
 ```typescript
 {
   filePath: string;        // Path to import file
@@ -1668,6 +1806,7 @@ Import context from file.
 ```
 
 **Returns:**
+
 ```typescript
 {
   imported: {
@@ -1689,6 +1828,7 @@ Import context from file.
 Find entities related to a key.
 
 **Parameters:**
+
 ```typescript
 {
   key: string;             // Entity key to search from
@@ -1699,14 +1839,15 @@ Find entities related to a key.
 ```
 
 **Returns:**
+
 ```typescript
 {
   entities: Array<{
     id: string;
     name: string;
     type: string;
-    distance: number;      // Relationship distance
-    path: string[];        // Relationship path
+    distance: number; // Relationship distance
+    path: string[]; // Relationship path
   }>;
   relations: Array<{
     subject: string;
@@ -1721,6 +1862,7 @@ Find entities related to a key.
 Generate visualization data for context.
 
 **Parameters:**
+
 ```typescript
 {
   type: 'graph' | 'timeline' | 'heatmap';
@@ -1732,6 +1874,7 @@ Generate visualization data for context.
 ```
 
 **Returns:**
+
 ```typescript
 // For graph type:
 {
@@ -1772,6 +1915,7 @@ Generate visualization data for context.
 Search using natural language queries.
 
 **Parameters:**
+
 ```typescript
 {
   query: string;           // Natural language query
@@ -1783,6 +1927,7 @@ Search using natural language queries.
 ```
 
 **Returns:**
+
 ```typescript
 {
   results: Array<{
@@ -1805,6 +1950,7 @@ Search using natural language queries.
 Delegate analysis tasks to specialized agents.
 
 **Parameters:**
+
 ```typescript
 {
   taskType: 'analyze' | 'synthesize' | string[];  // Task or chain
@@ -1815,6 +1961,7 @@ Delegate analysis tasks to specialized agents.
 ```
 
 **Analysis Input Types:**
+
 ```typescript
 // Pattern Analysis
 {
@@ -1845,6 +1992,7 @@ Delegate analysis tasks to specialized agents.
 ```
 
 **Synthesis Input Types:**
+
 ```typescript
 // Summary Generation
 {
@@ -1869,6 +2017,7 @@ Delegate analysis tasks to specialized agents.
 ```
 
 **Returns:**
+
 ```typescript
 {
   result: any;             // Task-specific results
@@ -1889,6 +2038,7 @@ Delegate analysis tasks to specialized agents.
 Create a branch from current session.
 
 **Parameters:**
+
 ```typescript
 {
   branchName: string;      // Name for the branch
@@ -1898,12 +2048,13 @@ Create a branch from current session.
 ```
 
 **Returns:**
+
 ```typescript
 {
-  branchId: string;        // New session ID
-  parentId: string;        // Parent session ID
-  copiedItems: number;     // Items copied
-  copiedFiles: number;     // Files copied
+  branchId: string; // New session ID
+  parentId: string; // Parent session ID
+  copiedItems: number; // Items copied
+  copiedFiles: number; // Files copied
 }
 ```
 
@@ -1912,6 +2063,7 @@ Create a branch from current session.
 Merge another session into current.
 
 **Parameters:**
+
 ```typescript
 {
   sourceSessionId: string; // Session to merge from
@@ -1921,15 +2073,16 @@ Merge another session into current.
 ```
 
 **Returns:**
+
 ```typescript
 {
-  merged: number;          // Items merged
-  conflicts: number;       // Conflicts resolved
-  skipped: number;         // Items skipped
+  merged: number; // Items merged
+  conflicts: number; // Conflicts resolved
+  skipped: number; // Items skipped
   stats: {
     byCategory: Record<string, number>;
     byResolution: Record<string, number>;
-  };
+  }
 }
 ```
 
@@ -1938,6 +2091,7 @@ Merge another session into current.
 Add a journal entry with tags and mood.
 
 **Parameters:**
+
 ```typescript
 {
   entry: string;           // Journal entry text
@@ -1947,11 +2101,12 @@ Add a journal entry with tags and mood.
 ```
 
 **Returns:**
+
 ```typescript
 {
-  id: string;              // Entry ID
-  createdAt: string;       // Timestamp
-  wordCount: number;       // Entry word count
+  id: string; // Entry ID
+  createdAt: string; // Timestamp
+  wordCount: number; // Entry word count
 }
 ```
 
@@ -1960,6 +2115,7 @@ Add a journal entry with tags and mood.
 Generate timeline view of activity.
 
 **Parameters:**
+
 ```typescript
 {
   startDate?: string;      // Start date (ISO)
@@ -1975,17 +2131,19 @@ Generate timeline view of activity.
 ```
 
 **Returns:**
+
 ```typescript
 {
   periods: Array<{
-    period: string;        // Period label
-    startTime: string;     // Period start
-    endTime: string;       // Period end
+    period: string; // Period label
+    startTime: string; // Period start
+    endTime: string; // Period end
     relativeTime?: string; // When relativeTime: true (NEW v0.10.0)
     items: {
       total: number;
       byCategory: Record<string, number>;
-      details?: Array<{    // When includeItems: true (NEW v0.10.0)
+      details?: Array<{
+        // When includeItems: true (NEW v0.10.0)
         id: string;
         key: string;
         value: string;
@@ -2001,39 +2159,40 @@ Generate timeline view of activity.
       mood?: string;
       tags?: string[];
     }>;
-    activity: number;      // Activity score
+    activity: number; // Activity score
   }>;
   summary: {
     totalPeriods: number;
     totalItems: number;
     totalJournals: number;
     mostActiveperiod: string;
-  };
+  }
 }
 ```
 
 **Examples:**
+
 ```typescript
 // Basic timeline for today
 await context_timeline({
-  groupBy: "hour"
+  groupBy: 'hour',
 });
 
 // Detailed timeline with items
 await context_timeline({
-  startDate: "2025-01-20T00:00:00Z",
-  endDate: "2025-01-26T23:59:59Z",
-  groupBy: "day",
+  startDate: '2025-01-20T00:00:00Z',
+  endDate: '2025-01-26T23:59:59Z',
+  groupBy: 'day',
   includeItems: true,
-  categories: ["task", "progress"],
-  itemsPerPeriod: 10
+  categories: ['task', 'progress'],
+  itemsPerPeriod: 10,
 });
 
 // Timeline with relative times
 await context_timeline({
-  groupBy: "hour",
+  groupBy: 'hour',
   relativeTime: true,
-  includeItems: true
+  includeItems: true,
 });
 ```
 
@@ -2042,6 +2201,7 @@ await context_timeline({
 Compress old context to save space.
 
 **Parameters:**
+
 ```typescript
 {
   olderThan: string;       // ISO date cutoff
@@ -2052,23 +2212,24 @@ Compress old context to save space.
 ```
 
 **Returns:**
+
 ```typescript
 {
   compressed: {
-    items: number;         // Items compressed
-    originalSize: number;  // Original KB
+    items: number; // Items compressed
+    originalSize: number; // Original KB
     compressedSize: number; // Compressed KB
-    ratio: number;         // Compression ratio
-  };
-  preserved: number;       // Items preserved
-  deleted: number;         // Items deleted
+    ratio: number; // Compression ratio
+  }
+  preserved: number; // Items preserved
+  deleted: number; // Items deleted
   summary: {
     byCategory: Record<string, number>;
     dateRange: {
       start: string;
       end: string;
-    };
-  };
+    }
+  }
 }
 ```
 
@@ -2077,6 +2238,7 @@ Compress old context to save space.
 Record events from other MCP tools.
 
 **Parameters:**
+
 ```typescript
 {
   toolName: string;        // Tool identifier
@@ -2087,6 +2249,7 @@ Record events from other MCP tools.
 ```
 
 **Returns:**
+
 ```typescript
 {
   eventId: string;         // Event ID
@@ -2100,6 +2263,7 @@ Record events from other MCP tools.
 All tools follow consistent error handling:
 
 **Error Response:**
+
 ```typescript
 {
   error: {
@@ -2111,6 +2275,7 @@ All tools follow consistent error handling:
 ```
 
 **Common Error Codes:**
+
 - `INVALID_PARAMS`: Invalid or missing parameters
 - `SESSION_NOT_FOUND`: Session does not exist
 - `ITEM_NOT_FOUND`: Context item not found
@@ -2121,17 +2286,18 @@ All tools follow consistent error handling:
 - `STORAGE_FULL`: Database storage limit reached
 
 **Example Error Handling:**
+
 ```typescript
 try {
   const result = await context_save({
-    key: "example",
-    value: "test"
+    key: 'example',
+    value: 'test',
   });
 } catch (error) {
   if (error.code === 'STORAGE_FULL') {
     // Compress old data
     await context_compress({
-      olderThan: '30 days ago'
+      olderThan: '30 days ago',
     });
     // Retry
   }
@@ -2162,6 +2328,7 @@ try {
 Common queries optimized for performance:
 
 ### Development Queries
+
 ```typescript
 // Recent high-priority tasks
 {
@@ -2185,23 +2352,25 @@ Common queries optimized for performance:
 ```
 
 ### Analysis Queries
+
 ```typescript
 // Find related code changes
 await context_semantic_search({
-  query: "authentication refactor",
+  query: 'authentication refactor',
   minSimilarity: 0.7,
-  categories: ["task", "decision"]
+  categories: ['task', 'decision'],
 });
 
 // Track feature progress
 await context_search({
-  query: "feature:user-management status:*",
-  searchIn: ["value"],
-  categories: ["progress"]
+  query: 'feature:user-management status:*',
+  searchIn: ['value'],
+  categories: ['progress'],
 });
 ```
 
 ### Team Queries
+
 ```typescript
 // Blockers and impediments
 {
@@ -2219,6 +2388,7 @@ await context_search({
 ```
 
 ### Performance Queries
+
 ```typescript
 // Slow operations
 {
