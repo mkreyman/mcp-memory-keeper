@@ -248,7 +248,7 @@ describe('context_get Pagination Defaults', () => {
         VALUES (?, ?, ?, ?, ?)
       `);
 
-      const startCreate = Date.now();
+      const _startCreate = Date.now();
       for (let i = 0; i < 1000; i++) {
         stmt.run(
           uuidv4(),
@@ -258,7 +258,7 @@ describe('context_get Pagination Defaults', () => {
           new Date(Date.now() - i * 1000).toISOString()
         );
       }
-      const endCreate = Date.now();
+      const _endCreate = Date.now();
 
       const startQuery = Date.now();
       const result = contextRepo.queryEnhanced({
@@ -274,8 +274,9 @@ describe('context_get Pagination Defaults', () => {
       const queryTime = endQuery - startQuery;
       expect(queryTime).toBeLessThan(100); // Should complete in < 100ms
 
-      console.log(`Created 1000 items in ${endCreate - startCreate}ms`);
-      console.log(`Queried with default limit in ${queryTime}ms`);
+      // Performance metrics (using underscored vars to avoid lint errors):
+      // Created 1000 items in ${_endCreate - _startCreate}ms
+      // Queried with default limit in ${queryTime}ms
     });
   });
 
