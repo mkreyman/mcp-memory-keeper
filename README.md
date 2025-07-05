@@ -17,7 +17,7 @@ Get started in under 30 seconds:
 claude mcp add memory-keeper npx mcp-memory-keeper
 
 # Start a new Claude session and use it!
-# Try: Save a context item with mcp_context_save
+# Try: Analyze the current repo and save your analysis in memory-keeper
 ```
 
 That's it! Memory Keeper is now available in all your Claude sessions. Your context is stored in `~/mcp-data/memory-keeper/` and persists across sessions.
