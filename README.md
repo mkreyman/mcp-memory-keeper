@@ -45,7 +45,7 @@ The launcher script handles everything automatically - installation, updates, an
 
 ```bash
 # Quick install and add to Claude
-curl -fsSL https://raw.githubusercontent.com/mkreyman/mcp-memory-keeper/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mkreyman/mcp-memory-keeper/master/install.sh | bash
 
 # Then add to Claude (using the path shown by installer)
 claude mcp add memory-keeper "$HOME/.local/mcp-servers/memory-keeper/launcher.sh"
