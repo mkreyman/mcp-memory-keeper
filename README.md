@@ -1,10 +1,26 @@
 # MCP Memory Keeper - Claude Code Context Management
 
+[![npm version](https://img.shields.io/npm/v/mcp-memory-keeper.svg)](https://www.npmjs.com/package/mcp-memory-keeper)
+[![npm downloads](https://img.shields.io/npm/dm/mcp-memory-keeper.svg)](https://www.npmjs.com/package/mcp-memory-keeper)
 [![CI](https://github.com/mkreyman/mcp-memory-keeper/actions/workflows/ci.yml/badge.svg)](https://github.com/mkreyman/mcp-memory-keeper/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/mkreyman/mcp-memory-keeper/branch/main/graph/badge.svg)](https://codecov.io/gh/mkreyman/mcp-memory-keeper)
-[![npm version](https://badge.fury.io/js/mcp-memory-keeper.svg)](https://badge.fury.io/js/mcp-memory-keeper)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A Model Context Protocol (MCP) server that provides persistent context management for Claude AI coding assistants. Never lose context during compaction again! This MCP server helps Claude Code maintain context across sessions, preserving your work history, decisions, and progress.
+
+## 🚀 Quick Start
+
+Get started in under 30 seconds:
+
+```bash
+# Add memory-keeper to Claude
+claude mcp add memory-keeper npx mcp-memory-keeper
+
+# Start a new Claude session and use it!
+# Try: Save a context item with mcp_context_save
+```
+
+That's it! Memory Keeper is now available in all your Claude sessions. Your context is stored in `~/mcp-data/memory-keeper/` and persists across sessions.
 
 ## Why MCP Memory Keeper?
 
@@ -39,31 +55,33 @@ Claude Code users often face context loss when the conversation window fills up.
 
 ## Installation
 
-### Method 1: NPX (Recommended)
-
-The simplest way to use memory-keeper with Claude:
+### Recommended: NPX Installation
 
 ```bash
 claude mcp add memory-keeper npx mcp-memory-keeper
 ```
 
-That's it! This will:
+This single command:
 
-- Always use the latest version
-- Handle all dependencies automatically
-- Create the data directory at `~/mcp-data/memory-keeper/`
-- Work across different platforms
+- ✅ Always uses the latest version
+- ✅ Handles all dependencies automatically
+- ✅ Works across macOS, Linux, and Windows
+- ✅ No manual building or native module issues
 
-### Method 2: Global Installation
+### Alternative Installation Methods
 
-If you prefer a global installation:
+<details>
+<summary>Global Installation</summary>
 
 ```bash
 npm install -g mcp-memory-keeper
 claude mcp add memory-keeper mcp-memory-keeper
 ```
 
-### Method 3: From Source
+</details>
+
+<details>
+<summary>From Source (for development)</summary>
 
 ```bash
 # 1. Clone the repository
@@ -79,6 +97,8 @@ npm run build
 # 4. Add to Claude
 claude mcp add memory-keeper node /absolute/path/to/mcp-memory-keeper/dist/index.js
 ```
+
+</details>
 
 ## Configuration
 
@@ -96,13 +116,13 @@ Choose where to save the configuration:
 
 ```bash
 # Project-specific (default) - only for you in this project
-claude mcp add memory-keeper node /path/to/mcp-memory-keeper/dist/index.js
+claude mcp add memory-keeper npx mcp-memory-keeper
 
 # Shared with team via .mcp.json
-claude mcp add --scope project memory-keeper node /path/to/mcp-memory-keeper/dist/index.js
+claude mcp add --scope project memory-keeper npx mcp-memory-keeper
 
 # Available across all your projects
-claude mcp add --scope user memory-keeper node /path/to/mcp-memory-keeper/dist/index.js
+claude mcp add --scope user memory-keeper npx mcp-memory-keeper
 ```
 
 #### Verify Configuration
@@ -126,20 +146,14 @@ claude mcp get memory-keeper
 {
   "mcpServers": {
     "memory-keeper": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcp-memory-keeper/dist/index.js"]
+      "command": "npx",
+      "args": ["mcp-memory-keeper"]
     }
   }
 }
 ```
 
-**Important**: Replace `/absolute/path/to/mcp-memory-keeper` with the actual path where you cloned/installed the project.
-
-### Example paths:
-
-- macOS: `/Users/username/projects/mcp-memory-keeper/dist/index.js`
-- Windows: `C:\\Users\\username\\projects\\mcp-memory-keeper\\dist\\index.js`
-- Linux: `/home/username/projects/mcp-memory-keeper/dist/index.js`
+That's it! No paths needed - npx automatically handles everything.
 
 ### Verify Installation
 
@@ -166,7 +180,7 @@ If Memory Keeper isn't working:
 ```bash
 # Remove and re-add the server
 claude mcp remove memory-keeper
-claude mcp add memory-keeper node /absolute/path/to/mcp-memory-keeper/dist/index.js
+claude mcp add memory-keeper npx mcp-memory-keeper
 
 # Check logs for errors
 # The server output will appear in Claude Code's output panel
@@ -174,26 +188,19 @@ claude mcp add memory-keeper node /absolute/path/to/mcp-memory-keeper/dist/index
 
 ### Updating to Latest Version
 
-To get the latest features and bug fixes:
+With the npx installation method, you automatically get the latest version every time! No manual updates needed.
+
+If you're using the global installation method:
 
 ```bash
-# 1. Navigate to your Memory Keeper directory
-cd /path/to/mcp-memory-keeper
+# Update to latest version
+npm update -g mcp-memory-keeper
 
-# 2. Pull the latest changes
-git pull
-
-# 3. Install any new dependencies (if package.json changed)
-npm install
-
-# 4. Rebuild the project
-npm run build
-
-# 5. Start a new Claude session
+# Start a new Claude session
 # The updated features will be available immediately
 ```
 
-**Note**: You don't need to reconfigure the MCP server in Claude after updating. Just pull, build, and start a new session!
+**Note**: You don't need to reconfigure the MCP server in Claude after updating. Just start a new session!
 
 ## Usage
 
