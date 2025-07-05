@@ -22,6 +22,85 @@ claude mcp add memory-keeper npx mcp-memory-keeper
 
 That's it! Memory Keeper is now available in all your Claude sessions. Your context is stored in `~/mcp-data/memory-keeper/` and persists across sessions.
 
+## 🚀 Practical Memory Keeper Workflow Example
+
+### **Custom Command + CLAUDE.md = Automatic Context Management**
+
+#### **CLAUDE.md** (condensed example)
+
+```markdown
+# Project Configuration
+
+## Development Rules
+
+- Always use memory-keeper to track progress
+- Save architectural decisions and test results
+- Create checkpoints before context limits
+
+## Quality Standards
+
+- All tests must pass before marking complete
+- Document actual vs claimed results
+```
+
+#### **Custom Command Example: `/my-dev-workflow`**
+
+```markdown
+# My Development Workflow
+
+When working on the provided project:
+
+- Use memory-keeper with channel: <project_name>
+- Save progress at every major milestone
+- Document all decisions with category: "decision"
+- Track implementation status with category: "progress"
+- Before claiming anything is complete, save test results
+
+## Workflow Steps
+
+1. Initialize session with project name as channel
+2. Save findings during investigation
+3. Create checkpoint before major changes
+4. Document what actually works vs what should work
+```
+
+#### **Usage Example**
+
+```
+User: /my-dev-workflow authentication-service
+
+AI: Setting up workflow for authentication-service.
+[Uses memory-keeper with channel "authentication-service"]
+
+[... AI works, automatically saving context ...]
+
+User: "Getting close to context limit. Create checkpoint and give me a key"
+
+AI: "Checkpoint created: authentication-service-checkpoint-20250126-143026"
+
+[Continue working until context reset or compact manually]
+
+User: "Restore from key: authentication-service-checkpoint-20250126-143026"
+
+AI: "Restored! Continuing OAuth implementation. We completed the token validation, working on refresh logic..."
+```
+
+**The Pattern:**
+
+1. Custom command includes instructions to use memory-keeper
+2. AI follows those instructions automatically
+3. **When you notice the conversation getting long, YOU ask Claude to save a checkpoint** (like saving your game before a boss fight!)
+4. **When Claude runs out of space and starts fresh, YOU tell it to restore using the checkpoint key**
+
+**🎯 Key Feature:** Memory Keeper is a shared board! You can:
+
+- Continue in the same session after reset
+- Start a completely new session and restore
+- Have multiple Claude sessions running in parallel, all sharing the same memory
+- One session can save context that another session retrieves
+
+This enables powerful workflows like having one Claude session doing research while another implements code, both sharing discoveries through Memory Keeper!
+
 ## Why MCP Memory Keeper?
 
 Claude Code users often face context loss when the conversation window fills up. This MCP server solves that problem by providing a persistent memory layer for Claude AI. Whether you're working on complex refactoring, multi-file changes, or long debugging sessions, Memory Keeper ensures your Claude assistant remembers important context, decisions, and progress.
