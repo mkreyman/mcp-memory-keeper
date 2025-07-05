@@ -23,6 +23,12 @@ else
     cd "$INSTALL_DIR"
 fi
 
+# Install dependencies and build
+echo "Installing dependencies..."
+npm install
+echo "Building memory-keeper..."
+npm run build
+
 # Make launcher executable
 chmod +x "$INSTALL_DIR/launcher.sh"
 
