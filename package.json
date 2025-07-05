@@ -3,6 +3,9 @@
   "version": "0.10.0",
   "description": "MCP server for persistent context management in AI coding assistants",
   "main": "dist/index.js",
+  "bin": {
+    "mcp-memory-keeper": "./bin/mcp-memory-keeper"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
@@ -19,7 +22,8 @@
     "check-all": "npm run build && npm run type-check && npm run lint && npm run format:check && npm test",
     "pre-commit": "npm run build && npm run type-check && npm run lint && npm run format:check && npm test",
     "check-migrations": "tsx scripts/check-migrations.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "prepublishOnly": "npm run build && npm run test"
   },
   "keywords": [
     "mcp",
@@ -33,6 +37,23 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/mkreyman/mcp-memory-keeper"
+  },
+  "homepage": "https://github.com/mkreyman/mcp-memory-keeper#readme",
+  "bugs": {
+    "url": "https://github.com/mkreyman/mcp-memory-keeper/issues"
+  },
+  "files": [
+    "dist/**/*",
+    "bin/**/*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.3",

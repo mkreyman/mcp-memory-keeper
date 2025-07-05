@@ -9,3 +9,4 @@ coverage/
 .env
 *.log
 memory-keeper-export-*.json
+.build-marker-*

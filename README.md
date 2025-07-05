@@ -39,35 +39,31 @@ Claude Code users often face context loss when the conversation window fills up.
 
 ## Installation
 
-### Method 1: Self-Contained Launcher (Easiest)
+### Method 1: NPX (Recommended)
 
-The launcher script handles everything automatically - installation, updates, and native module rebuilds:
-
-```bash
-# Quick install and add to Claude
-curl -fsSL https://raw.githubusercontent.com/mkreyman/mcp-memory-keeper/master/install.sh | bash
-
-# Then add to Claude (using the path shown by installer)
-claude mcp add memory-keeper "$HOME/.local/mcp-servers/memory-keeper/launcher.sh"
-```
-
-### Method 2: Direct from Repository
-
-If you've already cloned the repository:
+The simplest way to use memory-keeper with Claude:
 
 ```bash
-# Add using the launcher script
-claude mcp add memory-keeper /path/to/mcp-memory-keeper/launcher.sh
+claude mcp add memory-keeper npx mcp-memory-keeper
 ```
 
-The launcher automatically:
+That's it! This will:
 
-- Installs memory-keeper if needed
-- Rebuilds native modules for your platform
-- Creates the data directory at `~/mcp-data/memory-keeper/`
-- Handles updates (if enabled with `MEMORY_KEEPER_AUTO_UPDATE=1`)
+- Always use the latest version
+- Handle all dependencies automatically
+- Create the data directory at `~/mcp-data/memory-keeper/`
+- Work across different platforms
 
-### Method 3: Manual Installation
+### Method 2: Global Installation
+
+If you prefer a global installation:
+
+```bash
+npm install -g mcp-memory-keeper
+claude mcp add memory-keeper mcp-memory-keeper
+```
+
+### Method 3: From Source
 
 ```bash
 # 1. Clone the repository

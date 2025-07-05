@@ -1,0 +1,52 @@
+# Source files
+src/
+*.ts
+!dist/**/*.d.ts
+
+# Development files
+.devcontainer/
+.github/
+.husky/
+.vscode/
+scripts/
+examples/
+
+# Test files
+__tests__/
+test/
+tests/
+*.test.js
+*.test.ts
+jest.config.js
+coverage/
+
+# Build files
+tsconfig.json
+eslint.config.js
+.prettierrc.json
+.prettierignore
+.lintstagedrc.json
+
+# Git files
+.git/
+.gitignore
+
+# Docs (except main ones)
+*.md
+!README.md
+!LICENSE
+!CHANGELOG.md
+
+# Misc
+.DS_Store
+*.log
+.env
+.env.*
+node_modules/
+*.db
+*.db-*
+.build-marker-*
+
+# Installation scripts (not needed with npm)
+install.sh
+launcher.sh

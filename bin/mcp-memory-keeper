@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+
+/**
+ * MCP Memory Keeper CLI
+ * This wrapper ensures the server runs correctly when invoked via npx
+ */
+
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+// Determine the data directory
+const DATA_DIR = process.env.DATA_DIR || path.join(os.homedir(), 'mcp-data', 'memory-keeper');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// Set environment variable for the server
+process.env.DATA_DIR = DATA_DIR;
+
+// Get the path to the actual server
+const serverPath = path.join(__dirname, '..', 'dist', 'index.js');
+
+// Check if the server is built
+if (!fs.existsSync(serverPath)) {
+  console.error('Error: Server not built. This should not happen with the npm package.');
+  console.error('Please report this issue at: https://github.com/mkreyman/mcp-memory-keeper/issues');
+  process.exit(1);
+}
+
+// Change to data directory (where context.db will be created)
+process.chdir(DATA_DIR);
+
+// Spawn the server
+const child = spawn(process.execPath, [serverPath, ...process.argv.slice(2)], {
+  stdio: 'inherit',
+  env: process.env
+});
+
+// Handle exit
+child.on('exit', (code) => {
+  process.exit(code);
+});
+
+// Handle errors
+child.on('error', (err) => {
+  console.error('Failed to start memory-keeper server:', err);
+  process.exit(1);
+});
