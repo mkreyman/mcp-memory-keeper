@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2025-01-11
+
 ### Fixed
+
+- **Token Limit Enforcement** - Fixed MCP protocol token limit errors
+
+  - Added automatic response truncation when approaching 25,000 token limit
+  - Implemented `calculateSafeItemCount()` helper to determine safe result size
+  - Enhanced pagination metadata with `truncated` and `truncatedCount` fields
+  - Improved warning messages with specific pagination instructions
+  - Prevents "response exceeds maximum allowed tokens" errors from MCP clients
 
 - **Pagination Defaults in context_get** - Improved consistency
   - Added proper validation of pagination parameters at handler level
