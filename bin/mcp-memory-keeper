@@ -27,7 +27,9 @@ const serverPath = path.join(__dirname, '..', 'dist', 'index.js');
 // Check if the server is built
 if (!fs.existsSync(serverPath)) {
   console.error('Error: Server not built. This should not happen with the npm package.');
-  console.error('Please report this issue at: https://github.com/mkreyman/mcp-memory-keeper/issues');
+  console.error(
+    'Please report this issue at: https://github.com/mkreyman/mcp-memory-keeper/issues'
+  );
   process.exit(1);
 }
 
@@ -37,16 +39,16 @@ process.chdir(DATA_DIR);
 // Spawn the server
 const child = spawn(process.execPath, [serverPath, ...process.argv.slice(2)], {
   stdio: 'inherit',
-  env: process.env
+  env: process.env,
 });
 
 // Handle exit
-child.on('exit', (code) => {
+child.on('exit', code => {
   process.exit(code);
 });
 
 // Handle errors
-child.on('error', (err) => {
+child.on('error', err => {
   console.error('Failed to start memory-keeper server:', err);
   process.exit(1);
 });

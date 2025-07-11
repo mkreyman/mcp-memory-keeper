@@ -1,6 +1,7 @@
 # MCP Memory Keeper - Recipe Book
 
 ## Table of Contents
+
 - [Daily Development Patterns](#daily-development-patterns)
 - [Complex Workflow Patterns](#complex-workflow-patterns)
 - [Multi-Branch Development](#multi-branch-development) (NEW v0.10.0)
@@ -18,6 +19,7 @@
 ## Daily Development Patterns
 
 ### The Daily Standup Pattern
+
 Save yesterday's progress and today's plan:
 
 ```typescript
@@ -26,141 +28,144 @@ const sessions = await context_session_list({ limit: 3 });
 const yesterday = sessions[0]; // Most recent session
 
 // Start today's session
-await context_session_start({ 
+await context_session_start({
   name: `${new Date().toISOString().split('T')[0]} Work`,
   continueFrom: yesterday.id,
-  description: "Sprint 15 - User Management" 
+  description: 'Sprint 15 - User Management',
 });
 
 // Get yesterday's incomplete tasks
-const incompleteTasks = await context_get({ 
+const incompleteTasks = await context_get({
   sessionId: yesterday.id,
-  category: "task" 
+  category: 'task',
 });
 
 // During standup
-await context_save({ 
-  key: "standup_blockers",
-  value: "Waiting on API documentation from backend team",
-  category: "task",
-  priority: "high"
+await context_save({
+  key: 'standup_blockers',
+  value: 'Waiting on API documentation from backend team',
+  category: 'task',
+  priority: 'high',
 });
 
 await context_save({
-  key: "standup_today",
-  value: "Complete user deletion feature, start bulk import",
-  category: "task",
-  priority: "high"
+  key: 'standup_today',
+  value: 'Complete user deletion feature, start bulk import',
+  category: 'task',
+  priority: 'high',
 });
 
 // End of standup - checkpoint
-await context_checkpoint({ 
-  name: "post-standup",
-  description: "Daily plan captured" 
+await context_checkpoint({
+  name: 'post-standup',
+  description: 'Daily plan captured',
 });
 ```
 
 ### The Code Review Pattern
+
 Track feedback and required changes systematically:
 
 ```typescript
 // Before starting review
-await context_checkpoint({ 
+await context_checkpoint({
   name: `pre-review-pr-${prNumber}`,
   includeFiles: true,
-  includeGitStatus: true 
+  includeGitStatus: true,
 });
 
 // During review - capture all feedback
 const feedbackItems = [
-  { area: "auth", feedback: "Add rate limiting to login endpoint", priority: "high" },
-  { area: "auth", feedback: "Validate email format", priority: "normal" },
-  { area: "tests", feedback: "Add edge case for expired tokens", priority: "high" },
-  { area: "docs", feedback: "Update API documentation", priority: "low" }
+  { area: 'auth', feedback: 'Add rate limiting to login endpoint', priority: 'high' },
+  { area: 'auth', feedback: 'Validate email format', priority: 'normal' },
+  { area: 'tests', feedback: 'Add edge case for expired tokens', priority: 'high' },
+  { area: 'docs', feedback: 'Update API documentation', priority: 'low' },
 ];
 
 for (const item of feedbackItems) {
   await context_save({
     key: `review_${prNumber}_${item.area}`,
     value: item.feedback,
-    category: "task",
+    category: 'task',
     priority: item.priority,
-    metadata: JSON.stringify({ pr: prNumber, reviewer: "john_doe" })
+    metadata: JSON.stringify({ pr: prNumber, reviewer: 'john_doe' }),
   });
 }
 
 // Track implementation progress
 await context_save({
   key: `review_${prNumber}_progress`,
-  value: "Completed 3/4 feedback items, docs remaining",
-  category: "progress"
+  value: 'Completed 3/4 feedback items, docs remaining',
+  category: 'progress',
 });
 
 // After completing all changes
 await context_save({
   key: `review_${prNumber}_complete`,
   value: `All feedback addressed. Changes: ${changesSummary}`,
-  category: "progress",
-  metadata: JSON.stringify({ completedAt: new Date().toISOString() })
+  category: 'progress',
+  metadata: JSON.stringify({ completedAt: new Date().toISOString() }),
 });
 
 // Create post-review checkpoint
 await context_checkpoint({
   name: `post-review-pr-${prNumber}`,
-  description: "All review feedback implemented"
+  description: 'All review feedback implemented',
 });
 ```
 
 ### The Feature Branch Pattern
+
 Manage feature development with context isolation:
 
 ```typescript
 // Starting new feature branch
 await context_session_start({
-  name: "Feature: Two-Factor Auth",
-  description: "Implement 2FA with TOTP and SMS",
-  metadata: JSON.stringify({ 
-    branch: "feature/two-factor-auth",
-    jiraTicket: "AUTH-123" 
-  })
+  name: 'Feature: Two-Factor Auth',
+  description: 'Implement 2FA with TOTP and SMS',
+  metadata: JSON.stringify({
+    branch: 'feature/two-factor-auth',
+    jiraTicket: 'AUTH-123',
+  }),
 });
 
 // Save feature requirements
 await context_save({
-  key: "feature_requirements",
-  value: "Support TOTP (Google Auth), SMS backup, recovery codes",
-  category: "task",
-  priority: "high"
+  key: 'feature_requirements',
+  value: 'Support TOTP (Google Auth), SMS backup, recovery codes',
+  category: 'task',
+  priority: 'high',
 });
 
 // Track design decisions
 await context_save({
-  key: "design_2fa_library",
-  value: "Using speakeasy for TOTP - well maintained, TypeScript support",
-  category: "decision",
-  priority: "high"
+  key: 'design_2fa_library',
+  value: 'Using speakeasy for TOTP - well maintained, TypeScript support',
+  category: 'decision',
+  priority: 'high',
 });
 
 // Before switching branches
 await context_checkpoint({
-  name: "feature-2fa-wip",
+  name: 'feature-2fa-wip',
   includeFiles: true,
   includeGitStatus: true,
-  description: "Work in progress - TOTP done, SMS pending"
+  description: 'Work in progress - TOTP done, SMS pending',
 });
 
 // Switch branches and work on hotfix...
 
 // Return to feature
 await context_restore_checkpoint({
-  name: "feature-2fa-wip",
-  restoreFiles: false // Don't restore files, just context
+  name: 'feature-2fa-wip',
+  restoreFiles: false, // Don't restore files, just context
 });
 ```
 
 ## Complex Workflow Patterns
 
 ### The Debugging Session Pattern
+
 Systematic bug investigation with full context tracking:
 
 ```typescript
@@ -168,393 +173,396 @@ Systematic bug investigation with full context tracking:
 await context_session_start({
   name: `Debug: ${bugId}`,
   description: issueDescription,
-  metadata: JSON.stringify({ 
-    bugId, 
-    severity: "high",
-    reportedBy: "customer" 
-  })
+  metadata: JSON.stringify({
+    bugId,
+    severity: 'high',
+    reportedBy: 'customer',
+  }),
 });
 
 // Save initial state
 await context_save({
-  key: "bug_description",
-  value: "Users report login fails after password reset",
-  category: "task",
-  priority: "high"
+  key: 'bug_description',
+  value: 'Users report login fails after password reset',
+  category: 'task',
+  priority: 'high',
 });
 
 // Track reproduction steps
 await context_save({
-  key: "reproduction_steps",
-  value: "1. Reset password\n2. Click email link\n3. Set new password\n4. Try to login - fails",
-  category: "note"
+  key: 'reproduction_steps',
+  value: '1. Reset password\n2. Click email link\n3. Set new password\n4. Try to login - fails',
+  category: 'note',
 });
 
 // Cache relevant files for investigation
 const filesToInvestigate = [
-  "src/auth/password-reset.ts",
-  "src/auth/login.ts",
-  "src/models/user.ts"
+  'src/auth/password-reset.ts',
+  'src/auth/login.ts',
+  'src/models/user.ts',
 ];
 
 for (const file of filesToInvestigate) {
   await context_cache_file({
     filePath: file,
-    content: await readFile(file)
+    content: await readFile(file),
   });
 }
 
 // Track hypotheses
 const hypotheses = [
-  "Token expiration too short",
-  "Password hash mismatch",
-  "Session not cleared properly",
-  "Database sync issue"
+  'Token expiration too short',
+  'Password hash mismatch',
+  'Session not cleared properly',
+  'Database sync issue',
 ];
 
 for (let i = 0; i < hypotheses.length; i++) {
   await context_save({
     key: `hypothesis_${i + 1}`,
     value: hypotheses[i],
-    category: "decision",
-    metadata: JSON.stringify({ tested: false })
+    category: 'decision',
+    metadata: JSON.stringify({ tested: false }),
   });
 }
 
 // Test each hypothesis
 await context_save({
-  key: "test_token_expiry",
-  value: "Token TTL is 24h, user reported issue after 5 min - not the cause",
-  category: "progress"
+  key: 'test_token_expiry',
+  value: 'Token TTL is 24h, user reported issue after 5 min - not the cause',
+  category: 'progress',
 });
 
 // Found root cause
 await context_save({
-  key: "root_cause",
-  value: "bcrypt rounds mismatch: reset uses 10, login expects 12",
-  category: "decision",
-  priority: "high",
-  metadata: JSON.stringify({ 
+  key: 'root_cause',
+  value: 'bcrypt rounds mismatch: reset uses 10, login expects 12',
+  category: 'decision',
+  priority: 'high',
+  metadata: JSON.stringify({
     foundAt: new Date().toISOString(),
-    fileLocation: "src/auth/password-reset.ts:47" 
-  })
+    fileLocation: 'src/auth/password-reset.ts:47',
+  }),
 });
 
 // Document fix
 await context_save({
-  key: "fix_applied",
-  value: "Updated password-reset.ts to use consistent bcrypt rounds",
-  category: "progress",
-  metadata: JSON.stringify({ 
-    commit: "abc123",
-    files: ["src/auth/password-reset.ts"] 
-  })
+  key: 'fix_applied',
+  value: 'Updated password-reset.ts to use consistent bcrypt rounds',
+  category: 'progress',
+  metadata: JSON.stringify({
+    commit: 'abc123',
+    files: ['src/auth/password-reset.ts'],
+  }),
 });
 
 // Create debugging artifact
 await context_export({
   sessionId: currentSessionId,
-  outputPath: `./debug-artifacts/bug-${bugId}.json`
+  outputPath: `./debug-artifacts/bug-${bugId}.json`,
 });
 ```
 
 ### The Refactoring Pattern
+
 Safe, trackable refactoring with rollback capability:
 
 ```typescript
 // Pre-refactor analysis
 await context_save({
-  key: "refactor_scope",
-  value: "Convert callback-based auth to async/await",
-  category: "task",
-  priority: "high"
+  key: 'refactor_scope',
+  value: 'Convert callback-based auth to async/await',
+  category: 'task',
+  priority: 'high',
 });
 
 // Create safety checkpoint
 await context_checkpoint({
-  name: "pre-refactor-auth-async",
+  name: 'pre-refactor-auth-async',
   includeFiles: true,
   includeGitStatus: true,
-  description: "Before converting to async/await"
+  description: 'Before converting to async/await',
 });
 
 // Track files being refactored
-const refactorFiles = [
-  "src/auth/login.js",
-  "src/auth/logout.js", 
-  "src/auth/refresh.js"
-];
+const refactorFiles = ['src/auth/login.js', 'src/auth/logout.js', 'src/auth/refresh.js'];
 
 for (const file of refactorFiles) {
   await context_cache_file({
     filePath: file,
     content: await readFile(file),
-    metadata: JSON.stringify({ purpose: "refactor_backup" })
+    metadata: JSON.stringify({ purpose: 'refactor_backup' }),
   });
 }
 
 // Track refactoring decisions
 await context_save({
-  key: "refactor_decision_error_handling",
-  value: "Use try/catch with custom AuthError class",
-  category: "decision"
+  key: 'refactor_decision_error_handling',
+  value: 'Use try/catch with custom AuthError class',
+  category: 'decision',
 });
 
 // Progress tracking
 await context_save({
-  key: "refactor_progress_1",
-  value: "Completed login.js - all tests passing",
-  category: "progress",
-  metadata: JSON.stringify({ 
+  key: 'refactor_progress_1',
+  value: 'Completed login.js - all tests passing',
+  category: 'progress',
+  metadata: JSON.stringify({
     testsRun: 15,
-    testsPassed: 15 
-  })
+    testsPassed: 15,
+  }),
 });
 
 // Mid-refactor checkpoint
 await context_checkpoint({
-  name: "mid-refactor-auth-async",
-  description: "Login complete, logout/refresh pending"
+  name: 'mid-refactor-auth-async',
+  description: 'Login complete, logout/refresh pending',
 });
 
 // If something goes wrong
 if (testsFailling) {
   await context_restore_checkpoint({
-    name: "pre-refactor-auth-async",
-    restoreFiles: true
+    name: 'pre-refactor-auth-async',
+    restoreFiles: true,
   });
 }
 ```
 
 ### The Learning New Codebase Pattern
+
 Build mental model of unfamiliar code:
 
 ```typescript
 // Start exploration session
 await context_session_start({
-  name: "Learning: E-commerce Platform",
-  description: "Understanding architecture and key flows"
+  name: 'Learning: E-commerce Platform',
+  description: 'Understanding architecture and key flows',
 });
 
 // Map high-level architecture
 await context_save({
-  key: "architecture_overview",
-  value: "Microservices: API Gateway -> Auth, Catalog, Orders, Payment",
-  category: "note",
-  priority: "high"
+  key: 'architecture_overview',
+  value: 'Microservices: API Gateway -> Auth, Catalog, Orders, Payment',
+  category: 'note',
+  priority: 'high',
 });
 
 // Track key discoveries
 await context_save({
-  key: "discovery_auth_flow",
-  value: "JWT with refresh tokens, Redis for sessions, 15min access token TTL",
-  category: "note"
+  key: 'discovery_auth_flow',
+  value: 'JWT with refresh tokens, Redis for sessions, 15min access token TTL',
+  category: 'note',
 });
 
 // Map important files
 const keyFiles = {
-  "src/gateway/index.ts": "API Gateway entry point",
-  "src/auth/jwt.ts": "JWT token management",
-  "src/orders/workflow.ts": "Order processing state machine"
+  'src/gateway/index.ts': 'API Gateway entry point',
+  'src/auth/jwt.ts': 'JWT token management',
+  'src/orders/workflow.ts': 'Order processing state machine',
 };
 
 for (const [file, description] of Object.entries(keyFiles)) {
   await context_save({
     key: `file_map_${file.replace(/\//g, '_')}`,
     value: `${file}: ${description}`,
-    category: "note"
+    category: 'note',
   });
-  
+
   await context_cache_file({
     filePath: file,
-    content: await readFile(file)
+    content: await readFile(file),
   });
 }
 
 // Document flows
 await context_save({
-  key: "flow_user_checkout",
-  value: "Cart -> Validate Inventory -> Create Order -> Process Payment -> Update Inventory -> Send Confirmation",
-  category: "note",
-  priority: "high"
+  key: 'flow_user_checkout',
+  value:
+    'Cart -> Validate Inventory -> Create Order -> Process Payment -> Update Inventory -> Send Confirmation',
+  category: 'note',
+  priority: 'high',
 });
 
 // Track questions for team
 await context_save({
-  key: "question_payment_retry",
+  key: 'question_payment_retry',
   value: "How are failed payments retried? Don't see retry logic in payment service",
-  category: "task",
-  priority: "normal"
+  category: 'task',
+  priority: 'normal',
 });
 
 // Create learning checkpoint
 await context_checkpoint({
-  name: "codebase-exploration-day-1",
-  description: "Initial exploration complete"
+  name: 'codebase-exploration-day-1',
+  description: 'Initial exploration complete',
 });
 ```
 
 ## Multi-Branch Development (NEW v0.10.0)
 
 ### The Feature Branch Context Pattern
+
 Keep context organized across multiple feature branches:
 
 ```typescript
 // Set project directory for auto-channel detection
 await context_session_start({
-  name: "Multi-Feature Development",
-  projectDir: "/path/to/project"
+  name: 'Multi-Feature Development',
+  projectDir: '/path/to/project',
 });
 
 // Working on auth feature (git branch: feature/auth)
 await context_save({
-  key: "auth_architecture",
-  value: "JWT with refresh tokens, 15min/7day expiry",
-  category: "decision",
-  priority: "high"
+  key: 'auth_architecture',
+  value: 'JWT with refresh tokens, 15min/7day expiry',
+  category: 'decision',
+  priority: 'high',
   // Auto-saved to "feature-auth" channel
 });
 
 await context_save({
-  key: "auth_progress",
-  value: "Login/logout complete, working on password reset",
-  category: "progress"
+  key: 'auth_progress',
+  value: 'Login/logout complete, working on password reset',
+  category: 'progress',
   // Auto-saved to "feature-auth" channel
 });
 
 // Switch to payments branch (git checkout feature/payments)
 await context_save({
-  key: "payment_provider",
-  value: "Stripe for cards, considering PayPal for international",
-  category: "decision",
-  priority: "high"
+  key: 'payment_provider',
+  value: 'Stripe for cards, considering PayPal for international',
+  category: 'decision',
+  priority: 'high',
   // Auto-saved to "feature-payments" channel
 });
 
 // Later: Review all features
-const features = ["feature-auth", "feature-payments", "feature-ui"];
+const features = ['feature-auth', 'feature-payments', 'feature-ui'];
 for (const channel of features) {
-  const items = await context_get({ 
+  const items = await context_get({
     channel: channel,
-    category: "decision",
-    includeMetadata: true
+    category: 'decision',
+    includeMetadata: true,
   });
   console.log(`${channel}: ${items.length} decisions`);
 }
 
 // Find high-priority items across ALL features
 const urgent = await context_get({
-  priorities: ["high"],
-  sort: "created_desc",
-  limit: 10
+  priorities: ['high'],
+  sort: 'created_desc',
+  limit: 10,
   // No channel specified = search all channels
 });
 ```
 
 ### The Branch Status Dashboard Pattern
+
 Track progress across multiple branches:
 
 ```typescript
 // Create a status overview function
 async function getBranchStatus() {
   const branches = {
-    "feature-auth": "Authentication System",
-    "feature-payments": "Payment Processing", 
-    "feature-search": "Advanced Search",
-    "bugfix-memory-leak": "Memory Leak Fix"
+    'feature-auth': 'Authentication System',
+    'feature-payments': 'Payment Processing',
+    'feature-search': 'Advanced Search',
+    'bugfix-memory-leak': 'Memory Leak Fix',
   };
-  
+
   const status = {};
-  
+
   for (const [channel, description] of Object.entries(branches)) {
     // Get progress items from last 7 days
     const progress = await context_get({
       channel: channel,
-      category: "progress",
-      createdAfter: new Date(Date.now() - 7*24*60*60*1000).toISOString(),
-      sort: "created_desc",
-      limit: 1
+      category: 'progress',
+      createdAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      sort: 'created_desc',
+      limit: 1,
     });
-    
+
     // Get open tasks
     const tasks = await context_get({
       channel: channel,
-      category: "task",
-      priorities: ["high", "normal"]
+      category: 'task',
+      priorities: ['high', 'normal'],
     });
-    
+
     status[channel] = {
       description,
-      lastProgress: progress[0]?.value || "No recent updates",
+      lastProgress: progress[0]?.value || 'No recent updates',
       openTasks: tasks.length,
-      lastUpdate: progress[0]?.metadata?.createdAt || "Unknown"
+      lastUpdate: progress[0]?.metadata?.createdAt || 'Unknown',
     };
   }
-  
+
   return status;
 }
 
 // Use it for daily standup
 const branchStatus = await getBranchStatus();
-console.log("Branch Status Report:", JSON.stringify(branchStatus, null, 2));
+console.log('Branch Status Report:', JSON.stringify(branchStatus, null, 2));
 ```
 
 ### The Branch Merge Preparation Pattern
+
 Prepare context when merging branches:
 
 ```typescript
 // Before merging feature branch
-const featureChannel = "feature-user-profile";
+const featureChannel = 'feature-user-profile';
 
 // Get all decisions made in this feature
 const decisions = await context_get({
   channel: featureChannel,
-  category: "decision",
-  includeMetadata: true
+  category: 'decision',
+  includeMetadata: true,
 });
 
 // Get unresolved issues
 const issues = await context_get({
   channel: featureChannel,
-  category: "task",
-  keyPattern: "issue_.*|bug_.*"
+  category: 'task',
+  keyPattern: 'issue_.*|bug_.*',
 });
 
 // Create merge summary
 await context_save({
-  key: "merge_summary_user_profile",
+  key: 'merge_summary_user_profile',
   value: JSON.stringify({
     decisions: decisions.map(d => ({ key: d.key, value: d.value })),
     unresolvedIssues: issues.map(i => i.value),
-    mergeDate: new Date().toISOString()
+    mergeDate: new Date().toISOString(),
   }),
-  category: "note",
-  priority: "high",
-  channel: "main"  // Save to main branch channel
+  category: 'note',
+  priority: 'high',
+  channel: 'main', // Save to main branch channel
 });
 
 // Archive feature context
 await context_checkpoint({
   name: `archive-${featureChannel}`,
-  description: "Pre-merge archive of user profile feature"
+  description: 'Pre-merge archive of user profile feature',
 });
 ```
 
 ## Finding Recent Work (NEW v0.10.0)
 
 ### The "What Was I Doing?" Pattern
+
 Quickly find what you were working on:
 
 ```typescript
 // Find everything from the last 2 hours
-const twoHoursAgo = new Date(Date.now() - 2*60*60*1000).toISOString();
+const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
 const recent = await context_get({
   createdAfter: twoHoursAgo,
-  sort: "created_desc",
-  includeMetadata: true
+  sort: 'created_desc',
+  includeMetadata: true,
 });
 
-console.log("Recent activity:");
+console.log('Recent activity:');
 recent.forEach(item => {
   const time = new Date(item.metadata.createdAt);
   const timeAgo = Math.round((Date.now() - time) / 60000);
@@ -565,13 +573,14 @@ recent.forEach(item => {
 const today = new Date().toISOString().split('T')[0];
 const priorities = await context_get({
   createdAfter: `${today}T00:00:00Z`,
-  priorities: ["high"],
-  sort: "priority",
-  includeMetadata: true
+  priorities: ['high'],
+  sort: 'priority',
+  includeMetadata: true,
 });
 ```
 
 ### The Weekly Review Pattern
+
 Review your week's work:
 
 ```typescript
@@ -582,81 +591,83 @@ weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 // Timeline with actual items
 const weekActivity = await context_timeline({
   startDate: weekStart.toISOString(),
-  groupBy: "day",
+  groupBy: 'day',
   includeItems: true,
-  categories: ["progress", "decision"],
-  itemsPerPeriod: 5
+  categories: ['progress', 'decision'],
+  itemsPerPeriod: 5,
 });
 
 // Find decisions that might need review
 const oldDecisions = await context_get({
-  category: "decision",
-  createdBefore: new Date(Date.now() - 30*24*60*60*1000).toISOString(),
-  sort: "created_asc",
-  includeMetadata: true
+  category: 'decision',
+  createdBefore: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+  sort: 'created_asc',
+  includeMetadata: true,
 });
 
 console.log(`Found ${oldDecisions.length} decisions older than 30 days that might need review`);
 
 // Get completed tasks
 const completedTasks = await context_get({
-  category: "progress",
+  category: 'progress',
   createdAfter: weekStart.toISOString(),
-  keyPattern: ".*complete.*|.*done.*|.*fixed.*",
-  sort: "created_desc"
+  keyPattern: '.*complete.*|.*done.*|.*fixed.*',
+  sort: 'created_desc',
 });
 ```
 
 ### The Sprint Velocity Pattern
+
 Track your productivity patterns:
 
 ```typescript
 // Analyze last 2 weeks
-const twoWeeksAgo = new Date(Date.now() - 14*24*60*60*1000);
+const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
 // Get daily task completion
 async function getVelocityData() {
   const velocity = {};
-  
+
   for (let i = 0; i < 14; i++) {
     const dayStart = new Date(twoWeeksAgo);
     dayStart.setDate(dayStart.getDate() + i);
     const dayEnd = new Date(dayStart);
     dayEnd.setDate(dayEnd.getDate() + 1);
-    
+
     const dayKey = dayStart.toISOString().split('T')[0];
-    
+
     // Count completed items
     const completed = await context_get({
-      category: "progress",
+      category: 'progress',
       createdAfter: dayStart.toISOString(),
-      createdBefore: dayEnd.toISOString()
+      createdBefore: dayEnd.toISOString(),
     });
-    
+
     // Count new tasks
     const newTasks = await context_get({
-      category: "task",
+      category: 'task',
       createdAfter: dayStart.toISOString(),
-      createdBefore: dayEnd.toISOString()
+      createdBefore: dayEnd.toISOString(),
     });
-    
+
     velocity[dayKey] = {
       completed: completed.length,
       created: newTasks.length,
-      netProgress: completed.length - newTasks.length
+      netProgress: completed.length - newTasks.length,
     };
   }
-  
+
   return velocity;
 }
 
 const velocity = await getVelocityData();
-console.log("Two-week velocity:", velocity);
+console.log('Two-week velocity:', velocity);
 ```
 
 ## Cross-Session Coordination (NEW v0.10.0)
 
 ### The Continuous Context Pattern
+
 Maintain context across Claude restarts:
 
 ```typescript
@@ -664,27 +675,27 @@ Maintain context across Claude restarts:
 async function saveWorkState() {
   // Get current high-priority items
   const critical = await context_get({
-    priorities: ["high"],
-    createdAfter: new Date(Date.now() - 24*60*60*1000).toISOString(),
-    includeMetadata: true
+    priorities: ['high'],
+    createdAfter: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    includeMetadata: true,
   });
-  
+
   // Save state summary
   await context_save({
-    key: "work_state_summary",
+    key: 'work_state_summary',
     value: JSON.stringify({
       timestamp: new Date().toISOString(),
       activeItems: critical.map(i => ({ key: i.key, value: i.value })),
-      lastActivity: "Implementing OAuth2 callback handler"
+      lastActivity: 'Implementing OAuth2 callback handler',
     }),
-    category: "note",
-    priority: "high"
+    category: 'note',
+    priority: 'high',
   });
-  
+
   // Create checkpoint
   await context_checkpoint({
-    name: "work-state-checkpoint",
-    description: "Pre-compaction work state"
+    name: 'work-state-checkpoint',
+    description: 'Pre-compaction work state',
   });
 }
 
@@ -692,30 +703,31 @@ async function saveWorkState() {
 async function restoreWorkState() {
   // Check for recent work state
   const state = await context_get({
-    key: "work_state_summary",
-    includeMetadata: true
+    key: 'work_state_summary',
+    includeMetadata: true,
   });
-  
+
   if (state.length > 0) {
     const workState = JSON.parse(state[0].value);
     console.log(`Resuming from ${workState.timestamp}`);
     console.log(`Last activity: ${workState.lastActivity}`);
     console.log(`Active items: ${workState.activeItems.length}`);
   }
-  
+
   // Get recent items from all channels
   const recent = await context_get({
-    createdAfter: new Date(Date.now() - 4*60*60*1000).toISOString(),
-    sort: "updated_desc",
+    createdAfter: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+    sort: 'updated_desc',
     limit: 20,
-    includeMetadata: true
+    includeMetadata: true,
   });
-  
+
   return recent;
 }
 ```
 
 ### The Cross-Channel Search Pattern
+
 Find information across all your work:
 
 ```typescript
@@ -724,25 +736,26 @@ async function findRelatedWork(topic) {
   // Search by pattern
   const patternResults = await context_get({
     keyPattern: `.*${topic}.*`,
-    includeMetadata: true
+    includeMetadata: true,
   });
-  
+
   // Search in specific time window
   const recentResults = await context_get({
-    createdAfter: new Date(Date.now() - 7*24*60*60*1000).toISOString(),
-    includeMetadata: true
+    createdAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    includeMetadata: true,
   });
-  
+
   // Filter recent results for topic
-  const relevantRecent = recentResults.filter(item => 
-    item.value.toLowerCase().includes(topic.toLowerCase()) ||
-    item.key.toLowerCase().includes(topic.toLowerCase())
+  const relevantRecent = recentResults.filter(
+    item =>
+      item.value.toLowerCase().includes(topic.toLowerCase()) ||
+      item.key.toLowerCase().includes(topic.toLowerCase())
   );
-  
+
   // Combine and deduplicate
   const allResults = [...patternResults, ...relevantRecent];
   const unique = Array.from(new Map(allResults.map(item => [item.id, item])).values());
-  
+
   // Group by channel
   const byChannel = {};
   unique.forEach(item => {
@@ -750,75 +763,80 @@ async function findRelatedWork(topic) {
     if (!byChannel[channel]) byChannel[channel] = [];
     byChannel[channel].push(item);
   });
-  
+
   return byChannel;
 }
 
 // Use it
-const authWork = await findRelatedWork("authentication");
-console.log("Authentication work found in channels:", Object.keys(authWork));
+const authWork = await findRelatedWork('authentication');
+console.log('Authentication work found in channels:', Object.keys(authWork));
 ```
 
 ### The Time-Based Context Aggregation Pattern
+
 Aggregate context over time periods:
 
 ```typescript
 // Daily aggregation function
 async function aggregateDailyContext(daysBack = 7) {
   const aggregated = {};
-  
+
   for (let i = 0; i < daysBack; i++) {
     const date = new Date();
     date.setDate(date.getDate() - i);
-    const dayStart = new Date(date.setHours(0,0,0,0));
-    const dayEnd = new Date(date.setHours(23,59,59,999));
-    
+    const dayStart = new Date(date.setHours(0, 0, 0, 0));
+    const dayEnd = new Date(date.setHours(23, 59, 59, 999));
+
     const dayKey = dayStart.toISOString().split('T')[0];
-    
+
     // Get all items for this day
     const dayItems = await context_get({
       createdAfter: dayStart.toISOString(),
       createdBefore: dayEnd.toISOString(),
-      includeMetadata: true
+      includeMetadata: true,
     });
-    
+
     // Categorize
     const categorized = {
       tasks: dayItems.filter(i => i.category === 'task'),
       progress: dayItems.filter(i => i.category === 'progress'),
       decisions: dayItems.filter(i => i.category === 'decision'),
-      total: dayItems.length
+      total: dayItems.length,
     };
-    
+
     // Get unique channels
     const channels = [...new Set(dayItems.map(i => i.channel || 'default'))];
-    
+
     aggregated[dayKey] = {
       ...categorized,
       channels: channels,
-      highlights: dayItems.filter(i => i.priority === 'high').map(i => i.value)
+      highlights: dayItems.filter(i => i.priority === 'high').map(i => i.value),
     };
   }
-  
+
   return aggregated;
 }
 
 // Generate weekly report
 const weekData = await aggregateDailyContext(7);
-console.log("Week Summary:", JSON.stringify(weekData, null, 2));
+console.log('Week Summary:', JSON.stringify(weekData, null, 2));
 
 // Find most productive day
-const mostProductive = Object.entries(weekData)
-  .sort((a, b) => b[1].progress.length - a[1].progress.length)[0];
-console.log(`Most productive day: ${mostProductive[0]} with ${mostProductive[1].progress.length} completed items`);
+const mostProductive = Object.entries(weekData).sort(
+  (a, b) => b[1].progress.length - a[1].progress.length
+)[0];
+console.log(
+  `Most productive day: ${mostProductive[0]} with ${mostProductive[1].progress.length} completed items`
+);
 ```
 
 ## Team Collaboration Patterns
 
 ### Cross-Session Knowledge Sharing (v0.9.0+)
+
 Share discoveries and solutions across different AI sessions:
 
-```typescript
+````typescript
 // Developer A discovers a tricky bug fix - automatically shared!
 await context_save({
   key: "elixir_genserver_timeout_fix",
@@ -832,8 +850,8 @@ await context_save({
 const fix = await context_get({ key: "elixir_genserver_timeout_fix" });
 
 // Or search for it across all sessions
-const results = await context_search_all({ 
-  query: "elixir timeout" 
+const results = await context_search_all({
+  query: "elixir timeout"
 });
 
 // For session-specific notes, use private flag
@@ -921,64 +939,66 @@ await context_checkpoint({
   name: `handoff-${new Date().toISOString().split('T')[0]}`,
   description: "Handoff to Sarah for permissions completion"
 });
-```
+````
 
 ### The Pair Programming Pattern
+
 Track decisions and progress during pairing:
 
 ```typescript
 // Start pairing session
 await context_session_start({
-  name: "Pair: Refactor Payment Module",
-  description: "Alice (driver) & Bob (navigator)",
+  name: 'Pair: Refactor Payment Module',
+  description: 'Alice (driver) & Bob (navigator)',
   metadata: JSON.stringify({
-    participants: ["alice", "bob"],
-    startTime: new Date().toISOString()
-  })
+    participants: ['alice', 'bob'],
+    startTime: new Date().toISOString(),
+  }),
 });
 
 // Track decisions made together
 await context_save({
-  key: "pair_decision_pattern",
-  value: "Agreed: Use Strategy pattern for payment providers",
-  category: "decision",
-  metadata: JSON.stringify({ agreedBy: ["alice", "bob"] })
+  key: 'pair_decision_pattern',
+  value: 'Agreed: Use Strategy pattern for payment providers',
+  category: 'decision',
+  metadata: JSON.stringify({ agreedBy: ['alice', 'bob'] }),
 });
 
 // Switch driver/navigator
 await context_save({
-  key: "pair_switch_1",
-  value: "Switched: Bob driving, Alice navigating",
-  category: "note",
-  metadata: JSON.stringify({ time: new Date().toISOString() })
+  key: 'pair_switch_1',
+  value: 'Switched: Bob driving, Alice navigating',
+  category: 'note',
+  metadata: JSON.stringify({ time: new Date().toISOString() }),
 });
 
 // Track discoveries
 await context_save({
-  key: "pair_discovery_bug",
-  value: "Found: Race condition in payment confirmation",
-  category: "task",
-  priority: "high"
+  key: 'pair_discovery_bug',
+  value: 'Found: Race condition in payment confirmation',
+  category: 'task',
+  priority: 'high',
 });
 
 // End of session summary
 await context_save({
-  key: "pair_session_summary",
-  value: "Refactored 3 payment providers, found and fixed race condition",
-  category: "progress"
+  key: 'pair_session_summary',
+  value: 'Refactored 3 payment providers, found and fixed race condition',
+  category: 'progress',
 });
 ```
 
 ### Team Knowledge Base Pattern (v0.9.0+)
+
 Build a shared knowledge base across all sessions:
 
 ```typescript
 // Create reusable team patterns
 const patterns = {
-  "error_handling": "Always use Result<T, E> for fallible operations",
-  "testing_strategy": "Use property-based testing for data transformations",
-  "api_versioning": "Version all APIs with /v1, /v2 prefixes",
-  "code_review": "Require 2 approvals for database migrations"
+  error_handling: 'Always use Result<T, E> for fallible operations',
+  testing_strategy: 'Use property-based testing for data transformations',
+  api_versioning: 'Version all APIs with /v1, /v2 prefixes',
+  code_review: 'Require 2 approvals for database migrations',
 };
 
 // Save team standards - automatically shared!
@@ -986,54 +1006,53 @@ for (const [key, value] of Object.entries(patterns)) {
   await context_save({
     key: `team_standard_${key}`,
     value: value,
-    category: "standard",
-    priority: "normal"
+    category: 'standard',
+    priority: 'normal',
     // Note: This is automatically accessible from ALL sessions (public by default)
   });
 }
 
 // Any team member can search standards
 const apiStandards = await context_search_all({
-  query: "api_versioning"
+  query: 'api_versioning',
 });
 ```
 
 ### Multi-Agent Collaboration Pattern (v0.9.0+)
+
 Different specialized agents work together on complex tasks:
 
 ```typescript
 // Security audit agent session
-await context_session_start({ 
-  name: "Security Audit - Sprint 15",
-  description: "Automated security scan"
+await context_session_start({
+  name: 'Security Audit - Sprint 15',
+  description: 'Automated security scan',
 });
 
 const securityFindings = {
   high: [
-    { file: "auth.js", line: 45, issue: "SQL injection risk", cwe: "CWE-89" },
-    { file: "upload.js", line: 102, issue: "Path traversal", cwe: "CWE-22" }
+    { file: 'auth.js', line: 45, issue: 'SQL injection risk', cwe: 'CWE-89' },
+    { file: 'upload.js', line: 102, issue: 'Path traversal', cwe: 'CWE-22' },
   ],
-  medium: [
-    { file: "api.js", line: 78, issue: "Missing rate limiting", cwe: "CWE-770" }
-  ]
+  medium: [{ file: 'api.js', line: 78, issue: 'Missing rate limiting', cwe: 'CWE-770' }],
 };
 
 await context_save({
-  key: "security_audit_results",
+  key: 'security_audit_results',
   value: JSON.stringify(securityFindings),
-  category: "security",
-  priority: "high"
+  category: 'security',
+  priority: 'high',
 });
 
 // The results are automatically shared with all sessions!
 
 // Development agent addresses issues
-await context_session_start({ 
-  name: "Security Fixes - Sprint 15"
+await context_session_start({
+  name: 'Security Fixes - Sprint 15',
 });
 
 // Development agent retrieves the audit results
-const auditResult = await context_get({ key: "security_audit_results" });
+const auditResult = await context_get({ key: 'security_audit_results' });
 const findings = JSON.parse(auditResult.value);
 
 // Fix each high-priority issue
@@ -1041,158 +1060,202 @@ for (const issue of findings.high) {
   await context_save({
     key: `security_fix_${issue.file}_line${issue.line}`,
     value: `Fixed ${issue.issue} (${issue.cwe}) with parameterized queries`,
-    category: "progress",
-    priority: "high"
+    category: 'progress',
+    priority: 'high',
   });
 }
 
 // Save fix completion status - automatically shared!
 await context_save({
-  key: "security_fixes_complete",
-  value: "All high-priority security issues resolved",
-  category: "progress",
-  priority: "high"
+  key: 'security_fixes_complete',
+  value: 'All high-priority security issues resolved',
+  category: 'progress',
+  priority: 'high',
 });
 ```
 
 ### Cross-Team Learning Pattern (v0.9.0+)
+
 Share lessons learned across different teams:
 
 ```typescript
 // After resolving a complex bug
 const lesson = {
-  problem: "Users randomly logged out after deployment",
-  rootCause: "Redis session store key prefix changed",
-  solution: "Added migration to update existing session keys",
-  prevention: "Add session persistence tests to deployment checklist",
-  timeToResolve: "4 hours",
-  impact: "2000 users affected"
+  problem: 'Users randomly logged out after deployment',
+  rootCause: 'Redis session store key prefix changed',
+  solution: 'Added migration to update existing session keys',
+  prevention: 'Add session persistence tests to deployment checklist',
+  timeToResolve: '4 hours',
+  impact: '2000 users affected',
 };
 
 await context_save({
   key: `lesson_learned_${Date.now()}`,
   value: JSON.stringify(lesson),
-  category: "lesson",
-  priority: "high",
+  category: 'lesson',
+  priority: 'high',
   metadata: JSON.stringify({
-    team: "platform",
-    severity: "high",
-    tags: ["redis", "sessions", "deployment"]
-  })
+    team: 'platform',
+    severity: 'high',
+    tags: ['redis', 'sessions', 'deployment'],
+  }),
 });
 
 // The lesson is automatically shared with all teams!
 
 // Other teams can learn from this
 const redisLessons = await context_search_all({
-  query: "redis session"
+  query: 'redis session',
 });
 
 // QA team updates their checklist
 await context_save({
-  key: "qa_checklist_update",
-  value: "Added: Verify session persistence across deployments",
-  category: "process"
+  key: 'qa_checklist_update',
+  value: 'Added: Verify session persistence across deployments',
+  category: 'process',
 });
 ```
 
 ## Batch Operations Patterns
 
 ### Sprint Planning Batch Import
+
 Import multiple tasks and stories in one operation:
 
 ```typescript
 // Parse sprint planning output
 const sprintItems = [
   // User stories
-  { key: "story_user_profile", value: "As a user, I want to update my profile", category: "task", priority: "high", channel: "sprint-15" },
-  { key: "story_notifications", value: "As a user, I want email notifications", category: "task", priority: "normal", channel: "sprint-15" },
-  
+  {
+    key: 'story_user_profile',
+    value: 'As a user, I want to update my profile',
+    category: 'task',
+    priority: 'high',
+    channel: 'sprint-15',
+  },
+  {
+    key: 'story_notifications',
+    value: 'As a user, I want email notifications',
+    category: 'task',
+    priority: 'normal',
+    channel: 'sprint-15',
+  },
+
   // Technical tasks
-  { key: "task_db_migration", value: "Create user preferences table", category: "task", priority: "high", channel: "sprint-15" },
-  { key: "task_api_endpoints", value: "Implement profile CRUD endpoints", category: "task", priority: "high", channel: "sprint-15" },
-  { key: "task_email_service", value: "Set up email notification service", category: "task", priority: "normal", channel: "sprint-15" },
-  
+  {
+    key: 'task_db_migration',
+    value: 'Create user preferences table',
+    category: 'task',
+    priority: 'high',
+    channel: 'sprint-15',
+  },
+  {
+    key: 'task_api_endpoints',
+    value: 'Implement profile CRUD endpoints',
+    category: 'task',
+    priority: 'high',
+    channel: 'sprint-15',
+  },
+  {
+    key: 'task_email_service',
+    value: 'Set up email notification service',
+    category: 'task',
+    priority: 'normal',
+    channel: 'sprint-15',
+  },
+
   // Sprint metadata
-  { key: "sprint_15_goal", value: "Complete user profile and notifications", category: "note", channel: "sprint-15" },
-  { key: "sprint_15_capacity", value: "Team capacity: 45 story points", category: "note", channel: "sprint-15" }
+  {
+    key: 'sprint_15_goal',
+    value: 'Complete user profile and notifications',
+    category: 'note',
+    channel: 'sprint-15',
+  },
+  {
+    key: 'sprint_15_capacity',
+    value: 'Team capacity: 45 story points',
+    category: 'note',
+    channel: 'sprint-15',
+  },
 ];
 
 // Import all at once
-await context_batch_save({ 
+await context_batch_save({
   items: sprintItems,
-  updateExisting: false  // Don't overwrite if already exists
+  updateExisting: false, // Don't overwrite if already exists
 });
 
 // Link stories to tasks
 await context_link({
-  sourceKey: "story_user_profile",
-  targetKey: "task_db_migration",
-  relationship: "has_task"
+  sourceKey: 'story_user_profile',
+  targetKey: 'task_db_migration',
+  relationship: 'has_task',
 });
 
 await context_link({
-  sourceKey: "story_user_profile", 
-  targetKey: "task_api_endpoints",
-  relationship: "has_task"
+  sourceKey: 'story_user_profile',
+  targetKey: 'task_api_endpoints',
+  relationship: 'has_task',
 });
 ```
 
 ### Configuration Migration Pattern
+
 Move configuration between environments:
 
 ```typescript
 // Export from development
-const devConfig = await context_get({ keyPattern: "config_*", channel: "dev" });
+const devConfig = await context_get({ keyPattern: 'config_*', channel: 'dev' });
 
 // Transform for production
 const prodItems = devConfig.map(item => ({
   key: item.key.replace('config_', 'prod_config_'),
-  value: item.value.includes('localhost') 
+  value: item.value.includes('localhost')
     ? item.value.replace('localhost', 'prod.example.com')
     : item.value,
   category: item.category,
-  priority: "high",
-  channel: "production"
+  priority: 'high',
+  channel: 'production',
 }));
 
 // Batch import to production channel
 await context_batch_save({ items: prodItems });
 
 // Verify import
-const imported = await context_get({ channel: "production", keyPattern: "prod_config_*" });
+const imported = await context_get({ channel: 'production', keyPattern: 'prod_config_*' });
 console.log(`Imported ${imported.length} config items to production`);
 ```
 
 ### Bulk Status Updates
+
 Update multiple items based on criteria:
 
 ```typescript
 // Find all tasks assigned to a developer
-const johnsTasks = await context_get({ 
-  keyPattern: "task_*",
-  valuePattern: ".*assigned:john.*"  // If assignment in value
+const johnsTasks = await context_get({
+  keyPattern: 'task_*',
+  valuePattern: '.*assigned:john.*', // If assignment in value
 });
 
 // Update all to in-progress
 const updates = johnsTasks.map(task => ({
   key: task.key,
   value: task.value.replace('[TODO]', '[IN PROGRESS]'),
-  priority: "high"  // Bump priority for active work
+  priority: 'high', // Bump priority for active work
 }));
 
 await context_batch_update({ updates });
 
 // Move completed tasks to done channel
-const completedTasks = await context_get({ 
-  keyPattern: "task_*",
-  valuePattern: ".*\\[DONE\\].*"
+const completedTasks = await context_get({
+  keyPattern: 'task_*',
+  valuePattern: '.*\\[DONE\\].*',
 });
 
 if (completedTasks.length > 0) {
   await context_reassign_channel({
     keys: completedTasks.map(t => t.key),
-    toChannel: "completed-sprint-15"
+    toChannel: 'completed-sprint-15',
   });
 }
 ```
@@ -1200,59 +1263,61 @@ if (completedTasks.length > 0) {
 ## Channel Reorganization Patterns
 
 ### Feature Branch Merge Pattern
+
 Consolidate work when merging feature branches:
 
 ```typescript
 // Before merging feature branch
-const featureWork = await context_get({ channel: "feature-payments" });
+const featureWork = await context_get({ channel: 'feature-payments' });
 console.log(`Found ${featureWork.length} items in feature branch`);
 
 // Move decisions to main branch
 await context_reassign_channel({
-  fromChannel: "feature-payments",
-  toChannel: "main",
-  category: "decision",
-  dryRun: true  // Preview first
+  fromChannel: 'feature-payments',
+  toChannel: 'main',
+  category: 'decision',
+  dryRun: true, // Preview first
 });
 
 // Actually move after review
 await context_reassign_channel({
-  fromChannel: "feature-payments",
-  toChannel: "main",
-  category: "decision"
+  fromChannel: 'feature-payments',
+  toChannel: 'main',
+  category: 'decision',
 });
 
 // Archive the rest
 await context_reassign_channel({
-  fromChannel: "feature-payments",
-  toChannel: "archive-features",
-  priorities: ["low", "normal"]  // Keep high priority items
+  fromChannel: 'feature-payments',
+  toChannel: 'archive-features',
+  priorities: ['low', 'normal'], // Keep high priority items
 });
 ```
 
 ### Sprint Rollover Pattern
+
 Handle unfinished work at sprint end:
 
 ```typescript
 // Find unfinished tasks
 const unfinishedTasks = await context_get({
-  channel: "sprint-14",
-  category: "task",
-  valuePattern: "^(?!.*\\[DONE\\]).*$"  // Not containing [DONE]
+  channel: 'sprint-14',
+  category: 'task',
+  valuePattern: '^(?!.*\\[DONE\\]).*$', // Not containing [DONE]
 });
 
 // Analyze by priority
 const byPriority = {
-  high: unfinishedTasks.filter(t => t.priority === "high"),
-  normal: unfinishedTasks.filter(t => t.priority === "normal"),
-  low: unfinishedTasks.filter(t => t.priority === "low")
+  high: unfinishedTasks.filter(t => t.priority === 'high'),
+  normal: unfinishedTasks.filter(t => t.priority === 'normal'),
+  low: unfinishedTasks.filter(t => t.priority === 'low'),
 };
 
 // Move high priority to next sprint
 if (byPriority.high.length > 0) {
   await context_reassign_channel({
     keys: byPriority.high.map(t => t.key),
-    toChannel: "sprint-15"
+    toChannel: 'sprint-15',
   });
 }
 
@@ -1261,31 +1326,37 @@ const backlogItems = [...byPriority.normal, ...byPriority.low];
 if (backlogItems.length > 0) {
   await context_reassign_channel({
     keys: backlogItems.map(t => t.key),
-    toChannel: "backlog"
+    toChannel: 'backlog',
   });
 }
 
 // Create rollover report
 await context_save({
-  key: "sprint_14_rollover_report",
+  key: 'sprint_14_rollover_report',
   value: `Rolled over: ${byPriority.high.length} high, ${byPriority.normal.length} normal, ${byPriority.low.length} low priority tasks`,
-  category: "note",
-  channel: "sprint-reports"
+  category: 'note',
+  channel: 'sprint-reports',
 });
 ```
 
 ## Context Relationships Patterns
 
 ### Epic Management Pattern
+
 Track complex features with multiple levels:
 
 ```typescript
 // Create epic structure
-const epic = { key: "epic_payment_v2", value: "Payment System 2.0", category: "task", priority: "high" };
+const epic = {
+  key: 'epic_payment_v2',
+  value: 'Payment System 2.0',
+  category: 'task',
+  priority: 'high',
+};
 const features = [
-  { key: "feature_stripe", value: "Stripe integration", category: "task" },
-  { key: "feature_paypal", value: "PayPal integration", category: "task" },
-  { key: "feature_crypto", value: "Cryptocurrency support", category: "task" }
+  { key: 'feature_stripe', value: 'Stripe integration', category: 'task' },
+  { key: 'feature_paypal', value: 'PayPal integration', category: 'task' },
+  { key: 'feature_crypto', value: 'Cryptocurrency support', category: 'task' },
 ];
 
 // Save all items
@@ -1295,28 +1366,28 @@ for (const feature of features) {
   await context_link({
     sourceKey: epic.key,
     targetKey: feature.key,
-    relationship: "contains"
+    relationship: 'contains',
   });
 }
 
 // Add feature dependencies
 await context_link({
-  sourceKey: "feature_crypto",
-  targetKey: "feature_stripe",
-  relationship: "depends_on",
-  metadata: { reason: "Reuses payment gateway abstraction" }
+  sourceKey: 'feature_crypto',
+  targetKey: 'feature_stripe',
+  relationship: 'depends_on',
+  metadata: { reason: 'Reuses payment gateway abstraction' },
 });
 
 // Find all work for the epic
 const epicWork = await context_get_related({
-  key: "epic_payment_v2",
-  depth: 2,  // Epic -> Features -> Tasks
-  direction: "outgoing"
+  key: 'epic_payment_v2',
+  depth: 2, // Epic -> Features -> Tasks
+  direction: 'outgoing',
 });
 
 // Create visual hierarchy
 const hierarchy = epicWork.items.reduce((acc, item) => {
-  const level = item.distance === 1 ? "Features" : "Tasks";
+  const level = item.distance === 1 ? 'Features' : 'Tasks';
   if (!acc[level]) acc[level] = [];
   acc[level].push(item.key);
   return acc;
@@ -1324,89 +1395,91 @@ const hierarchy = epicWork.items.reduce((acc, item) => {
 ```
 
 ### Impact Analysis Pattern
+
 Understand cascading effects of changes:
 
 ```typescript
 // Map service dependencies
 const services = [
-  { source: "api-gateway", target: "auth-service", rel: "depends_on" },
-  { source: "api-gateway", target: "user-service", rel: "depends_on" },
-  { source: "user-service", target: "database", rel: "depends_on" },
-  { source: "user-service", target: "cache", rel: "depends_on" },
-  { source: "auth-service", target: "database", rel: "depends_on" },
-  { source: "notification-service", target: "user-service", rel: "depends_on" }
+  { source: 'api-gateway', target: 'auth-service', rel: 'depends_on' },
+  { source: 'api-gateway', target: 'user-service', rel: 'depends_on' },
+  { source: 'user-service', target: 'database', rel: 'depends_on' },
+  { source: 'user-service', target: 'cache', rel: 'depends_on' },
+  { source: 'auth-service', target: 'database', rel: 'depends_on' },
+  { source: 'notification-service', target: 'user-service', rel: 'depends_on' },
 ];
 
 // Create dependency graph
 for (const dep of services) {
-  await context_save({ key: dep.source, value: `Service: ${dep.source}`, category: "note" });
-  await context_save({ key: dep.target, value: `Service: ${dep.target}`, category: "note" });
+  await context_save({ key: dep.source, value: `Service: ${dep.source}`, category: 'note' });
+  await context_save({ key: dep.target, value: `Service: ${dep.target}`, category: 'note' });
   await context_link({
     sourceKey: dep.source,
     targetKey: dep.target,
-    relationship: dep.rel
+    relationship: dep.rel,
   });
 }
 
 // Analyze database change impact
 const impacted = await context_get_related({
-  key: "database",
-  relationship: "depends_on",
-  direction: "incoming",
-  depth: 3
+  key: 'database',
+  relationship: 'depends_on',
+  direction: 'incoming',
+  depth: 3,
 });
 
-console.log("Database change will affect:");
+console.log('Database change will affect:');
 impacted.items.forEach(item => {
   console.log(`- ${item.key} (${item.distance} levels away)`);
 });
 
 // Find critical paths
 const authImpact = await context_get_related({
-  key: "auth-service",
-  direction: "both",
-  depth: 2
+  key: 'auth-service',
+  direction: 'both',
+  depth: 2,
 });
 
-const criticalServices = authImpact.items.filter(item => 
-  item.relationship === "depends_on" && item.direction === "incoming"
+const criticalServices = authImpact.items.filter(
+  item => item.relationship === 'depends_on' && item.direction === 'incoming'
 );
 ```
 
 ## Real-time Monitoring Patterns
 
 ### CI/CD Pipeline Monitor
+
 Track build and deployment status:
 
 ```typescript
 // Create pipeline watcher
 const pipelineWatcher = await context_watch({
-  action: "create",
+  action: 'create',
   filters: {
-    keys: ["build_*", "deploy_*", "test_*"],
-    categories: ["progress", "error"],
-    channels: ["ci-cd"]
-  }
+    keys: ['build_*', 'deploy_*', 'test_*'],
+    categories: ['progress', 'error'],
+    channels: ['ci-cd'],
+  },
 });
 
 // Monitoring loop
 const monitorPipeline = async () => {
   const changes = await context_watch({
-    action: "poll",
+    action: 'poll',
     watcherId: pipelineWatcher.watcherId,
-    timeout: 30  // Long poll for 30 seconds
+    timeout: 30, // Long poll for 30 seconds
   });
-  
+
   for (const item of changes.items) {
-    if (item.category === "error") {
+    if (item.category === 'error') {
       console.error(`Pipeline failure: ${item.key} - ${item.value}`);
       // Trigger alerts
-    } else if (item.key.startsWith("deploy_") && item.value.includes("success")) {
+    } else if (item.key.startsWith('deploy_') && item.value.includes('success')) {
       console.log(`Deployment completed: ${item.key}`);
       // Update deployment tracking
     }
   }
-  
+
   // Continue monitoring
   setTimeout(monitorPipeline, 1000);
 };
@@ -1415,47 +1488,50 @@ monitorPipeline();
 ```
 
 ### Team Activity Dashboard
+
 Real-time team progress tracking:
 
 ```typescript
 // Set up watchers for each team
-const teams = ["frontend", "backend", "devops"];
+const teams = ['frontend', 'backend', 'devops'];
 const watchers = {};
 
 for (const team of teams) {
   watchers[team] = await context_watch({
-    action: "create",
+    action: 'create',
     filters: {
       channels: [team],
-      categories: ["task", "progress", "decision"]
-    }
+      categories: ['task', 'progress', 'decision'],
+    },
   });
 }
 
 // Dashboard update function
 const updateDashboard = async () => {
   const dashboard = {};
-  
+
   for (const team of teams) {
     const updates = await context_watch({
-      action: "poll",
+      action: 'poll',
       watcherId: watchers[team].watcherId,
-      timeout: 0  // Immediate return
+      timeout: 0, // Immediate return
     });
-    
+
     dashboard[team] = {
       updates: updates.items.length,
-      tasks: updates.items.filter(i => i.category === "task").length,
-      progress: updates.items.filter(i => i.category === "progress").length,
-      decisions: updates.items.filter(i => i.category === "decision").length
+      tasks: updates.items.filter(i => i.category === 'task').length,
+      progress: updates.items.filter(i => i.category === 'progress').length,
+      decisions: updates.items.filter(i => i.category === 'decision').length,
     };
   }
-  
+
   // Display dashboard
   console.clear();
-  console.log("=== Team Activity Dashboard ===");
+  console.log('=== Team Activity Dashboard ===');
   Object.entries(dashboard).forEach(([team, stats]) => {
-    console.log(`${team}: ${stats.updates} updates (${stats.tasks} tasks, ${stats.progress} progress, ${stats.decisions} decisions)`);
+    console.log(
+      `${team}: ${stats.updates} updates (${stats.tasks} tasks, ${stats.progress} progress, ${stats.decisions} decisions)`
+    );
   });
 };
 
@@ -1466,304 +1542,310 @@ setInterval(updateDashboard, 10000);
 ## Debugging & Troubleshooting
 
 ### The Production Issue Pattern
+
 Rapid response to production problems:
 
 ```typescript
 // Emergency response
 await context_session_start({
   name: `PROD-ISSUE: ${incidentId}`,
-  description: "Payment processing failures",
+  description: 'Payment processing failures',
   metadata: JSON.stringify({
-    severity: "P1",
+    severity: 'P1',
     startTime: new Date().toISOString(),
-    affectedServices: ["payment", "orders"]
-  })
+    affectedServices: ['payment', 'orders'],
+  }),
 });
 
 // Initial assessment
 await context_save({
-  key: "incident_symptoms",
-  value: "500 errors on /api/payment/process, started 14:32 UTC",
-  category: "task",
-  priority: "critical"
+  key: 'incident_symptoms',
+  value: '500 errors on /api/payment/process, started 14:32 UTC',
+  category: 'task',
+  priority: 'critical',
 });
 
 // Track investigation
 await context_save({
-  key: "incident_metrics",
-  value: "Error rate: 87%, Response time: 15s (normal: 200ms)",
-  category: "note",
-  priority: "high"
+  key: 'incident_metrics',
+  value: 'Error rate: 87%, Response time: 15s (normal: 200ms)',
+  category: 'note',
+  priority: 'high',
 });
 
 // Hypothesis and testing
 await context_save({
-  key: "incident_hypothesis_db",
-  value: "Database connection pool exhausted",
-  category: "decision"
+  key: 'incident_hypothesis_db',
+  value: 'Database connection pool exhausted',
+  category: 'decision',
 });
 
 // Temporary fix
 await context_save({
-  key: "incident_mitigation",
-  value: "Increased connection pool from 10 to 50, errors dropping",
-  category: "progress",
-  priority: "high"
+  key: 'incident_mitigation',
+  value: 'Increased connection pool from 10 to 50, errors dropping',
+  category: 'progress',
+  priority: 'high',
 });
 
 // Root cause
 await context_save({
-  key: "incident_root_cause", 
-  value: "Connection leak in payment status checker - connections not released",
-  category: "decision",
-  priority: "critical"
+  key: 'incident_root_cause',
+  value: 'Connection leak in payment status checker - connections not released',
+  category: 'decision',
+  priority: 'critical',
 });
 
 // Permanent fix
 await context_save({
-  key: "incident_fix",
-  value: "Added connection.release() in finally block, deployed to prod",
-  category: "progress"
+  key: 'incident_fix',
+  value: 'Added connection.release() in finally block, deployed to prod',
+  category: 'progress',
 });
 
 // Post-mortem notes
 await context_save({
-  key: "incident_postmortem",
-  value: "Need monitoring on connection pool usage, add to runbook",
-  category: "task"
+  key: 'incident_postmortem',
+  value: 'Need monitoring on connection pool usage, add to runbook',
+  category: 'task',
 });
 ```
 
 ### The Performance Optimization Pattern
+
 Systematic performance improvement:
 
 ```typescript
 // Baseline measurement
 await context_save({
-  key: "perf_baseline",
-  value: "API response time: p50=200ms, p95=800ms, p99=2000ms",
-  category: "note",
-  priority: "high"
+  key: 'perf_baseline',
+  value: 'API response time: p50=200ms, p95=800ms, p99=2000ms',
+  category: 'note',
+  priority: 'high',
 });
 
 // Profile results
 await context_save({
-  key: "perf_bottleneck_1",
-  value: "Database query in getUserPermissions taking 600ms",
-  category: "task",
-  priority: "high"
+  key: 'perf_bottleneck_1',
+  value: 'Database query in getUserPermissions taking 600ms',
+  category: 'task',
+  priority: 'high',
 });
 
 // Cache implementation
 await context_save({
-  key: "perf_optimization_cache",
-  value: "Added Redis cache for permissions, TTL=5min",
-  category: "progress"
+  key: 'perf_optimization_cache',
+  value: 'Added Redis cache for permissions, TTL=5min',
+  category: 'progress',
 });
 
 // Results
 await context_save({
-  key: "perf_results",
-  value: "New metrics: p50=50ms, p95=150ms, p99=400ms (80% improvement)",
-  category: "progress",
-  priority: "high"
+  key: 'perf_results',
+  value: 'New metrics: p50=50ms, p95=150ms, p99=400ms (80% improvement)',
+  category: 'progress',
+  priority: 'high',
 });
 ```
 
 ## Performance Optimization
 
 ### The Large Context Management Pattern
+
 Handle large codebases efficiently:
 
 ```typescript
 // Selective context loading
-const categories = ["task", "decision"]; // Only load important items
+const categories = ['task', 'decision']; // Only load important items
 const recentContext = await context_get({
   categories,
   limit: 50,
-  priority: "high"
+  priority: 'high',
 });
 
 // Periodic cleanup
 await context_export({
-  beforeDate: "2024-01-01",
-  outputPath: "./archives/old-context.json"
+  beforeDate: '2024-01-01',
+  outputPath: './archives/old-context.json',
 });
 
 // Compress old sessions
 await context_summarize({
   sessionIds: oldSessionIds,
-  compress: true
+  compress: true,
 });
 ```
 
 ### The Search Optimization Pattern
+
 Efficient context retrieval:
 
 ```typescript
 // Index frequently searched terms
 const searchIndex = {
-  "auth": ["authentication", "login", "jwt", "session"],
-  "payment": ["stripe", "checkout", "subscription"],
-  "bug": ["error", "fix", "issue", "problem"]
+  auth: ['authentication', 'login', 'jwt', 'session'],
+  payment: ['stripe', 'checkout', 'subscription'],
+  bug: ['error', 'fix', 'issue', 'problem'],
 };
 
 // Tag items for faster search
 await context_save({
-  key: "auth_bug_001",
-  value: "Login fails with special characters",
-  category: "task",
-  tags: ["auth", "bug", "login"],
-  metadata: JSON.stringify({ indexed: true })
+  key: 'auth_bug_001',
+  value: 'Login fails with special characters',
+  category: 'task',
+  tags: ['auth', 'bug', 'login'],
+  metadata: JSON.stringify({ indexed: true }),
 });
 
 // Batch search operations
-const searchTerms = ["auth", "payment", "bug"];
-const results = await Promise.all(
-  searchTerms.map(term => context_search({ query: term }))
-);
+const searchTerms = ['auth', 'payment', 'bug'];
+const results = await Promise.all(searchTerms.map(term => context_search({ query: term })));
 ```
 
 ## Advanced Techniques
 
 ### The Multi-Project Pattern
+
 Manage multiple projects with context isolation:
 
 ```typescript
 // Project-specific sessions
 const projects = {
-  "frontend": "React Dashboard",
-  "backend": "Node.js API", 
-  "mobile": "React Native App"
+  frontend: 'React Dashboard',
+  backend: 'Node.js API',
+  mobile: 'React Native App',
 };
 
 for (const [key, name] of Object.entries(projects)) {
   await context_session_start({
     name: `${key}-work`,
     description: name,
-    metadata: JSON.stringify({ project: key })
+    metadata: JSON.stringify({ project: key }),
   });
-  
+
   // Project-specific context...
-  
+
   await context_checkpoint({
     name: `${key}-checkpoint`,
-    description: `${name} progress`
+    description: `${name} progress`,
   });
 }
 
 // Switch between projects
 await context_restore_checkpoint({
-  name: "frontend-checkpoint"
+  name: 'frontend-checkpoint',
 });
 ```
 
 ### The Time-Boxed Exploration Pattern
+
 Explore solutions with controlled scope:
 
 ```typescript
 // Set exploration boundary
 await context_session_start({
-  name: "Spike: GraphQL Migration",
-  description: "2-hour timebox to evaluate GraphQL",
+  name: 'Spike: GraphQL Migration',
+  description: '2-hour timebox to evaluate GraphQL',
   metadata: JSON.stringify({
-    timeLimit: "2h",
-    startTime: new Date().toISOString()
-  })
+    timeLimit: '2h',
+    startTime: new Date().toISOString(),
+  }),
 });
 
 // Track findings
 await context_save({
-  key: "spike_finding_1",
-  value: "GraphQL reduces API calls by 40% for dashboard",
-  category: "note"
+  key: 'spike_finding_1',
+  value: 'GraphQL reduces API calls by 40% for dashboard',
+  category: 'note',
 });
 
 // Decision point
 await context_save({
-  key: "spike_recommendation",
-  value: "Proceed with GraphQL for read-heavy endpoints only",
-  category: "decision",
-  priority: "high"
+  key: 'spike_recommendation',
+  value: 'Proceed with GraphQL for read-heavy endpoints only',
+  category: 'decision',
+  priority: 'high',
 });
 
 // Export spike results
 await context_export({
   sessionId: currentSessionId,
-  outputPath: "./spikes/graphql-evaluation.json"
+  outputPath: './spikes/graphql-evaluation.json',
 });
 ```
 
 ### The Continuous Learning Pattern
+
 Build knowledge base over time:
 
 ```typescript
 // Weekly learning checkpoint
 await context_checkpoint({
   name: `learning-week-${weekNumber}`,
-  description: "Weekly knowledge checkpoint"
+  description: 'Weekly knowledge checkpoint',
 });
 
 // Track learnings
 await context_save({
-  key: "til_typescript_guards",
+  key: 'til_typescript_guards',
   value: "Type guards with 'is' keyword for runtime type safety",
-  category: "note",
-  tags: ["til", "typescript"]
+  category: 'note',
+  tags: ['til', 'typescript'],
 });
 
 // Build personal knowledge graph
 await context_save({
-  key: "concept_relationship",
-  value: "React.memo relates to useMemo - both for performance",
-  category: "note",
+  key: 'concept_relationship',
+  value: 'React.memo relates to useMemo - both for performance',
+  category: 'note',
   metadata: JSON.stringify({
-    concepts: ["React.memo", "useMemo"],
-    relationship: "performance optimization"
-  })
+    concepts: ['React.memo', 'useMemo'],
+    relationship: 'performance optimization',
+  }),
 });
 ```
 
 ## Knowledge Graph Patterns
 
 ### The Code Architecture Mapping Pattern
+
 Build a comprehensive understanding of your codebase:
 
 ```typescript
 // Start architecture analysis
 await context_session_start({
-  name: "Architecture Analysis",
-  description: "Building knowledge graph of system components"
+  name: 'Architecture Analysis',
+  description: 'Building knowledge graph of system components',
 });
 
 // Map major components
 const components = [
-  { name: "AuthService", type: "service", purpose: "User authentication and authorization" },
-  { name: "UserRepository", type: "repository", purpose: "User data persistence" },
-  { name: "JWTManager", type: "utility", purpose: "JWT token generation and validation" },
-  { name: "EmailService", type: "service", purpose: "Email notifications" }
+  { name: 'AuthService', type: 'service', purpose: 'User authentication and authorization' },
+  { name: 'UserRepository', type: 'repository', purpose: 'User data persistence' },
+  { name: 'JWTManager', type: 'utility', purpose: 'JWT token generation and validation' },
+  { name: 'EmailService', type: 'service', purpose: 'Email notifications' },
 ];
 
 for (const component of components) {
   await context_save({
     key: `component_${component.name}`,
     value: `${component.type}: ${component.purpose}`,
-    category: "note",
-    metadata: JSON.stringify(component)
+    category: 'note',
+    metadata: JSON.stringify(component),
   });
 }
 
 // Map relationships
 await context_save({
-  key: "relationship_auth_user",
-  value: "AuthService uses UserRepository for user lookup",
-  category: "note"
+  key: 'relationship_auth_user',
+  value: 'AuthService uses UserRepository for user lookup',
+  category: 'note',
 });
 
 await context_save({
-  key: "relationship_auth_jwt",
-  value: "AuthService depends on JWTManager for token operations",
-  category: "note"
+  key: 'relationship_auth_jwt',
+  value: 'AuthService depends on JWTManager for token operations',
+  category: 'note',
 });
 
 // Analyze to build graph
@@ -1771,266 +1853,272 @@ await context_analyze();
 
 // Find all auth-related components
 const authRelated = await context_find_related({
-  key: "AuthService",
-  maxDepth: 2
+  key: 'AuthService',
+  maxDepth: 2,
 });
 
 // Generate visualization
-const graph = await context_visualize({ type: "graph" });
+const graph = await context_visualize({ type: 'graph' });
 ```
 
 ### The Dependency Tracking Pattern
+
 Track and understand complex dependencies:
 
 ```typescript
 // Track package dependencies
 await context_save({
-  key: "dep_express",
-  value: "express@4.18.0 - Web framework, used by API routes",
-  category: "note"
+  key: 'dep_express',
+  value: 'express@4.18.0 - Web framework, used by API routes',
+  category: 'note',
 });
 
 await context_save({
-  key: "dep_bcrypt",
-  value: "bcrypt@5.1.0 - Password hashing, critical for auth security",
-  category: "note",
-  priority: "high"
+  key: 'dep_bcrypt',
+  value: 'bcrypt@5.1.0 - Password hashing, critical for auth security',
+  category: 'note',
+  priority: 'high',
 });
 
 // Track internal dependencies
 await context_save({
-  key: "module_dependency_chain",
-  value: "OrderController -> OrderService -> OrderRepository -> Database",
-  category: "note"
+  key: 'module_dependency_chain',
+  value: 'OrderController -> OrderService -> OrderRepository -> Database',
+  category: 'note',
 });
 
 // Security audit trail
 await context_save({
-  key: "security_dep_review",
-  value: "Reviewed all auth dependencies for vulnerabilities - all clear",
-  category: "decision",
-  priority: "high",
-  metadata: JSON.stringify({ 
+  key: 'security_dep_review',
+  value: 'Reviewed all auth dependencies for vulnerabilities - all clear',
+  category: 'decision',
+  priority: 'high',
+  metadata: JSON.stringify({
     reviewDate: new Date().toISOString(),
-    nextReview: "2024-04-01" 
-  })
+    nextReview: '2024-04-01',
+  }),
 });
 ```
 
 ## Semantic Search Patterns
 
 ### The Natural Language Documentation Pattern
+
 Make your context searchable with conversational queries:
 
 ```typescript
 // Document in natural language
 await context_save({
-  key: "how_auth_works",
-  value: "Our authentication system uses JWT tokens with 15-minute access tokens and 7-day refresh tokens. Users log in with email/password, receive both tokens, and the access token is included in API requests.",
-  category: "note",
-  priority: "high"
+  key: 'how_auth_works',
+  value:
+    'Our authentication system uses JWT tokens with 15-minute access tokens and 7-day refresh tokens. Users log in with email/password, receive both tokens, and the access token is included in API requests.',
+  category: 'note',
+  priority: 'high',
 });
 
 await context_save({
-  key: "deployment_process",
-  value: "To deploy to production: run tests, build Docker image, push to registry, update Kubernetes manifest, apply changes. Rollback by reverting the manifest commit.",
-  category: "note"
+  key: 'deployment_process',
+  value:
+    'To deploy to production: run tests, build Docker image, push to registry, update Kubernetes manifest, apply changes. Rollback by reverting the manifest commit.',
+  category: 'note',
 });
 
 // Search naturally
 const authInfo = await context_semantic_search({
-  query: "how does user login work?",
-  topK: 5
+  query: 'how does user login work?',
+  topK: 5,
 });
 
 const deployInfo = await context_semantic_search({
-  query: "what are the steps to deploy?",
-  topK: 3
+  query: 'what are the steps to deploy?',
+  topK: 3,
 });
 ```
 
 ### The Problem-Solution Mapping Pattern
+
 Link problems to their solutions:
 
 ```typescript
 // Document problems
 await context_save({
-  key: "problem_slow_api",
-  value: "API responses taking 5+ seconds for user list endpoint",
-  category: "task",
-  priority: "high"
+  key: 'problem_slow_api',
+  value: 'API responses taking 5+ seconds for user list endpoint',
+  category: 'task',
+  priority: 'high',
 });
 
 // Document investigation
 await context_save({
-  key: "investigation_slow_api",
-  value: "Found N+1 query problem - fetching permissions for each user separately",
-  category: "note"
+  key: 'investigation_slow_api',
+  value: 'Found N+1 query problem - fetching permissions for each user separately',
+  category: 'note',
 });
 
 // Document solution
 await context_save({
-  key: "solution_slow_api",
-  value: "Implemented eager loading with JOIN query, reduced response time to 200ms",
-  category: "progress"
+  key: 'solution_slow_api',
+  value: 'Implemented eager loading with JOIN query, reduced response time to 200ms',
+  category: 'progress',
 });
 
 // Later, find similar issues
 const similar = await context_semantic_search({
-  query: "performance problems with database queries",
-  minSimilarity: 0.4
+  query: 'performance problems with database queries',
+  minSimilarity: 0.4,
 });
 ```
 
 ## Multi-Agent Analysis Patterns
 
 ### The Comprehensive Code Review Pattern
+
 Use agents to analyze your work before review:
 
 ```typescript
 // Analyze your changes
 const analysis = await context_delegate({
-  taskType: "analyze",
+  taskType: 'analyze',
   input: {
-    analysisType: "comprehensive",
-    timeframe: "-1 day"
-  }
+    analysisType: 'comprehensive',
+    timeframe: '-1 day',
+  },
 });
 
 // Get recommendations
 const recommendations = await context_delegate({
-  taskType: "synthesize",
+  taskType: 'synthesize',
   input: {
-    synthesisType: "recommendations",
-    analysisResults: analysis
-  }
+    synthesisType: 'recommendations',
+    analysisResults: analysis,
+  },
 });
 
 // Chain for pre-commit check
 const preCommitCheck = await context_delegate({
   chain: true,
-  taskType: ["analyze", "synthesize"],
-  input: [
-    { analysisType: "patterns" },
-    { synthesisType: "summary", maxLength: 500 }
-  ]
+  taskType: ['analyze', 'synthesize'],
+  input: [{ analysisType: 'patterns' }, { synthesisType: 'summary', maxLength: 500 }],
 });
 ```
 
 ### The Sprint Retrospective Pattern
+
 Analyze sprint patterns and generate insights:
 
 ```typescript
 // End of sprint analysis
 await context_delegate({
-  taskType: "analyze",
+  taskType: 'analyze',
   input: {
-    analysisType: "trends",
-    timeframe: "-14 days",
-    categories: ["task", "progress", "decision"]
-  }
+    analysisType: 'trends',
+    timeframe: '-14 days',
+    categories: ['task', 'progress', 'decision'],
+  },
 });
 
 // Generate sprint summary
 await context_delegate({
-  taskType: "synthesize",
+  taskType: 'synthesize',
   input: {
-    synthesisType: "narrative",
+    synthesisType: 'narrative',
     includeMetrics: true,
-    includeLearnings: true
-  }
+    includeLearnings: true,
+  },
 });
 ```
 
 ## Session Branching Patterns
 
 ### The A/B Implementation Pattern
+
 Try different approaches safely:
 
 ```typescript
 // Main implementation
 await context_save({
-  key: "approach_decision",
-  value: "Need to implement caching - considering Redis vs in-memory",
-  category: "decision",
-  priority: "high"
+  key: 'approach_decision',
+  value: 'Need to implement caching - considering Redis vs in-memory',
+  category: 'decision',
+  priority: 'high',
 });
 
 // Branch for Redis approach
 const redissBranchId = await context_branch_session({
-  branchName: "cache-redis-approach",
-  copyDepth: "shallow"
+  branchName: 'cache-redis-approach',
+  copyDepth: 'shallow',
 });
 
 // Work on Redis implementation
 await context_save({
-  key: "redis_implementation",
-  value: "Implemented distributed cache with Redis, 10ms latency",
-  category: "progress"
+  key: 'redis_implementation',
+  value: 'Implemented distributed cache with Redis, 10ms latency',
+  category: 'progress',
 });
 
 // Branch for in-memory approach
 await context_session_start({ id: originalSessionId });
 const memoryBranchId = await context_branch_session({
-  branchName: "cache-memory-approach", 
-  copyDepth: "shallow"
+  branchName: 'cache-memory-approach',
+  copyDepth: 'shallow',
 });
 
 // Work on in-memory implementation
 await context_save({
-  key: "memory_implementation",
-  value: "Implemented in-memory LRU cache, 1ms latency but not distributed",
-  category: "progress"
+  key: 'memory_implementation',
+  value: 'Implemented in-memory LRU cache, 1ms latency but not distributed',
+  category: 'progress',
 });
 
 // Compare and decide
 await context_save({
-  key: "cache_decision_final",
-  value: "Chose Redis - distributed nature crucial for multi-instance deployment",
-  category: "decision",
-  priority: "high"
+  key: 'cache_decision_final',
+  value: 'Chose Redis - distributed nature crucial for multi-instance deployment',
+  category: 'decision',
+  priority: 'high',
 });
 
 // Merge the chosen approach
 await context_merge_sessions({
   sourceSessionId: redissBranchId,
-  conflictResolution: "keep_source"
+  conflictResolution: 'keep_source',
 });
 ```
 
 ### The Safe Experimentation Pattern
+
 Experiment without fear of breaking things:
 
 ```typescript
 // Before risky changes
 await context_checkpoint({
-  name: "before-experimental-optimization",
+  name: 'before-experimental-optimization',
   includeFiles: true,
-  includeGitStatus: true
+  includeGitStatus: true,
 });
 
 // Create experimental branch
 await context_branch_session({
-  branchName: "experimental-async-refactor",
-  copyDepth: "deep"
+  branchName: 'experimental-async-refactor',
+  copyDepth: 'deep',
 });
 
 // Document experiments
 await context_journal_entry({
-  entry: "Trying Promise.all for parallel processing - risky but could 10x performance",
-  tags: ["experiment", "performance", "risk"],
-  mood: "curious"
+  entry: 'Trying Promise.all for parallel processing - risky but could 10x performance',
+  tags: ['experiment', 'performance', 'risk'],
+  mood: 'curious',
 });
 
 // If experiment fails
 if (experimentFailed) {
   // Just switch back - no cleanup needed
   await context_session_start({ id: originalSessionId });
-  
+
   await context_journal_entry({
-    entry: "Experiment failed - Promise.all caused race conditions. Good learning though!",
-    tags: ["experiment", "learning", "failed"],
-    mood: "disappointed"
+    entry: 'Experiment failed - Promise.all caused race conditions. Good learning though!',
+    tags: ['experiment', 'learning', 'failed'],
+    mood: 'disappointed',
   });
 }
 ```
@@ -2038,6 +2126,7 @@ if (experimentFailed) {
 ## Time Management Patterns
 
 ### The Pomodoro Tracking Pattern
+
 Track productivity with time-boxed sessions:
 
 ```typescript
@@ -2045,164 +2134,167 @@ Track productivity with time-boxed sessions:
 const pomodoroStart = new Date();
 await context_save({
   key: `pomodoro_${pomodoroStart.getTime()}_start`,
-  value: "Starting 25min focus: Implement user search",
-  category: "note",
-  metadata: JSON.stringify({ 
-    technique: "pomodoro",
+  value: 'Starting 25min focus: Implement user search',
+  category: 'note',
+  metadata: JSON.stringify({
+    technique: 'pomodoro',
     duration: 25,
-    startTime: pomodoroStart
-  })
+    startTime: pomodoroStart,
+  }),
 });
 
 // End pomodoro
 await context_save({
   key: `pomodoro_${pomodoroStart.getTime()}_end`,
-  value: "Completed: Basic search working, need to add filters",
-  category: "progress"
+  value: 'Completed: Basic search working, need to add filters',
+  category: 'progress',
 });
 
 await context_journal_entry({
-  entry: "Good focus session. Search is 70% done. Need 1 more pomodoro for filters.",
-  tags: ["pomodoro", "productivity"],
-  mood: "focused"
+  entry: 'Good focus session. Search is 70% done. Need 1 more pomodoro for filters.',
+  tags: ['pomodoro', 'productivity'],
+  mood: 'focused',
 });
 
 // Daily summary
 const timeline = await context_timeline({
   startDate: new Date().toISOString().split('T')[0],
-  groupBy: "hour"
+  groupBy: 'hour',
 });
 ```
 
 ### The Energy Level Pattern
+
 Track when you're most productive:
 
 ```typescript
 // Morning check-in
 await context_journal_entry({
-  entry: "Fresh start, tackling the complex refactoring first",
-  tags: ["morning", "energy-high"],
-  mood: "energized"
+  entry: 'Fresh start, tackling the complex refactoring first',
+  tags: ['morning', 'energy-high'],
+  mood: 'energized',
 });
 
 // Track complex work
 await context_save({
-  key: "morning_complex_work",
-  value: "Refactored authentication module - redesigned token flow",
-  category: "progress",
-  metadata: JSON.stringify({ 
-    energyLevel: "high",
-    complexity: "high",
-    timeOfDay: "morning"
-  })
+  key: 'morning_complex_work',
+  value: 'Refactored authentication module - redesigned token flow',
+  category: 'progress',
+  metadata: JSON.stringify({
+    energyLevel: 'high',
+    complexity: 'high',
+    timeOfDay: 'morning',
+  }),
 });
 
 // Afternoon routine tasks
 await context_journal_entry({
-  entry: "Energy dipping, switching to code reviews and documentation",
-  tags: ["afternoon", "energy-medium"],
-  mood: "tired"
+  entry: 'Energy dipping, switching to code reviews and documentation',
+  tags: ['afternoon', 'energy-medium'],
+  mood: 'tired',
 });
 
 // Analyze patterns
 const energyAnalysis = await context_delegate({
-  taskType: "analyze",
+  taskType: 'analyze',
   input: {
-    analysisType: "patterns",
-    focusOn: "productivity-by-time"
-  }
+    analysisType: 'patterns',
+    focusOn: 'productivity-by-time',
+  },
 });
 ```
 
 ## Integration Patterns
 
 ### The CI/CD Context Pattern
+
 Track deployment context:
 
 ```typescript
 // Pre-deployment checklist
 await context_save({
-  key: "deploy_checklist",
-  value: "✓ Tests passing ✓ Code reviewed ✓ Changelog updated ✓ Rollback plan ready",
-  category: "task",
-  priority: "high"
+  key: 'deploy_checklist',
+  value: '✓ Tests passing ✓ Code reviewed ✓ Changelog updated ✓ Rollback plan ready',
+  category: 'task',
+  priority: 'high',
 });
 
 // Track deployment
 await context_integrate_tool({
-  toolName: "github-actions",
-  eventType: "deployment-started",
+  toolName: 'github-actions',
+  eventType: 'deployment-started',
   data: {
-    version: "v2.3.0",
-    environment: "production",
-    commit: "abc123def"
-  }
+    version: 'v2.3.0',
+    environment: 'production',
+    commit: 'abc123def',
+  },
 });
 
 // Track results
 await context_integrate_tool({
-  toolName: "monitoring",
-  eventType: "deployment-metrics",
+  toolName: 'monitoring',
+  eventType: 'deployment-metrics',
   data: {
-    errorRate: "0.01%",
-    responseTime: "145ms",
-    cpuUsage: "35%",
-    status: "healthy"
-  }
+    errorRate: '0.01%',
+    responseTime: '145ms',
+    cpuUsage: '35%',
+    status: 'healthy',
+  },
 });
 ```
 
 ### The Tool Chain Pattern
+
 Connect your entire tool ecosystem:
 
 ```typescript
 // Linting results
 await context_integrate_tool({
-  toolName: "eslint",
-  eventType: "lint-complete",
+  toolName: 'eslint',
+  eventType: 'lint-complete',
   data: {
     files: 45,
     errors: 0,
     warnings: 3,
-    fixable: 2
-  }
+    fixable: 2,
+  },
 });
 
 // Test coverage
 await context_integrate_tool({
-  toolName: "jest",
-  eventType: "coverage-report",
+  toolName: 'jest',
+  eventType: 'coverage-report',
   data: {
-    lines: "92%",
-    branches: "87%",
-    functions: "95%",
-    statements: "91%",
-    important: true // Below 95% threshold
-  }
+    lines: '92%',
+    branches: '87%',
+    functions: '95%',
+    statements: '91%',
+    important: true, // Below 95% threshold
+  },
 });
 
 // Security scan
 await context_integrate_tool({
-  toolName: "security-scanner",
-  eventType: "scan-complete",
+  toolName: 'security-scanner',
+  eventType: 'scan-complete',
   data: {
     vulnerabilities: {
       critical: 0,
       high: 1,
       medium: 3,
-      low: 12
+      low: 12,
     },
-    important: true
-  }
+    important: true,
+  },
 });
 
 // Generate tool status summary
 const toolStatus = await context_delegate({
-  taskType: "synthesize",
+  taskType: 'synthesize',
   input: {
-    synthesisType: "tool-status-report",
-    includeRecommendations: true
-  }
+    synthesisType: 'tool-status-report',
+    includeRecommendations: true,
+  },
 });
 ```
 
@@ -2210,7 +2302,7 @@ const toolStatus = await context_delegate({
 
 ## Contributing Your Own Recipes
 
-Have a useful pattern? Please contribute! 
+Have a useful pattern? Please contribute!
 
 1. Fork the repository
 2. Add your recipe to the appropriate section
@@ -2218,7 +2310,8 @@ Have a useful pattern? Please contribute!
 4. Submit a pull request
 
 Remember: Good recipes should be:
+
 - **Specific**: Solve a real problem
-- **Practical**: Easy to adapt to similar situations  
+- **Practical**: Easy to adapt to similar situations
 - **Complete**: Include all necessary context
 - **Tested**: Based on actual usage

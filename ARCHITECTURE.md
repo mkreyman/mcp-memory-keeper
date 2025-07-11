@@ -1,6 +1,7 @@
 # MCP Memory Keeper - Architecture Documentation
 
 ## Table of Contents
+
 - [Overview](#overview)
 - [System Architecture](#system-architecture)
 - [Core Components](#core-components)
@@ -53,12 +54,14 @@ MCP Memory Keeper is a Model Context Protocol (MCP) server designed to provide p
 ### Component Responsibilities
 
 1. **MCP Server (index.ts)**
+
    - Protocol implementation
    - Request routing
    - Response formatting
    - Error handling
 
 2. **Core Modules**
+
    - Business logic implementation
    - Cross-cutting concerns
    - Module coordination
@@ -78,19 +81,19 @@ The main entry point that implements the MCP protocol:
 class MemoryKeeperServer {
   private db: DatabaseManager;
   private currentSessionId?: string;
-  
+
   constructor() {
     // Initialize database
     this.db = new DatabaseManager({
       filename: 'context.db',
       maxSize: 100 * 1024 * 1024,
-      walMode: true
+      walMode: true,
     });
   }
-  
+
   // Tool implementations
   async handleToolCall(name: string, args: any): Promise<any> {
-    switch(name) {
+    switch (name) {
       case 'context_save':
         return this.contextSave(args);
       // ... other tools
@@ -106,13 +109,13 @@ Handles all database operations with transaction support:
 ```typescript
 class DatabaseManager {
   private db: Database.Database;
-  
+
   // Transaction wrapper for atomic operations
   transaction<T>(fn: () => T): T {
     const transaction = this.db.transaction(fn);
     return transaction();
   }
-  
+
   // Automatic size tracking and cleanup
   getSessionSize(sessionId: string): SessionStats {
     // Efficient size calculation
@@ -141,11 +144,11 @@ Git operations using simple-git:
 ```typescript
 class GitManager {
   private git: SimpleGit;
-  
+
   async getStatus(): Promise<GitStatus> {
     // Safe git operations with error handling
   }
-  
+
   async getCurrentBranch(): Promise<string> {
     // Branch detection
   }
@@ -161,7 +164,7 @@ class KnowledgeGraphManager {
   extractEntities(text: string): Entity[] {
     // NLP-based entity extraction
   }
-  
+
   findRelationships(entities: Entity[]): Relation[] {
     // Relationship detection
   }
@@ -178,7 +181,7 @@ class VectorStore {
   createEmbedding(text: string): number[] {
     // Lightweight embedding generation
   }
-  
+
   cosineSimilarity(a: number[], b: number[]): number {
     // Similarity calculation
   }
@@ -360,7 +363,9 @@ Add new MCP tools by extending the server:
 tools.push({
   name: 'custom_tool',
   description: 'Custom functionality',
-  inputSchema: { /* schema */ }
+  inputSchema: {
+    /* schema */
+  },
 });
 
 // Handler implementation
@@ -512,11 +517,9 @@ try {
   return await operation();
 } catch (error) {
   logger.error('Operation failed', { error, context });
-  throw new McpError(
-    ErrorCode.INTERNAL_ERROR,
-    'Operation failed',
-    { originalError: error.message }
-  );
+  throw new McpError(ErrorCode.INTERNAL_ERROR, 'Operation failed', {
+    originalError: error.message,
+  });
 }
 ```
 
@@ -529,7 +532,7 @@ logger.info('Context saved', {
   key,
   category,
   size: value.length,
-  duration: Date.now() - startTime
+  duration: Date.now() - startTime,
 });
 ```
 
