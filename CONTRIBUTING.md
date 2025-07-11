@@ -3,6 +3,7 @@
 Thank you for your interest in contributing to MCP Memory Keeper! This guide will help you get started with contributing to the project.
 
 ## Table of Contents
+
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
@@ -92,22 +93,28 @@ mcp-memory-keeper/
    - Error messages or logs
 
 **Issue Template:**
+
 ```markdown
 ## Description
+
 Brief description of the issue
 
 ## Steps to Reproduce
+
 1. Step one
 2. Step two
 3. ...
 
 ## Expected Behavior
+
 What should happen
 
 ## Actual Behavior
+
 What actually happens
 
 ## Environment
+
 - OS: [e.g., macOS 14.0]
 - Node: [e.g., 18.17.0]
 - MCP Memory Keeper: [e.g., 0.8.0]
@@ -167,6 +174,7 @@ git commit -m "refactor(validation): simplify input validation logic"
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation changes
@@ -194,7 +202,7 @@ git rebase upstream/main
 ### 2. PR Guidelines
 
 - **Title**: Use conventional commit format
-- **Description**: 
+- **Description**:
   - Reference related issues (#123)
   - Describe what changed and why
   - Include screenshots for UI changes
@@ -203,25 +211,31 @@ git rebase upstream/main
 - **Tests**: Include tests for new code
 
 **PR Template:**
+
 ```markdown
 ## Description
+
 Brief description of changes
 
 ## Related Issues
+
 Closes #123
 
 ## Type of Change
+
 - [ ] Bug fix
 - [ ] New feature
 - [ ] Breaking change
 - [ ] Documentation update
 
 ## Testing
+
 - [ ] Tests pass locally
 - [ ] Added new tests
 - [ ] Updated existing tests
 
 ## Checklist
+
 - [ ] Code follows project style
 - [ ] Self-reviewed code
 - [ ] Updated documentation
@@ -263,7 +277,7 @@ enum Priority {
   Critical = 'critical',
   High = 'high',
   Normal = 'normal',
-  Low = 'low'
+  Low = 'low',
 }
 
 // Document complex functions
@@ -273,10 +287,7 @@ enum Priority {
  * @param options - Analysis options
  * @returns Extracted entities and relationships
  */
-function analyzeContext(
-  items: ContextItem[], 
-  options?: AnalysisOptions
-): AnalysisResult {
+function analyzeContext(items: ContextItem[], options?: AnalysisOptions): AnalysisResult {
   // Implementation
 }
 ```
@@ -286,7 +297,10 @@ function analyzeContext(
 ```typescript
 // Use specific error types
 class ValidationError extends Error {
-  constructor(message: string, public field?: string) {
+  constructor(
+    message: string,
+    public field?: string
+  ) {
     super(message);
     this.name = 'ValidationError';
   }
@@ -299,17 +313,11 @@ try {
 } catch (error) {
   if (error instanceof ValidationError) {
     // Handle validation error
-    throw new McpError(
-      ErrorCode.INVALID_PARAMS,
-      `Validation failed: ${error.message}`
-    );
+    throw new McpError(ErrorCode.INVALID_PARAMS, `Validation failed: ${error.message}`);
   }
   // Log unexpected errors
   console.error('Unexpected error:', error);
-  throw new McpError(
-    ErrorCode.INTERNAL_ERROR,
-    'An unexpected error occurred'
-  );
+  throw new McpError(ErrorCode.INTERNAL_ERROR, 'An unexpected error occurred');
 }
 ```
 
@@ -329,15 +337,15 @@ try {
 ```typescript
 describe('ContextStorage', () => {
   let storage: ContextStorage;
-  
+
   beforeEach(() => {
     storage = new ContextStorage();
   });
-  
+
   afterEach(() => {
     storage.close();
   });
-  
+
   describe('save', () => {
     it('should save context with all fields', async () => {
       const item = {
@@ -346,20 +354,19 @@ describe('ContextStorage', () => {
         category: 'task' as const,
         priority: 'high' as const,
       };
-      
+
       const result = await storage.save(item);
-      
+
       expect(result.id).toBeDefined();
       expect(result.key).toBe(item.key);
     });
-    
+
     it('should throw on duplicate key', async () => {
       const item = { key: 'duplicate', value: 'value' };
-      
+
       await storage.save(item);
-      
-      await expect(storage.save(item))
-        .rejects.toThrow('Duplicate key');
+
+      await expect(storage.save(item)).rejects.toThrow('Duplicate key');
     });
   });
 });
@@ -400,6 +407,7 @@ npm run test:watch
 ### Examples
 
 When adding new features, include:
+
 1. API documentation in API.md
 2. Usage examples in EXAMPLES.md
 3. Common patterns in RECIPES.md
@@ -433,6 +441,7 @@ WIP
 ### Ways to Contribute
 
 Not just code! You can help by:
+
 - Improving documentation
 - Creating tutorials or blog posts
 - Helping others in discussions
@@ -443,6 +452,7 @@ Not just code! You can help by:
 ### Recognition
 
 Contributors are recognized in:
+
 - GitHub contributors page
 - Release notes
 - Annual contributor spotlight
@@ -450,11 +460,13 @@ Contributors are recognized in:
 ## Release Process
 
 1. **Version Bumping**: Follow semantic versioning
+
    - MAJOR: Breaking changes
    - MINOR: New features
    - PATCH: Bug fixes
 
 2. **Release Notes**: Include
+
    - New features
    - Bug fixes
    - Breaking changes
@@ -468,6 +480,7 @@ Contributors are recognized in:
 ## Questions?
 
 If you have questions about contributing:
+
 1. Check existing documentation
 2. Search closed issues
 3. Ask in discussions

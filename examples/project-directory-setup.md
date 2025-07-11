@@ -19,7 +19,7 @@ When you start a new session without providing a `projectDir`, the server will:
 // If you're in ~/workspace and your project is in ~/workspace/my-project
 await mcp.call('context_session_start', {
   name: 'My Feature Work',
-  description: 'Working on the new feature'
+  description: 'Working on the new feature',
 });
 
 // Response will show:
@@ -38,7 +38,7 @@ await mcp.call('context_session_start', {
 // You can still explicitly set a different directory if needed
 await mcp.call('context_session_start', {
   name: 'Another Project',
-  projectDir: '/path/to/different/project'
+  projectDir: '/path/to/different/project',
 });
 
 // Response will show:
@@ -53,7 +53,7 @@ await mcp.call('context_session_start', {
 ```typescript
 // If the directory is not a git repository
 await mcp.call('context_session_start', {
-  name: 'Non-Git Project'
+  name: 'Non-Git Project',
 });
 
 // Response will show:
@@ -68,7 +68,7 @@ await mcp.call('context_session_start', {
 ```typescript
 // If you try to commit without setting project directory
 await mcp.call('context_git_commit', {
-  message: 'feat: Add new feature'
+  message: 'feat: Add new feature',
 });
 
 // Response will show:
@@ -87,7 +87,7 @@ await mcp.call('context_git_commit', {
 
 1. **Smart Suggestions**: Automatically detects git repositories and suggests the right paths
 2. **Clear Guidance**: Provides helpful messages when project directory is needed
-3. **Prevents Mistakes**: Avoids using wrong directories when started from parent folders  
+3. **Prevents Mistakes**: Avoids using wrong directories when started from parent folders
 4. **Context Preservation**: The working directory is saved with the session for future reference
 5. **Backward Compatible**: Existing code that provides `projectDir` continues to work as before
 

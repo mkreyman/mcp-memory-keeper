@@ -184,6 +184,59 @@ function calculateResponseMetrics(items: any[]): {
   return { totalSize, estimatedTokens, averageSize };
 }
 
+// Helper to calculate how many items can fit within token limit
+function calculateSafeItemCount(items: any[], tokenLimit: number): number {
+  if (items.length === 0) return 0;
+
+  let safeCount = 0;
+  let currentTokens = 0;
+
+  // Include base response structure in token calculation
+  const baseResponse = {
+    items: [],
+    pagination: {
+      total: 0,
+      returned: 0,
+      offset: 0,
+      hasMore: false,
+      nextOffset: null,
+      totalCount: 0,
+      page: 1,
+      pageSize: 0,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPreviousPage: false,
+      previousOffset: null,
+      totalSize: 0,
+      averageSize: 0,
+      defaultsApplied: {},
+      truncated: false,
+      truncatedCount: 0,
+    },
+  };
+
+  // Estimate tokens for base response structure
+  const baseTokens = estimateTokens(JSON.stringify(baseResponse, null, 2));
+  currentTokens = baseTokens;
+
+  // Add items one by one until we approach the token limit
+  for (let i = 0; i < items.length; i++) {
+    const itemTokens = estimateTokens(JSON.stringify(items[i], null, 2));
+
+    // Leave some buffer (10%) to account for formatting and additional metadata
+    if (currentTokens + itemTokens > tokenLimit * 0.9) {
+      break;
+    }
+
+    currentTokens += itemTokens;
+    safeCount++;
+  }
+
+  // Always return at least 1 item if any exist, even if it exceeds limit
+  // This prevents infinite loops and ensures progress
+  return Math.max(safeCount, items.length > 0 ? 1 : 0);
+}
+
 // Helper to parse relative time strings
 function parseRelativeTime(relativeTime: string): string | null {
   const now = new Date();
@@ -699,8 +752,22 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         const metrics = calculateResponseMetrics(result.items);
         const TOKEN_LIMIT = 20000; // Conservative limit to stay well under MCP's 25k limit
 
-        // Check if we're approaching token limits
+        // Check if we're approaching token limits and enforce truncation
         const isApproachingLimit = metrics.estimatedTokens > TOKEN_LIMIT;
+        let actualItems = result.items;
+        let wasTruncated = false;
+        let truncatedCount = 0;
+
+        if (isApproachingLimit) {
+          // Calculate how many items we can safely return
+          const safeItemCount = calculateSafeItemCount(result.items, TOKEN_LIMIT);
+
+          if (safeItemCount < result.items.length) {
+            actualItems = result.items.slice(0, safeItemCount);
+            wasTruncated = true;
+            truncatedCount = result.items.length - safeItemCount;
+          }
+        }
 
         // Calculate pagination metadata
         // Use the validated limit and offset from paginationValidation
@@ -709,8 +776,17 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         const currentPage =
           effectiveLimit > 0 ? Math.floor(effectiveOffset / effectiveLimit) + 1 : 1;
         const totalPages = effectiveLimit > 0 ? Math.ceil(result.totalCount / effectiveLimit) : 1;
-        const hasNextPage = currentPage < totalPages;
+
+        // Update pagination to account for truncation
+        const hasNextPage = wasTruncated || currentPage < totalPages;
         const hasPreviousPage = currentPage > 1;
+
+        // Calculate next offset accounting for truncation
+        const nextOffset = hasNextPage
+          ? wasTruncated
+            ? effectiveOffset + actualItems.length
+            : effectiveOffset + effectiveLimit
+          : null;
 
         // Track whether defaults were applied
         const defaultsApplied = {
@@ -720,7 +796,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
         // Enhanced response format
         if (includeMetadata) {
-          const itemsWithMetadata = result.items.map(item => ({
+          const itemsWithMetadata = actualItems.map(item => ({
             key: item.key,
             value: item.value,
             category: item.category,
@@ -736,10 +812,10 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             items: itemsWithMetadata,
             pagination: {
               total: result.totalCount,
-              returned: result.items.length,
+              returned: actualItems.length,
               offset: effectiveOffset,
               hasMore: hasNextPage,
-              nextOffset: hasNextPage ? effectiveOffset + effectiveLimit : null,
+              nextOffset: nextOffset,
               // Extended pagination metadata
               totalCount: result.totalCount,
               page: currentPage,
@@ -755,13 +831,20 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
               averageSize: metrics.averageSize,
               // Defaults applied
               defaultsApplied: defaultsApplied,
+              // Truncation information
+              truncated: wasTruncated,
+              truncatedCount: truncatedCount,
             },
           };
 
           // Add warning if approaching token limits
           if (isApproachingLimit) {
-            response.pagination.warning =
-              'Large result set. Consider using smaller limit or more specific filters.';
+            if (wasTruncated) {
+              response.pagination.warning = `Response truncated due to token limits. ${truncatedCount} items omitted. Use pagination with offset=${nextOffset} to retrieve remaining items.`;
+            } else {
+              response.pagination.warning =
+                'Large result set. Consider using smaller limit or more specific filters.';
+            }
           }
 
           return {
@@ -776,20 +859,27 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
         // Return enhanced format for all queries to support pagination
         const response: any = {
-          items: result.items,
+          items: actualItems,
           pagination: {
             total: result.totalCount,
-            returned: result.items.length,
+            returned: actualItems.length,
             offset: effectiveOffset,
             hasMore: hasNextPage,
-            nextOffset: hasNextPage ? effectiveOffset + effectiveLimit : null,
+            nextOffset: nextOffset,
+            // Truncation information
+            truncated: wasTruncated,
+            truncatedCount: truncatedCount,
           },
         };
 
         // Add warning if approaching token limits
         if (isApproachingLimit) {
-          response.pagination.warning =
-            'Large result set. Consider using smaller limit or more specific filters.';
+          if (wasTruncated) {
+            response.pagination.warning = `Response truncated due to token limits. ${truncatedCount} items omitted. Use pagination with offset=${nextOffset} to retrieve remaining items.`;
+          } else {
+            response.pagination.warning =
+              'Large result set. Consider using smaller limit or more specific filters.';
+          }
         }
 
         return {

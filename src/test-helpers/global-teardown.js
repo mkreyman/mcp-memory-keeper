@@ -5,7 +5,7 @@
 module.exports = async () => {
   // Force cleanup any remaining resources
   process.removeAllListeners();
-  
+
   // Clean up any remaining child processes
   if (global.testProcesses) {
     for (const proc of global.testProcesses) {
@@ -14,7 +14,7 @@ module.exports = async () => {
       }
     }
   }
-  
+
   // Clean up any remaining database connections
   if (global.testDatabases) {
     for (const db of global.testDatabases) {
@@ -27,14 +27,14 @@ module.exports = async () => {
       }
     }
   }
-  
+
   // Force garbage collection if available
   if (global.gc) {
     global.gc();
   }
-  
+
   // Give time for cleanup to complete
   await new Promise(resolve => setTimeout(resolve, 1000));
-  
+
   console.log('Global teardown completed');
 };
