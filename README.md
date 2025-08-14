@@ -1,3 +1,5 @@
+[![MSeeP.ai Security Assessment Badge](https://mseep.net/pr/mkreyman-mcp-memory-keeper-badge.png)](https://mseep.ai/app/mkreyman-mcp-memory-keeper)
+
 # MCP Memory Keeper - Claude Code Context Management
 
 [![npm version](https://img.shields.io/npm/v/mcp-memory-keeper.svg)](https://www.npmjs.com/package/mcp-memory-keeper)
