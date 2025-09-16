@@ -289,6 +289,18 @@ export function checkTokenLimit(
   includeMetadata: boolean = false,
   config: TokenLimitConfig = DEFAULT_TOKEN_CONFIG
 ): { exceedsLimit: boolean; estimatedTokens: number; safeItemCount: number } {
+  // Helper to safely parse JSON metadata (reused from calculateSafeItemLimit)
+  const parseMetadata = (metadata: string | object | null | undefined): object | null => {
+    if (!metadata) return null;
+    if (typeof metadata === 'object') return metadata;
+    try {
+      return JSON.parse(metadata);
+    } catch (error) {
+      console.warn('Invalid JSON in metadata, using null:', error);
+      return null;
+    }
+  };
+
   // Transform items if needed
   const itemsForCalculation = includeMetadata
     ? items.map(item => ({
@@ -297,11 +309,7 @@ export function checkTokenLimit(
         category: item.category,
         priority: item.priority,
         channel: item.channel,
-        metadata: item.metadata
-          ? typeof item.metadata === 'string'
-            ? JSON.parse(item.metadata)
-            : item.metadata
-          : null,
+        metadata: parseMetadata(item.metadata),
         size: item.size || calculateSize(item.value || ''),
         created_at: item.created_at,
         updated_at: item.updated_at,

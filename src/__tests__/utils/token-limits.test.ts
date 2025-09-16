@@ -157,6 +157,33 @@ describe('Token Limit Utilities', () => {
       const { exceedsLimit } = checkTokenLimit(items, true);
       expect(exceedsLimit).toBe(false);
     });
+
+    it('should handle invalid JSON in metadata gracefully', () => {
+      const items = [
+        {
+          key: 'test1',
+          value: 'content',
+          metadata: '{"valid": "json"}',
+        },
+        {
+          key: 'test2',
+          value: 'content',
+          metadata: 'invalid json{', // Invalid JSON
+        },
+        {
+          key: 'test3',
+          value: 'content',
+          metadata: null,
+        },
+      ];
+
+      // Should not throw, but handle gracefully
+      expect(() => {
+        const { exceedsLimit, estimatedTokens } = checkTokenLimit(items, true);
+        expect(exceedsLimit).toBe(false);
+        expect(estimatedTokens).toBeGreaterThan(0);
+      }).not.toThrow();
+    });
   });
 
   describe('estimateResponseOverhead', () => {
