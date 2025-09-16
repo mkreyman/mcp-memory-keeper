@@ -16,6 +16,14 @@ import { FeatureFlagManager } from './utils/feature-flags.js';
 import { RepositoryManager } from './repositories/RepositoryManager.js';
 import { simpleGit } from 'simple-git';
 import { deriveDefaultChannel } from './utils/channels.js';
+import {
+  estimateTokens as estimateTokensUtil,
+  calculateSize as calculateSizeUtil,
+  calculateDynamicDefaultLimit,
+  checkTokenLimit,
+  getTokenConfig,
+  TOKEN_WARNING_THRESHOLD,
+} from './utils/token-limits.js';
 import { handleContextWatch } from './handlers/contextWatchHandlers.js';
 
 // Initialize database with migrations
@@ -152,16 +160,9 @@ function calculateFileHash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
-// Helper to calculate byte size of string
-function calculateSize(value: string): number {
-  return Buffer.byteLength(value, 'utf8');
-}
-
-// Helper to estimate token count from text
-// Rough estimate: 1 token ≈ 4 characters
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
+// Use token limit utilities instead of hardcoded functions
+const calculateSize = calculateSizeUtil;
+const estimateTokens = estimateTokensUtil;
 
 // Helper to calculate total response size and token estimate
 function calculateResponseMetrics(items: any[]): {
@@ -184,58 +185,8 @@ function calculateResponseMetrics(items: any[]): {
   return { totalSize, estimatedTokens, averageSize };
 }
 
-// Helper to calculate how many items can fit within token limit
-function calculateSafeItemCount(items: any[], tokenLimit: number): number {
-  if (items.length === 0) return 0;
-
-  let safeCount = 0;
-  let currentTokens = 0;
-
-  // Include base response structure in token calculation
-  const baseResponse = {
-    items: [],
-    pagination: {
-      total: 0,
-      returned: 0,
-      offset: 0,
-      hasMore: false,
-      nextOffset: null,
-      totalCount: 0,
-      page: 1,
-      pageSize: 0,
-      totalPages: 1,
-      hasNextPage: false,
-      hasPreviousPage: false,
-      previousOffset: null,
-      totalSize: 0,
-      averageSize: 0,
-      defaultsApplied: {},
-      truncated: false,
-      truncatedCount: 0,
-    },
-  };
-
-  // Estimate tokens for base response structure
-  const baseTokens = estimateTokens(JSON.stringify(baseResponse, null, 2));
-  currentTokens = baseTokens;
-
-  // Add items one by one until we approach the token limit
-  for (let i = 0; i < items.length; i++) {
-    const itemTokens = estimateTokens(JSON.stringify(items[i], null, 2));
-
-    // Leave some buffer (10%) to account for formatting and additional metadata
-    if (currentTokens + itemTokens > tokenLimit * 0.9) {
-      break;
-    }
-
-    currentTokens += itemTokens;
-    safeCount++;
-  }
-
-  // Always return at least 1 item if any exist, even if it exceeds limit
-  // This prevents infinite loops and ensures progress
-  return Math.max(safeCount, items.length > 0 ? 1 : 0);
-}
+// Note: calculateSafeItemCount is now handled by the token-limits utility module
+// which provides dynamic calculation based on actual content
 
 // Helper to parse relative time strings
 function parseRelativeTime(relativeTime: string): string | null {
@@ -704,10 +655,10 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
-      // Validate pagination parameters with proper defaults
-      // Default limit for context_get should be 100 to match repository defaults
+      // Dynamically calculate safe default limit based on actual data
+      const defaultLimit = calculateDynamicDefaultLimit(targetSessionId, includeMetadata, db);
       const paginationValidation = validatePaginationParams({
-        limit: rawLimit !== undefined ? rawLimit : 100,
+        limit: rawLimit !== undefined ? rawLimit : defaultLimit,
         offset: rawOffset,
       });
       const { limit, offset, errors: paginationErrors } = paginationValidation;
@@ -748,26 +699,33 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           };
         }
 
-        // Calculate response metrics
-        const metrics = calculateResponseMetrics(result.items);
-        const TOKEN_LIMIT = 20000; // Conservative limit to stay well under MCP's 25k limit
+        // Use dynamic token limit checking
+        const tokenConfig = getTokenConfig();
+        const { exceedsLimit, estimatedTokens, safeItemCount } = checkTokenLimit(
+          result.items,
+          includeMetadata,
+          tokenConfig
+        );
 
-        // Check if we're approaching token limits and enforce truncation
-        const isApproachingLimit = metrics.estimatedTokens > TOKEN_LIMIT;
         let actualItems = result.items;
         let wasTruncated = false;
         let truncatedCount = 0;
 
-        if (isApproachingLimit) {
-          // Calculate how many items we can safely return
-          const safeItemCount = calculateSafeItemCount(result.items, TOKEN_LIMIT);
-
+        if (exceedsLimit) {
+          // Truncate to safe item count
           if (safeItemCount < result.items.length) {
             actualItems = result.items.slice(0, safeItemCount);
             wasTruncated = true;
             truncatedCount = result.items.length - safeItemCount;
+
+            debugLog(
+              `Token limit enforcement: Truncating from ${result.items.length} to ${safeItemCount} items`
+            );
           }
         }
+
+        // Calculate response metrics for the actual items being returned
+        const metrics = calculateResponseMetrics(actualItems);
 
         // Calculate pagination metadata
         // Use the validated limit and offset from paginationValidation
@@ -837,14 +795,17 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             },
           };
 
-          // Add warning if approaching token limits
-          if (isApproachingLimit) {
-            if (wasTruncated) {
-              response.pagination.warning = `Response truncated due to token limits. ${truncatedCount} items omitted. Use pagination with offset=${nextOffset} to retrieve remaining items.`;
-            } else {
-              response.pagination.warning =
-                'Large result set. Consider using smaller limit or more specific filters.';
-            }
+          // Add warning if truncation occurred
+          if (wasTruncated) {
+            response.pagination.warning = `Response truncated to prevent token overflow (estimated ${estimatedTokens} tokens). ${truncatedCount} items omitted. Use pagination with offset=${nextOffset} to retrieve remaining items.`;
+            response.pagination.tokenInfo = {
+              estimatedTokens,
+              maxAllowed: tokenConfig.mcpMaxTokens,
+              safeLimit: Math.floor(tokenConfig.mcpMaxTokens * tokenConfig.safetyBuffer),
+            };
+          } else if (estimatedTokens > tokenConfig.mcpMaxTokens * TOKEN_WARNING_THRESHOLD) {
+            response.pagination.warning =
+              'Large result set approaching token limits. Consider using smaller limit or more specific filters.';
           }
 
           return {
@@ -872,14 +833,12 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           },
         };
 
-        // Add warning if approaching token limits
-        if (isApproachingLimit) {
-          if (wasTruncated) {
-            response.pagination.warning = `Response truncated due to token limits. ${truncatedCount} items omitted. Use pagination with offset=${nextOffset} to retrieve remaining items.`;
-          } else {
-            response.pagination.warning =
-              'Large result set. Consider using smaller limit or more specific filters.';
-          }
+        // Add warning if truncation occurred
+        if (wasTruncated) {
+          response.pagination.warning = `Response truncated to prevent token overflow. ${truncatedCount} items omitted. Use pagination with offset=${nextOffset} to retrieve remaining items.`;
+        } else if (estimatedTokens > tokenConfig.mcpMaxTokens * TOKEN_WARNING_THRESHOLD) {
+          response.pagination.warning =
+            'Large result set approaching token limits. Consider using smaller limit or more specific filters.';
         }
 
         return {
