@@ -183,9 +183,35 @@ claude mcp add memory-keeper node /absolute/path/to/mcp-memory-keeper/dist/index
 
 ### Environment Variables
 
+#### Storage and Installation
+
 - `DATA_DIR` - Directory for database storage (default: `~/mcp-data/memory-keeper/`)
 - `MEMORY_KEEPER_INSTALL_DIR` - Installation directory (default: `~/.local/mcp-servers/memory-keeper/`)
 - `MEMORY_KEEPER_AUTO_UPDATE` - Set to `1` to enable auto-updates
+
+#### Token Limit Configuration
+
+- `MCP_MAX_TOKENS` - Maximum tokens allowed in responses (default: `25000`, range: `1000-100000`)
+  - Adjust this if your MCP client has different limits
+- `MCP_TOKEN_SAFETY_BUFFER` - Safety buffer percentage (default: `0.8`, range: `0.1-1.0`)
+  - Uses only this fraction of the max tokens to prevent overflows
+- `MCP_MIN_ITEMS` - Minimum items to return even if exceeding limits (default: `1`, range: `1-100`)
+  - Ensures at least some results are returned
+- `MCP_MAX_ITEMS` - Maximum items allowed per response (default: `100`, range: `10-1000`)
+  - Upper bound for result sets regardless of token limits
+- `MCP_CHARS_PER_TOKEN` - Characters per token ratio (default: `3.5`, range: `2.5-5.0`) **[Advanced]**
+  - Adjusts token estimation accuracy for different content types
+  - Lower values = more conservative (safer but returns fewer items)
+  - Higher values = more aggressive (returns more items but risks overflow)
+
+Example configuration for stricter token limits:
+
+```bash
+export MCP_MAX_TOKENS=20000        # Lower max tokens
+export MCP_TOKEN_SAFETY_BUFFER=0.7  # More conservative buffer
+export MCP_MAX_ITEMS=50             # Fewer items per response
+export MCP_CHARS_PER_TOKEN=3.0      # More conservative estimation (optional)
+```
 
 ### Claude Code (CLI)
 

@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.10.1] - 2025-01-11
+## [0.10.2] - 2025-09-16
+
+### Fixed
+
+- **Critical Token Limit Issue (#24)** - Fixed token overflow with includeMetadata
+  - Implemented dynamic token limit calculation based on actual content size
+  - Automatically adjusts item limits based on average item size in session
+  - More accurate token estimation (3.5 chars/token vs 4)
+  - Configurable via environment variables (MCP_MAX_TOKENS, MCP_TOKEN_SAFETY_BUFFER)
+  - Added tokenInfo to response metadata for transparency
+  - Resolves "MCP tool context_get response exceeds maximum allowed tokens" errors
+
+### Added
+
+- **Token Limit Management Module** (`utils/token-limits.ts`)
+  - Dynamic calculation of safe item limits
+  - Response overhead estimation
+  - Configurable token limits via environment
+  - Better visibility into token usage
+  - Proper TypeScript interfaces for context items
+  - Environment variable validation with bounds checking
+  - Safe JSON parsing with error handling
+  - Well-documented constants replacing magic numbers
+
+## [0.10.1] - 2025-07-11
 
 ### Fixed
 
@@ -63,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added recipes for common patterns in RECIPES.md
 - Added troubleshooting tips for new features
 
-## [0.10.0] - 2025-01-26
+## [0.10.0] - 2025-06-26
 
 ### Added
 
@@ -102,7 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced validation for channel names
 - Backward compatible - existing items default to 'default' channel
 
-## [0.9.0] - 2025-01-20
+## [0.9.0] - 2025-06-21
 
 ### Changed (BREAKING)
 
@@ -125,7 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `context_get_shared` tool (use `context_get` instead)
 - Complex sharing mechanism that was causing inconsistencies
 
-## [0.8.4] - 2025-01-19
+## [0.8.4] - 2025-06-19
 
 ### Fixed
 
@@ -139,7 +163,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Feature flags system (planned)
 - Database migration system (planned)
 
-## [0.8.3] - 2025-01-19
+## [0.8.3] - 2025-06-19
 
 ### Added
 
@@ -160,7 +184,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Automatic schema migration for existing databases to add the `working_directory` column
 
-## [0.8.0] - 2024-01-18
+## [0.8.0] - 2025-06-18
 
 ### Added
 
@@ -200,7 +224,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New tables: `journal_entries`, `compressed_context`, `tool_events`
 - All 255 tests passing
 
-## [0.7.0] - 2024-01-18
+## [0.7.0] - 2025-06-18
 
 ### Added
 
@@ -224,7 +248,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added comprehensive test coverage (30 new tests)
 - All 236 tests passing
 
-## [0.6.0] - 2024-01-17
+## [0.6.0] - 2025-06-17
 
 ### Added
 
@@ -247,7 +271,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test coverage for semantic search
 - All 206 tests passing
 
-## [0.5.0] - 2024-01-17
+## [0.5.0] - 2025-06-17
 
 ### Added
 
@@ -270,7 +294,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `knowledge-graph.ts` utility module
 - Comprehensive test coverage for graph operations
 
-## [0.4.2] - 2024-01-16
+## [0.4.2] - 2025-06-17
 
 ### Added
 
@@ -284,7 +308,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git integration error handling
 - Session list date filtering
 
-## [0.4.1] - 2024-01-16
+## [0.4.1] - 2025-06-17
 
 ### Fixed
 
@@ -297,7 +321,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved error messages for better debugging
 - Enhanced validation for file paths
 
-## [0.4.0] - 2024-01-15
+## [0.4.0] - 2025-06-17
 
 ### Added
 
@@ -318,7 +342,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Created `git.ts` utility module
 - 97% test coverage maintained
 
-## [0.3.0] - 2024-01-14
+## [0.3.0] - 2025-06-17
 
 ### Added
 
@@ -347,7 +371,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented streaming for large exports
 - Transaction support for atomic operations
 
-## [0.2.0] - 2024-01-13
+## [0.2.0] - 2025-06-17
 
 ### Added
 
@@ -377,7 +401,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Memory leak in file cache operations
 - Session switching race condition
 
-## [0.1.0] - 2024-01-12
+## [0.1.0] - 2025-06-17
 
 ### Added
 
@@ -405,12 +429,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Development Releases
 
-### [0.1.0-beta.2] - 2024-01-11
+### [0.1.0-beta.2] - 2025-06-17
 
 - Fixed Windows path handling
 - Added Node.js 18+ compatibility
 
-### [0.1.0-beta.1] - 2024-01-10
+### [0.1.0-beta.1] - 2025-06-17
 
 - Initial beta release
 - Basic functionality testing
