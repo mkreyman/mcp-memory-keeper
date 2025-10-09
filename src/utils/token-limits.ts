@@ -213,6 +213,7 @@ export function calculateSafeItemLimit(
 
   // Log calculation details for debugging
   if (process.env.MCP_DEBUG_LOGGING) {
+    // eslint-disable-next-line no-console
     console.log('[Token Calculation]', {
       safeTokenLimit,
       responseOverhead,
@@ -301,7 +302,9 @@ export function checkTokenLimit(
     }
   };
 
-  // Transform items if needed
+  // Transform items to match what will actually be returned
+  // IMPORTANT: Always transform to ensure accurate token estimation
+  // The response includes all database fields, so we need to account for them
   const itemsForCalculation = includeMetadata
     ? items.map(item => ({
         key: item.key,
@@ -314,7 +317,7 @@ export function checkTokenLimit(
         created_at: item.created_at,
         updated_at: item.updated_at,
       }))
-    : items;
+    : items; // When includeMetadata is false, items still contain all DB fields
 
   // Build full response structure matching actual handler response
   const response = {
@@ -333,8 +336,11 @@ export function checkTokenLimit(
 
   const responseJson = JSON.stringify(response, null, JSON_INDENT_SPACES);
   const estimatedTokens = estimateTokens(responseJson, config.charsPerToken);
-  const safeLimit = Math.floor(config.mcpMaxTokens * config.safetyBuffer);
-  const exceedsLimit = estimatedTokens > safeLimit;
+
+  // IMPORTANT: Compare against actual MCP limit, not safe limit
+  // The safety buffer is used when calculating safe item counts, but for detection
+  // we need to check against the hard MCP protocol limit to prevent rejections
+  const exceedsLimit = estimatedTokens > config.mcpMaxTokens;
 
   const safeItemCount = exceedsLimit
     ? calculateSafeItemLimit(items, includeMetadata, config)

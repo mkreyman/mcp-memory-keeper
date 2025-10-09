@@ -711,6 +711,10 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         let wasTruncated = false;
         let truncatedCount = 0;
 
+        debugLog(
+          `Token limit check: exceedsLimit=${exceedsLimit}, estimatedTokens=${estimatedTokens}, safeItemCount=${safeItemCount}, items=${result.items.length}`
+        );
+
         if (exceedsLimit) {
           // Truncate to safe item count
           if (safeItemCount < result.items.length) {
@@ -841,11 +845,18 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             'Large result set approaching token limits. Consider using smaller limit or more specific filters.';
         }
 
+        const responseJson = JSON.stringify(response, null, 2);
+        const actualResponseTokens = Math.ceil(responseJson.length / tokenConfig.charsPerToken);
+
+        debugLog(
+          `Final response: actualTokens=${actualResponseTokens}, maxTokens=${tokenConfig.mcpMaxTokens}, length=${responseJson.length}`
+        );
+
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(response, null, 2),
+              text: responseJson,
             },
           ],
         };
