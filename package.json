@@ -1,6 +1,6 @@
 {
   "name": "mcp-memory-keeper",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "description": "MCP server for persistent context management in AI coding assistants",
   "main": "dist/index.js",
   "bin": {
@@ -50,14 +50,14 @@
     "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.3",
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^12.1.0",
     "simple-git": "^3.28.0",
     "uuid": "^11.1.0"
   },

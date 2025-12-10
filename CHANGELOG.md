@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2025-12-10
+
+### Breaking Changes
+
+- **Node.js 18 support dropped** - Minimum required Node.js version is now 20.0.0
+  - Node.js 18 reached End-of-Life on April 30, 2025
+  - Users on Node.js 18 must upgrade to Node.js 20 or later
+  - Existing installations will continue working until updated
+
+### Fixed
+
+- **Installation fails on Node.js 24 (#28)** - Updated `better-sqlite3` dependency
+  - Upgraded from `^11.10.0` to `^12.1.0` to support Node.js 24 (LTS "Krypton")
+  - Prebuilt binaries now available for Node.js 20, 22, and 24
+  - Resolves `gyp ERR!` build failures on Node.js 24
+
 ## [0.10.2] - 2025-09-16
 
 ### Fixed
