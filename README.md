@@ -263,6 +263,24 @@ Then activate it: `TOOL_PROFILE=my_workflow npx mcp-memory-keeper`
 
 Config file profiles take precedence over built-in defaults with the same name.
 
+**Profile resolution precedence:**
+
+| `TOOL_PROFILE` | Config file has profile? | Built-in exists? | Result                           |
+| -------------- | ------------------------ | ---------------- | -------------------------------- |
+| Set            | Yes                      | —                | Uses config file definition      |
+| Set            | No                       | Yes              | Uses built-in definition         |
+| Set            | No                       | No               | Warning + falls back to `full`   |
+| Not set        | —                        | —                | Uses built-in `full` (all tools) |
+
+**Environment variables:**
+
+| Variable              | Description                                                               |
+| --------------------- | ------------------------------------------------------------------------- |
+| `TOOL_PROFILE`        | Profile name to activate (e.g., `minimal`, `standard`, `full`, or custom) |
+| `TOOL_PROFILE_CONFIG` | Override config file path (default: `~/.mcp-memory-keeper/config.json`)   |
+
+> Note: Profile resolution happens once at server startup. Changes to the env var or config file take effect on the next server restart.
+
 **Claude Code / Claude Desktop configuration:**
 
 ```json

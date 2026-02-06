@@ -7,7 +7,7 @@ import * as os from 'os';
  * Update this list whenever a tool is added or removed from the
  * ListToolsRequestSchema handler in src/index.ts.
  */
-export const ALL_TOOL_NAMES: readonly string[] = [
+export const ALL_TOOL_NAMES = [
   // Session Management
   'context_session_start',
   'context_session_list',
@@ -65,8 +65,14 @@ export const ALL_TOOL_NAMES: readonly string[] = [
   'context_get_related',
 ] as const;
 
+/** Union type of all valid tool names */
+export type ToolName = (typeof ALL_TOOL_NAMES)[number];
+
+/** Pre-computed Set for O(1) lookups — used internally and exported for index.ts */
+export const ALL_TOOL_NAMES_SET: ReadonlySet<string> = new Set<string>(ALL_TOOL_NAMES);
+
 /** Built-in default profiles */
-export const DEFAULT_PROFILES: Record<string, string[]> = {
+export const DEFAULT_PROFILES: Record<string, readonly string[]> = {
   minimal: [
     'context_session_start',
     'context_session_list',
@@ -131,8 +137,10 @@ export function loadConfigFile(configPath: string = CONFIG_FILE): ToolProfileCon
     if (
       !parsed ||
       typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
       !parsed.profiles ||
-      typeof parsed.profiles !== 'object'
+      typeof parsed.profiles !== 'object' ||
+      Array.isArray(parsed.profiles)
     ) {
       console.warn(
         `[MCP-Memory-Keeper] Config file at ${configPath} is missing a valid "profiles" key. Ignoring file.`
@@ -140,7 +148,8 @@ export function loadConfigFile(configPath: string = CONFIG_FILE): ToolProfileCon
       return null;
     }
 
-    return parsed as ToolProfileConfig;
+    // Validated: parsed.profiles is a non-null, non-array object
+    return { profiles: parsed.profiles } as ToolProfileConfig;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(
@@ -152,8 +161,7 @@ export function loadConfigFile(configPath: string = CONFIG_FILE): ToolProfileCon
 
 /** Validate tool names against ALL_TOOL_NAMES, returning unknown names */
 export function validateToolNames(tools: string[]): string[] {
-  const validSet = new Set(ALL_TOOL_NAMES);
-  return tools.filter(name => !validSet.has(name));
+  return tools.filter(name => !ALL_TOOL_NAMES_SET.has(name));
 }
 
 /** Resolve the active profile based on env var and config file */
@@ -169,16 +177,28 @@ export function resolveActiveProfile(configPath?: string): ResolvedProfile {
   const config = loadConfigFile(configPath);
 
   let toolList: string[] | undefined;
-  let source: ResolvedProfile['source'];
+  let source: ResolvedProfile['source'] = 'default';
 
   // Resolution precedence: config file > built-in defaults
   if (config && config.profiles[profileName] !== undefined) {
-    toolList = config.profiles[profileName];
-    source = hasEnvVar ? 'env+config' : 'config';
-  } else if (DEFAULT_PROFILES[profileName] !== undefined) {
-    toolList = DEFAULT_PROFILES[profileName];
+    const candidate = config.profiles[profileName];
+    // Validate that the profile value is actually an array of strings
+    if (!Array.isArray(candidate) || !candidate.every(item => typeof item === 'string')) {
+      warnings.push(
+        `Profile "${profileName}" in config file is not a valid array of strings. Falling back to built-in default.`
+      );
+    } else {
+      toolList = candidate as string[];
+      source = hasEnvVar ? 'env+config' : 'config';
+    }
+  }
+
+  if (toolList === undefined && DEFAULT_PROFILES[profileName] !== undefined) {
+    toolList = [...DEFAULT_PROFILES[profileName]];
     source = hasEnvVar ? 'env+builtin' : 'default';
-  } else {
+  }
+
+  if (toolList === undefined) {
     // Profile not found anywhere
     const availableNames = new Set([
       ...Object.keys(DEFAULT_PROFILES),
@@ -188,7 +208,7 @@ export function resolveActiveProfile(configPath?: string): ResolvedProfile {
       `Unknown TOOL_PROFILE "${profileName}". Available profiles: ${[...availableNames].join(', ')}. Using "full".`
     );
     profileName = 'full';
-    toolList = DEFAULT_PROFILES.full;
+    toolList = [...DEFAULT_PROFILES.full];
     source = 'default';
   }
 
@@ -201,8 +221,7 @@ export function resolveActiveProfile(configPath?: string): ResolvedProfile {
   }
 
   // Filter to only valid tools
-  const validSet = new Set(ALL_TOOL_NAMES);
-  const validTools = toolList.filter(name => validSet.has(name));
+  const validTools = toolList.filter(name => ALL_TOOL_NAMES_SET.has(name));
 
   // Guard against empty profile
   if (validTools.length === 0) {
@@ -210,7 +229,7 @@ export function resolveActiveProfile(configPath?: string): ResolvedProfile {
     profileName = 'full';
     return {
       profileName,
-      tools: new Set(ALL_TOOL_NAMES),
+      tools: new Set<string>(ALL_TOOL_NAMES),
       source: 'default',
       warnings,
     };
@@ -222,9 +241,4 @@ export function resolveActiveProfile(configPath?: string): ResolvedProfile {
     source,
     warnings,
   };
-}
-
-/** Check if a specific tool is enabled */
-export function isToolEnabled(toolName: string, enabledTools: Set<string>): boolean {
-  return enabledTools.has(toolName);
 }

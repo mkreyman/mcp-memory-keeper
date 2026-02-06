@@ -25,7 +25,7 @@ import {
   TOKEN_WARNING_THRESHOLD,
 } from './utils/token-limits.js';
 import { handleContextWatch } from './handlers/contextWatchHandlers.js';
-import { resolveActiveProfile, ALL_TOOL_NAMES } from './utils/tool-profiles.js';
+import { resolveActiveProfile, ALL_TOOL_NAMES, ALL_TOOL_NAMES_SET } from './utils/tool-profiles.js';
 
 // Initialize database with migrations
 const dbManager = new DatabaseManager({ filename: 'context.db' });
@@ -76,10 +76,9 @@ try {
 
 // Tables are now created by DatabaseManager in utils/database.ts
 
-// Resolve active tool profile
-const activeProfile = resolveActiveProfile();
+// Resolve active tool profile (TOOL_PROFILE_CONFIG overrides config file path)
+const activeProfile = resolveActiveProfile(process.env.TOOL_PROFILE_CONFIG);
 const enabledTools = activeProfile.tools;
-const allToolNamesSet = new Set(ALL_TOOL_NAMES);
 console.error(
   `[MCP-Memory-Keeper] Tool profile: "${activeProfile.profileName}" (${enabledTools.size}/${ALL_TOOL_NAMES.length} tools, source: ${activeProfile.source})`
 );
@@ -352,12 +351,13 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
   // Reject calls to known tools that are disabled by the active profile.
   // Unknown tools fall through to the default switch case for standard error handling.
-  if (allToolNamesSet.has(toolName) && !enabledTools.has(toolName)) {
+  if (ALL_TOOL_NAMES_SET.has(toolName) && !enabledTools.has(toolName)) {
+    const configPath = path.join(os.homedir(), '.mcp-memory-keeper', 'config.json');
     return {
       content: [
         {
           type: 'text',
-          text: `Tool "${toolName}" is not available in the current tool profile "${activeProfile.profileName}". To enable it, use TOOL_PROFILE=full or TOOL_PROFILE=standard, or add it to your profile in ~/.mcp-memory-keeper/config.json.`,
+          text: `Tool "${toolName}" is not available in the current tool profile "${activeProfile.profileName}". To enable it, use TOOL_PROFILE=full or TOOL_PROFILE=standard, or add it to your profile in ${configPath}.`,
         },
       ],
       isError: true,

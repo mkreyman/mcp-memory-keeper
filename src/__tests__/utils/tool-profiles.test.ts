@@ -3,11 +3,11 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   ALL_TOOL_NAMES,
+  ALL_TOOL_NAMES_SET,
   DEFAULT_PROFILES,
   loadConfigFile,
   validateToolNames,
   resolveActiveProfile,
-  isToolEnabled,
 } from '../../utils/tool-profiles';
 
 describe('Tool Profiles', () => {
@@ -24,6 +24,18 @@ describe('Tool Profiles', () => {
     it('should all start with "context_"', () => {
       for (const name of ALL_TOOL_NAMES) {
         expect(name).toMatch(/^context_/);
+      }
+    });
+  });
+
+  describe('ALL_TOOL_NAMES_SET', () => {
+    it('should be the same size as ALL_TOOL_NAMES', () => {
+      expect(ALL_TOOL_NAMES_SET.size).toBe(ALL_TOOL_NAMES.length);
+    });
+
+    it('should contain every entry from ALL_TOOL_NAMES', () => {
+      for (const name of ALL_TOOL_NAMES) {
+        expect(ALL_TOOL_NAMES_SET.has(name)).toBe(true);
       }
     });
   });
@@ -62,10 +74,9 @@ describe('Tool Profiles', () => {
     });
 
     it('all tools in each profile should be valid tool names', () => {
-      const validSet = new Set(ALL_TOOL_NAMES);
       for (const [_profileName, tools] of Object.entries(DEFAULT_PROFILES)) {
         for (const tool of tools) {
-          expect(validSet.has(tool)).toBe(true);
+          expect(ALL_TOOL_NAMES_SET.has(tool)).toBe(true);
         }
       }
     });
@@ -164,6 +175,36 @@ describe('Tool Profiles', () => {
       const result = loadConfigFile(configPath);
       expect(result).not.toBeNull();
       expect(result!.profiles.custom).toEqual(['context_save']);
+    });
+
+    it('should return null when profiles is an array instead of object', () => {
+      const configPath = path.join(tmpDir, 'array-profiles.json');
+      fs.writeFileSync(configPath, JSON.stringify({ profiles: ['context_save'] }));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const result = loadConfigFile(configPath);
+      expect(result).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('missing a valid "profiles" key')
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('should return null when profiles is null', () => {
+      const configPath = path.join(tmpDir, 'null-profiles.json');
+      fs.writeFileSync(configPath, JSON.stringify({ profiles: null }));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const result = loadConfigFile(configPath);
+      expect(result).toBeNull();
+      warnSpy.mockRestore();
+    });
+
+    it('should return null when root is an array', () => {
+      const configPath = path.join(tmpDir, 'root-array.json');
+      fs.writeFileSync(configPath, JSON.stringify([{ profiles: {} }]));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const result = loadConfigFile(configPath);
+      expect(result).toBeNull();
+      warnSpy.mockRestore();
     });
   });
 
@@ -298,17 +339,78 @@ describe('Tool Profiles', () => {
       expect(result.tools.size).toBe(22);
       expect(result.source).toBe('env+builtin');
     });
-  });
 
-  describe('isToolEnabled', () => {
-    it('should return true for enabled tools', () => {
-      const enabled = new Set(['context_save', 'context_get']);
-      expect(isToolEnabled('context_save', enabled)).toBe(true);
+    it('should treat empty string TOOL_PROFILE as unset', () => {
+      process.env.TOOL_PROFILE = '';
+      const configPath = path.join(tmpDir, 'nonexistent.json');
+      const result = resolveActiveProfile(configPath);
+      expect(result.profileName).toBe('full');
+      expect(result.tools.size).toBe(38);
+      expect(result.source).toBe('default');
     });
 
-    it('should return false for disabled tools', () => {
-      const enabled = new Set(['context_save', 'context_get']);
-      expect(isToolEnabled('context_search', enabled)).toBe(false);
+    it('should handle config profile with null value gracefully', () => {
+      const configPath = path.join(tmpDir, 'config.json');
+      fs.writeFileSync(configPath, JSON.stringify({ profiles: { broken: null } }));
+      process.env.TOOL_PROFILE = 'broken';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const result = resolveActiveProfile(configPath);
+      // 'broken' not in built-ins, so falls through to unknown profile fallback
+      expect(result.profileName).toBe('full');
+      expect(result.tools.size).toBe(38);
+      expect(result.warnings.some(w => w.includes('not a valid array of strings'))).toBe(true);
+      warnSpy.mockRestore();
+    });
+
+    it('should handle config profile with non-array value gracefully', () => {
+      const configPath = path.join(tmpDir, 'config.json');
+      fs.writeFileSync(configPath, JSON.stringify({ profiles: { broken: 'not-an-array' } }));
+      process.env.TOOL_PROFILE = 'broken';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const result = resolveActiveProfile(configPath);
+      expect(result.profileName).toBe('full');
+      expect(result.tools.size).toBe(38);
+      expect(result.warnings.some(w => w.includes('not a valid array of strings'))).toBe(true);
+      warnSpy.mockRestore();
+    });
+
+    it('should handle config profile with non-string array elements gracefully', () => {
+      const configPath = path.join(tmpDir, 'config.json');
+      fs.writeFileSync(configPath, JSON.stringify({ profiles: { broken: [1, null, true] } }));
+      process.env.TOOL_PROFILE = 'broken';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const result = resolveActiveProfile(configPath);
+      expect(result.profileName).toBe('full');
+      expect(result.tools.size).toBe(38);
+      expect(result.warnings.some(w => w.includes('not a valid array of strings'))).toBe(true);
+      warnSpy.mockRestore();
+    });
+
+    it('should fall back to built-in when config profile for known name is invalid', () => {
+      const configPath = path.join(tmpDir, 'config.json');
+      // Config has invalid 'minimal' entry, but built-in 'minimal' exists
+      fs.writeFileSync(configPath, JSON.stringify({ profiles: { minimal: 42 } }));
+      process.env.TOOL_PROFILE = 'minimal';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const result = resolveActiveProfile(configPath);
+      expect(result.profileName).toBe('minimal');
+      expect(result.tools.size).toBe(8);
+      expect(result.source).toBe('env+builtin');
+      expect(result.warnings.some(w => w.includes('not a valid array of strings'))).toBe(true);
+      warnSpy.mockRestore();
+    });
+
+    it('should deduplicate tool names in profile via Set', () => {
+      const configPath = path.join(tmpDir, 'config.json');
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          profiles: { dupes: ['context_save', 'context_save', 'context_get'] },
+        })
+      );
+      process.env.TOOL_PROFILE = 'dupes';
+      const result = resolveActiveProfile(configPath);
+      expect(result.tools.size).toBe(2);
     });
   });
 });

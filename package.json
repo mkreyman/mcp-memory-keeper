@@ -45,6 +45,7 @@
   "files": [
     "dist/**/*",
     "bin/**/*",
+    "examples/**/*",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
