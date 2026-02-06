@@ -200,12 +200,15 @@ export function resolveActiveProfile(configPath?: string): ResolvedProfile {
 
   if (toolList === undefined) {
     // Profile not found anywhere
-    const availableNames = new Set([
-      ...Object.keys(DEFAULT_PROFILES),
-      ...(config ? Object.keys(config.profiles) : []),
-    ]);
+    const allProfiles: Record<string, unknown> = {
+      ...DEFAULT_PROFILES,
+      ...(config ? config.profiles : {}),
+    };
+    const profileList = Object.entries(allProfiles)
+      .map(([name, tools]) => `${name}(${Array.isArray(tools) ? tools.length : '?'})`)
+      .join(', ');
     warnings.push(
-      `Unknown TOOL_PROFILE "${profileName}". Available profiles: ${[...availableNames].join(', ')}. Using "full".`
+      `Unknown TOOL_PROFILE "${profileName}". Available profiles: ${profileList}. Using "full".`
     );
     profileName = 'full';
     toolList = [...DEFAULT_PROFILES.full];
