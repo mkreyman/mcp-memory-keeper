@@ -213,6 +213,92 @@ export MCP_MAX_ITEMS=50             # Fewer items per response
 export MCP_CHARS_PER_TOKEN=3.0      # More conservative estimation (optional)
 ```
 
+#### Tool Profiles
+
+By default, all 38 tools are exposed. To reduce context overhead in your AI assistant, you can activate a tool profile that limits which tools are available.
+
+**Quick usage:**
+
+```bash
+# Essential tools only (8 tools)
+TOOL_PROFILE=minimal npx mcp-memory-keeper
+
+# Standard workflow set (22 tools)
+TOOL_PROFILE=standard npx mcp-memory-keeper
+
+# All tools (default)
+TOOL_PROFILE=full npx mcp-memory-keeper
+```
+
+**Built-in profiles:**
+
+| Profile    | Tools | Description                                                    |
+| ---------- | ----- | -------------------------------------------------------------- |
+| `minimal`  | 8     | Core persistence: save, get, search, status, checkpoint        |
+| `standard` | 22    | Daily workflow: core + git, batch ops, channels, export/import |
+| `full`     | 38    | All tools (default, backwards compatible)                      |
+
+**Custom profiles via config file:**
+
+Create `~/.mcp-memory-keeper/config.json` to define or override profiles:
+
+```json
+{
+  "profiles": {
+    "my_workflow": [
+      "context_session_start",
+      "context_save",
+      "context_get",
+      "context_search",
+      "context_checkpoint",
+      "context_restore_checkpoint",
+      "context_diff",
+      "context_timeline"
+    ]
+  }
+}
+```
+
+Then activate it: `TOOL_PROFILE=my_workflow npx mcp-memory-keeper`
+
+Config file profiles take precedence over built-in defaults with the same name.
+
+**Profile resolution precedence:**
+
+| `TOOL_PROFILE` | Config file has profile? | Built-in exists? | Result                           |
+| -------------- | ------------------------ | ---------------- | -------------------------------- |
+| Set            | Yes                      | —                | Uses config file definition      |
+| Set            | No                       | Yes              | Uses built-in definition         |
+| Set            | No                       | No               | Warning + falls back to `full`   |
+| Not set        | —                        | —                | Uses built-in `full` (all tools) |
+
+**Environment variables:**
+
+| Variable              | Description                                                               |
+| --------------------- | ------------------------------------------------------------------------- |
+| `TOOL_PROFILE`        | Profile name to activate (e.g., `minimal`, `standard`, `full`, or custom) |
+| `TOOL_PROFILE_CONFIG` | Override config file path (default: `~/.mcp-memory-keeper/config.json`)   |
+
+> Note: Profile resolution happens once at server startup. Changes to the env var or config file take effect on the next server restart.
+
+**Claude Code / Claude Desktop configuration:**
+
+```json
+{
+  "mcpServers": {
+    "memory-keeper": {
+      "command": "npx",
+      "args": ["mcp-memory-keeper"],
+      "env": {
+        "TOOL_PROFILE": "minimal"
+      }
+    }
+  }
+}
+```
+
+See `examples/config.json` for a complete example config file.
+
 ### Claude Code (CLI)
 
 #### Configuration Scopes

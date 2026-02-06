@@ -1,6 +1,6 @@
 {
   "name": "mcp-memory-keeper",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "MCP server for persistent context management in AI coding assistants",
   "main": "dist/index.js",
   "bin": {
@@ -45,6 +45,7 @@
   "files": [
     "dist/**/*",
     "bin/**/*",
+    "examples/**/*",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

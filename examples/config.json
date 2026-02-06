@@ -1,0 +1,31 @@
+{
+  "_comment": "Place this file at ~/.mcp-memory-keeper/config.json. Built-in profiles (minimal, standard, full) are available without configuration. Define custom profiles or override built-ins here.",
+  "profiles": {
+    "my_custom_workflow": [
+      "context_session_start",
+      "context_save",
+      "context_get",
+      "context_search",
+      "context_status",
+      "context_checkpoint",
+      "context_restore_checkpoint",
+      "context_diff",
+      "context_timeline",
+      "context_batch_save"
+    ],
+    "git_focused": [
+      "context_session_start",
+      "context_session_list",
+      "context_set_project_dir",
+      "context_save",
+      "context_get",
+      "context_search",
+      "context_status",
+      "context_checkpoint",
+      "context_restore_checkpoint",
+      "context_git_commit",
+      "context_diff",
+      "context_export"
+    ]
+  }
+}
