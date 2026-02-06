@@ -104,6 +104,9 @@ Tip: Initialize git with 'git init' to enable git tracking features.`;
       await git.init();
       await git.addConfig('user.name', 'Test User');
       await git.addConfig('user.email', 'test@example.com');
+      // Use repo-local hooks directory to prevent global hooks from interfering
+      const localHooksDir = path.join(tempRepoPath, '.git', 'hooks');
+      await git.addConfig('core.hooksPath', localHooksDir);
     });
 
     afterEach(() => {

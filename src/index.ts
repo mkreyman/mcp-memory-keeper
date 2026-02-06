@@ -25,6 +25,7 @@ import {
   TOKEN_WARNING_THRESHOLD,
 } from './utils/token-limits.js';
 import { handleContextWatch } from './handlers/contextWatchHandlers.js';
+import { resolveActiveProfile, ALL_TOOL_NAMES } from './utils/tool-profiles.js';
 
 // Initialize database with migrations
 const dbManager = new DatabaseManager({ filename: 'context.db' });
@@ -74,6 +75,17 @@ try {
 // Migration manager is no longer needed - watcher migrations are now applied by DatabaseManager
 
 // Tables are now created by DatabaseManager in utils/database.ts
+
+// Resolve active tool profile
+const activeProfile = resolveActiveProfile();
+const enabledTools = activeProfile.tools;
+const allToolNamesSet = new Set(ALL_TOOL_NAMES);
+console.error(
+  `[MCP-Memory-Keeper] Tool profile: "${activeProfile.profileName}" (${enabledTools.size}/${ALL_TOOL_NAMES.length} tools, source: ${activeProfile.source})`
+);
+for (const warning of activeProfile.warnings) {
+  console.warn(`[MCP-Memory-Keeper] ${warning}`);
+}
 
 // Track current session
 let currentSessionId: string | null = null;
@@ -337,6 +349,20 @@ const server = new Server(
 server.setRequestHandler(CallToolRequestSchema, async request => {
   const toolName = request.params.name;
   const args = request.params.arguments as any;
+
+  // Reject calls to known tools that are disabled by the active profile.
+  // Unknown tools fall through to the default switch case for standard error handling.
+  if (allToolNamesSet.has(toolName) && !enabledTools.has(toolName)) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Tool "${toolName}" is not available in the current tool profile "${activeProfile.profileName}". To enable it, use TOOL_PROFILE=full or TOOL_PROFILE=standard, or add it to your profile in ~/.mcp-memory-keeper/config.json.`,
+        },
+      ],
+      isError: true,
+    };
+  }
 
   switch (toolName) {
     // Session Management
@@ -3831,343 +3857,340 @@ Event ID: ${id.substring(0, 8)}`,
   }
 });
 
-// List available tools
+// List available tools (filtered by active tool profile)
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      // Session Management
-      {
-        name: 'context_session_start',
-        description: 'Start a new context session with optional project directory for git tracking',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Session name' },
-            description: { type: 'string', description: 'Session description' },
-            continueFrom: { type: 'string', description: 'Session ID to continue from' },
-            projectDir: {
-              type: 'string',
-              description:
-                'Project directory path for git tracking (e.g., "/path/to/your/project")',
-            },
-            defaultChannel: {
-              type: 'string',
-              description:
-                'Default channel for context items (auto-derived from git branch if not provided)',
-            },
+  const allTools = [
+    // Session Management
+    {
+      name: 'context_session_start',
+      description: 'Start a new context session with optional project directory for git tracking',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Session name' },
+          description: { type: 'string', description: 'Session description' },
+          continueFrom: { type: 'string', description: 'Session ID to continue from' },
+          projectDir: {
+            type: 'string',
+            description: 'Project directory path for git tracking (e.g., "/path/to/your/project")',
+          },
+          defaultChannel: {
+            type: 'string',
+            description:
+              'Default channel for context items (auto-derived from git branch if not provided)',
           },
         },
       },
-      {
-        name: 'context_session_list',
-        description: 'List recent sessions',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            limit: {
-              type: 'number',
-              description: 'Maximum number of sessions to return',
-              default: 10,
-            },
+    },
+    {
+      name: 'context_session_list',
+      description: 'List recent sessions',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          limit: {
+            type: 'number',
+            description: 'Maximum number of sessions to return',
+            default: 10,
           },
         },
       },
-      {
-        name: 'context_set_project_dir',
-        description: 'Set the project directory for git tracking in the current session',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            projectDir: {
-              type: 'string',
-              description:
-                'Project directory path for git tracking (e.g., "/path/to/your/project")',
-            },
-          },
-          required: ['projectDir'],
-        },
-      },
-      // Enhanced Context Storage
-      {
-        name: 'context_save',
-        description: 'Save a context item with optional category, priority, and privacy setting',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            key: { type: 'string', description: 'Unique key for the context item' },
-            value: { type: 'string', description: 'Context value to save' },
-            category: {
-              type: 'string',
-              description: 'Category (e.g., task, decision, progress)',
-              enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
-            },
-            priority: {
-              type: 'string',
-              description: 'Priority level',
-              enum: ['high', 'normal', 'low'],
-              default: 'normal',
-            },
-            private: {
-              type: 'boolean',
-              description:
-                'If true, item is only accessible from the current session. Default: false (accessible from all sessions)',
-              default: false,
-            },
-            channel: {
-              type: 'string',
-              description: 'Channel to organize this item (uses session default if not provided)',
-            },
-          },
-          required: ['key', 'value'],
-        },
-      },
-      {
-        name: 'context_get',
-        description:
-          'Retrieve saved context by key, category, or session with enhanced filtering. Returns all accessible items (public items + own private items)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            key: { type: 'string', description: 'Specific key to retrieve' },
-            category: { type: 'string', description: 'Filter by category' },
-            sessionId: { type: 'string', description: 'Specific session ID (defaults to current)' },
-            channel: { type: 'string', description: 'Filter by single channel' },
-            channels: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Filter by multiple channels',
-            },
-            includeMetadata: {
-              type: 'boolean',
-              description: 'Include timestamps and size info',
-            },
-            sort: {
-              type: 'string',
-              enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
-              description: 'Sort order for results',
-            },
-            limit: {
-              type: 'number',
-              description:
-                'Maximum items to return. Must be a positive integer. Invalid values will cause validation error. (default: auto-derived)',
-            },
-            offset: {
-              type: 'number',
-              description:
-                'Pagination offset. Must be a non-negative integer. Invalid values will cause validation error. (default: 0)',
-            },
-            createdAfter: {
-              type: 'string',
-              description: 'ISO date - items created after this time',
-            },
-            createdBefore: {
-              type: 'string',
-              description: 'ISO date - items created before this time',
-            },
-            keyPattern: {
-              type: 'string',
-              description: 'Regex pattern for key matching',
-            },
-            priorities: {
-              type: 'array',
-              items: { type: 'string', enum: ['high', 'normal', 'low'] },
-              description: 'Filter by priority levels',
-            },
+    },
+    {
+      name: 'context_set_project_dir',
+      description: 'Set the project directory for git tracking in the current session',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectDir: {
+            type: 'string',
+            description: 'Project directory path for git tracking (e.g., "/path/to/your/project")',
           },
         },
+        required: ['projectDir'],
       },
-      // File Caching
-      {
-        name: 'context_cache_file',
-        description: 'Cache file content with hash for change detection',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            filePath: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'File content to cache' },
+    },
+    // Enhanced Context Storage
+    {
+      name: 'context_save',
+      description: 'Save a context item with optional category, priority, and privacy setting',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Unique key for the context item' },
+          value: { type: 'string', description: 'Context value to save' },
+          category: {
+            type: 'string',
+            description: 'Category (e.g., task, decision, progress)',
+            enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
           },
-          required: ['filePath', 'content'],
-        },
-      },
-      {
-        name: 'context_file_changed',
-        description: 'Check if a file has changed since it was cached',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            filePath: { type: 'string', description: 'Path to the file' },
-            currentContent: { type: 'string', description: 'Current file content to compare' },
+          priority: {
+            type: 'string',
+            description: 'Priority level',
+            enum: ['high', 'normal', 'low'],
+            default: 'normal',
           },
-          required: ['filePath'],
-        },
-      },
-      // Status
-      {
-        name: 'context_status',
-        description: 'Get current context status and statistics',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      // Phase 2: Checkpoint System
-      {
-        name: 'context_checkpoint',
-        description: 'Create a named checkpoint of current context',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Checkpoint name' },
-            description: { type: 'string', description: 'Checkpoint description' },
-            includeFiles: {
-              type: 'boolean',
-              description: 'Include cached files in checkpoint',
-              default: true,
-            },
-            includeGitStatus: {
-              type: 'boolean',
-              description: 'Capture current git status',
-              default: true,
-            },
+          private: {
+            type: 'boolean',
+            description:
+              'If true, item is only accessible from the current session. Default: false (accessible from all sessions)',
+            default: false,
           },
-          required: ['name'],
+          channel: {
+            type: 'string',
+            description: 'Channel to organize this item (uses session default if not provided)',
+          },
         },
+        required: ['key', 'value'],
       },
-      {
-        name: 'context_restore_checkpoint',
-        description: 'Restore context from a checkpoint',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Checkpoint name to restore' },
-            checkpointId: { type: 'string', description: 'Specific checkpoint ID' },
-            restoreFiles: {
-              type: 'boolean',
-              description: 'Restore cached files',
-              default: true,
-            },
+    },
+    {
+      name: 'context_get',
+      description:
+        'Retrieve saved context by key, category, or session with enhanced filtering. Returns all accessible items (public items + own private items)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Specific key to retrieve' },
+          category: { type: 'string', description: 'Filter by category' },
+          sessionId: { type: 'string', description: 'Specific session ID (defaults to current)' },
+          channel: { type: 'string', description: 'Filter by single channel' },
+          channels: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by multiple channels',
+          },
+          includeMetadata: {
+            type: 'boolean',
+            description: 'Include timestamps and size info',
+          },
+          sort: {
+            type: 'string',
+            enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
+            description: 'Sort order for results',
+          },
+          limit: {
+            type: 'number',
+            description:
+              'Maximum items to return. Must be a positive integer. Invalid values will cause validation error. (default: auto-derived)',
+          },
+          offset: {
+            type: 'number',
+            description:
+              'Pagination offset. Must be a non-negative integer. Invalid values will cause validation error. (default: 0)',
+          },
+          createdAfter: {
+            type: 'string',
+            description: 'ISO date - items created after this time',
+          },
+          createdBefore: {
+            type: 'string',
+            description: 'ISO date - items created before this time',
+          },
+          keyPattern: {
+            type: 'string',
+            description: 'Regex pattern for key matching',
+          },
+          priorities: {
+            type: 'array',
+            items: { type: 'string', enum: ['high', 'normal', 'low'] },
+            description: 'Filter by priority levels',
           },
         },
       },
-      // Phase 2: Summarization
-      {
-        name: 'context_summarize',
-        description: 'Get AI-friendly summary of session context',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            sessionId: {
-              type: 'string',
-              description: 'Session to summarize (defaults to current)',
-            },
-            categories: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Filter by specific categories',
-            },
-            maxLength: {
-              type: 'number',
-              description: 'Maximum summary length',
-              default: 1000,
-            },
+    },
+    // File Caching
+    {
+      name: 'context_cache_file',
+      description: 'Cache file content with hash for change detection',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          filePath: { type: 'string', description: 'Path to the file' },
+          content: { type: 'string', description: 'File content to cache' },
+        },
+        required: ['filePath', 'content'],
+      },
+    },
+    {
+      name: 'context_file_changed',
+      description: 'Check if a file has changed since it was cached',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          filePath: { type: 'string', description: 'Path to the file' },
+          currentContent: { type: 'string', description: 'Current file content to compare' },
+        },
+        required: ['filePath'],
+      },
+    },
+    // Status
+    {
+      name: 'context_status',
+      description: 'Get current context status and statistics',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    // Phase 2: Checkpoint System
+    {
+      name: 'context_checkpoint',
+      description: 'Create a named checkpoint of current context',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Checkpoint name' },
+          description: { type: 'string', description: 'Checkpoint description' },
+          includeFiles: {
+            type: 'boolean',
+            description: 'Include cached files in checkpoint',
+            default: true,
+          },
+          includeGitStatus: {
+            type: 'boolean',
+            description: 'Capture current git status',
+            default: true,
+          },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'context_restore_checkpoint',
+      description: 'Restore context from a checkpoint',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Checkpoint name to restore' },
+          checkpointId: { type: 'string', description: 'Specific checkpoint ID' },
+          restoreFiles: {
+            type: 'boolean',
+            description: 'Restore cached files',
+            default: true,
           },
         },
       },
-      // Phase 3: Smart Compaction
-      {
-        name: 'context_prepare_compaction',
-        description: 'Automatically save critical context before compaction',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      // Phase 3: Git Integration
-      {
-        name: 'context_git_commit',
-        description: 'Create git commit with automatic context save',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            message: { type: 'string', description: 'Commit message' },
-            autoSave: {
-              type: 'boolean',
-              description: 'Automatically save context state',
-              default: true,
-            },
+    },
+    // Phase 2: Summarization
+    {
+      name: 'context_summarize',
+      description: 'Get AI-friendly summary of session context',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'Session to summarize (defaults to current)',
           },
-          required: ['message'],
-        },
-      },
-      // Phase 3: Search
-      {
-        name: 'context_search',
-        description: 'Search through saved context items with advanced filtering',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'Search query' },
-            searchIn: {
-              type: 'array',
-              items: { type: 'string', enum: ['key', 'value'] },
-              description: 'Fields to search in',
-              default: ['key', 'value'],
-            },
-            sessionId: { type: 'string', description: 'Session to search (defaults to current)' },
-            category: { type: 'string', description: 'Filter by category' },
-            channel: { type: 'string', description: 'Filter by single channel' },
-            channels: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Filter by multiple channels',
-            },
-            createdAfter: {
-              type: 'string',
-              description: 'ISO date - items created after this time',
-            },
-            createdBefore: {
-              type: 'string',
-              description: 'ISO date - items created before this time',
-            },
-            relativeTime: {
-              type: 'string',
-              description: 'Natural language time (e.g., "2 hours ago", "yesterday")',
-            },
-            keyPattern: {
-              type: 'string',
-              description: 'Pattern for key matching (uses GLOB syntax)',
-            },
-            priorities: {
-              type: 'array',
-              items: { type: 'string', enum: ['high', 'normal', 'low'] },
-              description: 'Filter by priority levels',
-            },
-            sort: {
-              type: 'string',
-              enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
-              description: 'Sort order for results',
-            },
-            limit: {
-              type: 'number',
-              description:
-                'Maximum items to return. Must be a positive integer. Invalid values will cause validation error. (default: auto-derived)',
-            },
-            offset: {
-              type: 'number',
-              description:
-                'Pagination offset. Must be a non-negative integer. Invalid values will cause validation error. (default: 0)',
-            },
-            includeMetadata: {
-              type: 'boolean',
-              description: 'Include timestamps and size info',
-            },
+          categories: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by specific categories',
           },
-          required: ['query'],
+          maxLength: {
+            type: 'number',
+            description: 'Maximum summary length',
+            default: 1000,
+          },
         },
       },
-      // Cross-Session Collaboration
-      // REMOVED: Sharing is now automatic (public by default)
-      /*
+    },
+    // Phase 3: Smart Compaction
+    {
+      name: 'context_prepare_compaction',
+      description: 'Automatically save critical context before compaction',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    // Phase 3: Git Integration
+    {
+      name: 'context_git_commit',
+      description: 'Create git commit with automatic context save',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', description: 'Commit message' },
+          autoSave: {
+            type: 'boolean',
+            description: 'Automatically save context state',
+            default: true,
+          },
+        },
+        required: ['message'],
+      },
+    },
+    // Phase 3: Search
+    {
+      name: 'context_search',
+      description: 'Search through saved context items with advanced filtering',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+          searchIn: {
+            type: 'array',
+            items: { type: 'string', enum: ['key', 'value'] },
+            description: 'Fields to search in',
+            default: ['key', 'value'],
+          },
+          sessionId: { type: 'string', description: 'Session to search (defaults to current)' },
+          category: { type: 'string', description: 'Filter by category' },
+          channel: { type: 'string', description: 'Filter by single channel' },
+          channels: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by multiple channels',
+          },
+          createdAfter: {
+            type: 'string',
+            description: 'ISO date - items created after this time',
+          },
+          createdBefore: {
+            type: 'string',
+            description: 'ISO date - items created before this time',
+          },
+          relativeTime: {
+            type: 'string',
+            description: 'Natural language time (e.g., "2 hours ago", "yesterday")',
+          },
+          keyPattern: {
+            type: 'string',
+            description: 'Pattern for key matching (uses GLOB syntax)',
+          },
+          priorities: {
+            type: 'array',
+            items: { type: 'string', enum: ['high', 'normal', 'low'] },
+            description: 'Filter by priority levels',
+          },
+          sort: {
+            type: 'string',
+            enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
+            description: 'Sort order for results',
+          },
+          limit: {
+            type: 'number',
+            description:
+              'Maximum items to return. Must be a positive integer. Invalid values will cause validation error. (default: auto-derived)',
+          },
+          offset: {
+            type: 'number',
+            description:
+              'Pagination offset. Must be a non-negative integer. Invalid values will cause validation error. (default: 0)',
+          },
+          includeMetadata: {
+            type: 'boolean',
+            description: 'Include timestamps and size info',
+          },
+        },
+        required: ['query'],
+      },
+    },
+    // Cross-Session Collaboration
+    // REMOVED: Sharing is now automatic (public by default)
+    /*
       {
         name: 'context_share',
         description: 'Share a context item with other sessions for cross-session collaboration',
@@ -4190,8 +4213,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       */
-      // REMOVED: All accessible items are retrieved via context_get
-      /*
+    // REMOVED: All accessible items are retrieved via context_get
+    /*
       {
         name: 'context_get_shared',
         description: 'Get shared context items from other sessions',
@@ -4207,830 +4230,831 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       */
-      {
-        name: 'context_search_all',
-        description: 'Search across multiple or all sessions with pagination support',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'Search query' },
-            sessions: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Session IDs to search (empty for all sessions)',
-            },
-            includeShared: {
-              type: 'boolean',
-              description: 'Include shared items in search',
-              default: true,
-            },
-            limit: {
-              type: 'number',
-              description:
-                'Maximum number of items to return. Must be a positive integer between 1-100. Non-integer values will be rejected with validation error. (default: 25)',
-              minimum: 1,
-              maximum: 100,
-              default: 25,
-            },
-            offset: {
-              type: 'number',
-              description:
-                'Number of items to skip for pagination. Must be a non-negative integer (0 or higher). Non-integer values will be rejected with validation error. (default: 0)',
-              minimum: 0,
-              default: 0,
-            },
-            sort: {
-              type: 'string',
-              description: 'Sort order for results',
-              enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
-              default: 'created_desc',
-            },
-            category: {
-              type: 'string',
-              description: 'Filter by category',
-              enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
-            },
-            channel: {
-              type: 'string',
-              description: 'Filter by single channel',
-            },
-            channels: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Filter by multiple channels',
-            },
-            priorities: {
-              type: 'array',
-              items: { type: 'string', enum: ['high', 'normal', 'low'] },
-              description: 'Filter by priority levels',
-            },
-            createdAfter: {
-              type: 'string',
-              description: 'Filter items created after this date (ISO format or relative time)',
-            },
-            createdBefore: {
-              type: 'string',
-              description: 'Filter items created before this date (ISO format or relative time)',
-            },
-            keyPattern: {
-              type: 'string',
-              description: 'Pattern to match keys (supports wildcards: *, ?)',
-            },
-            searchIn: {
-              type: 'array',
-              items: { type: 'string', enum: ['key', 'value'] },
-              description: 'Fields to search in',
-              default: ['key', 'value'],
-            },
-            includeMetadata: {
-              type: 'boolean',
-              description: 'Include timestamps and size info',
-              default: false,
-            },
+    {
+      name: 'context_search_all',
+      description: 'Search across multiple or all sessions with pagination support',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+          sessions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Session IDs to search (empty for all sessions)',
           },
-          required: ['query'],
-        },
-      },
-      // Phase 3: Export/Import
-      {
-        name: 'context_export',
-        description: 'Export session data for backup or sharing',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            sessionId: { type: 'string', description: 'Session to export (defaults to current)' },
-            format: {
-              type: 'string',
-              enum: ['json', 'inline'],
-              description: 'Export format',
-              default: 'json',
-            },
+          includeShared: {
+            type: 'boolean',
+            description: 'Include shared items in search',
+            default: true,
+          },
+          limit: {
+            type: 'number',
+            description:
+              'Maximum number of items to return. Must be a positive integer between 1-100. Non-integer values will be rejected with validation error. (default: 25)',
+            minimum: 1,
+            maximum: 100,
+            default: 25,
+          },
+          offset: {
+            type: 'number',
+            description:
+              'Number of items to skip for pagination. Must be a non-negative integer (0 or higher). Non-integer values will be rejected with validation error. (default: 0)',
+            minimum: 0,
+            default: 0,
+          },
+          sort: {
+            type: 'string',
+            description: 'Sort order for results',
+            enum: ['created_desc', 'created_asc', 'updated_desc', 'key_asc', 'key_desc'],
+            default: 'created_desc',
+          },
+          category: {
+            type: 'string',
+            description: 'Filter by category',
+            enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+          },
+          channel: {
+            type: 'string',
+            description: 'Filter by single channel',
+          },
+          channels: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by multiple channels',
+          },
+          priorities: {
+            type: 'array',
+            items: { type: 'string', enum: ['high', 'normal', 'low'] },
+            description: 'Filter by priority levels',
+          },
+          createdAfter: {
+            type: 'string',
+            description: 'Filter items created after this date (ISO format or relative time)',
+          },
+          createdBefore: {
+            type: 'string',
+            description: 'Filter items created before this date (ISO format or relative time)',
+          },
+          keyPattern: {
+            type: 'string',
+            description: 'Pattern to match keys (supports wildcards: *, ?)',
+          },
+          searchIn: {
+            type: 'array',
+            items: { type: 'string', enum: ['key', 'value'] },
+            description: 'Fields to search in',
+            default: ['key', 'value'],
+          },
+          includeMetadata: {
+            type: 'boolean',
+            description: 'Include timestamps and size info',
+            default: false,
           },
         },
+        required: ['query'],
       },
-      {
-        name: 'context_import',
-        description: 'Import previously exported session data',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            filePath: { type: 'string', description: 'Path to import file' },
-            merge: {
-              type: 'boolean',
-              description: 'Merge with current session instead of creating new',
-              default: false,
-            },
-          },
-          required: ['filePath'],
-        },
-      },
-      // Phase 4.1: Knowledge Graph
-      {
-        name: 'context_analyze',
-        description: 'Analyze context to extract entities and relationships',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            sessionId: {
-              type: 'string',
-              description: 'Session ID to analyze (defaults to current)',
-            },
-            categories: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Categories to analyze',
-            },
+    },
+    // Phase 3: Export/Import
+    {
+      name: 'context_export',
+      description: 'Export session data for backup or sharing',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sessionId: { type: 'string', description: 'Session to export (defaults to current)' },
+          format: {
+            type: 'string',
+            enum: ['json', 'inline'],
+            description: 'Export format',
+            default: 'json',
           },
         },
       },
-      {
-        name: 'context_find_related',
-        description: 'Find entities related to a key or entity',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            key: { type: 'string', description: 'Context key or entity name' },
-            relationTypes: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Types of relations to include',
-            },
-            maxDepth: {
-              type: 'number',
-              description: 'Maximum graph traversal depth',
-              default: 2,
-            },
+    },
+    {
+      name: 'context_import',
+      description: 'Import previously exported session data',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          filePath: { type: 'string', description: 'Path to import file' },
+          merge: {
+            type: 'boolean',
+            description: 'Merge with current session instead of creating new',
+            default: false,
           },
-          required: ['key'],
         },
+        required: ['filePath'],
       },
-      {
-        name: 'context_visualize',
-        description: 'Generate visualization data for the knowledge graph',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            type: {
-              type: 'string',
-              enum: ['graph', 'timeline', 'heatmap'],
-              description: 'Visualization type',
-              default: 'graph',
-            },
-            entityTypes: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Entity types to include',
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Session to visualize (defaults to current)',
-            },
+    },
+    // Phase 4.1: Knowledge Graph
+    {
+      name: 'context_analyze',
+      description: 'Analyze context to extract entities and relationships',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'Session ID to analyze (defaults to current)',
+          },
+          categories: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Categories to analyze',
           },
         },
       },
-      // Phase 4.2: Semantic Search
-      {
-        name: 'context_semantic_search',
-        description: 'Search context using natural language queries',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'Natural language search query' },
-            topK: {
-              type: 'number',
-              description: 'Number of results to return',
-              default: 10,
-            },
-            minSimilarity: {
-              type: 'number',
-              description: 'Minimum similarity score (0-1)',
-              default: 0.3,
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Search within specific session (defaults to current)',
-            },
+    },
+    {
+      name: 'context_find_related',
+      description: 'Find entities related to a key or entity',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Context key or entity name' },
+          relationTypes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Types of relations to include',
           },
-          required: ['query'],
-        },
-      },
-      // Phase 4.3: Multi-Agent System
-      {
-        name: 'context_delegate',
-        description: 'Delegate complex analysis tasks to specialized agents',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            taskType: {
-              type: 'string',
-              enum: ['analyze', 'synthesize'],
-              description: 'Type of task to delegate',
-            },
-            input: {
-              type: 'object',
-              properties: {
-                analysisType: {
-                  type: 'string',
-                  enum: ['patterns', 'relationships', 'trends', 'comprehensive'],
-                  description: 'For analyze tasks: type of analysis',
-                },
-                synthesisType: {
-                  type: 'string',
-                  enum: ['summary', 'merge', 'recommendations'],
-                  description: 'For synthesize tasks: type of synthesis',
-                },
-                categories: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Categories to include in analysis',
-                },
-                timeframe: {
-                  type: 'string',
-                  description: 'Time period for analysis (e.g., "-7 days")',
-                },
-                maxLength: {
-                  type: 'number',
-                  description: 'Maximum length for summaries',
-                },
-                insights: {
-                  type: 'array',
-                  description: 'For merge synthesis: array of insights to merge',
-                },
-              },
-            },
-            chain: {
-              type: 'boolean',
-              description: 'Process multiple tasks in sequence',
-              default: false,
-            },
-            sessionId: { type: 'string', description: 'Session to analyze (defaults to current)' },
+          maxDepth: {
+            type: 'number',
+            description: 'Maximum graph traversal depth',
+            default: 2,
           },
-          required: ['taskType', 'input'],
         },
+        required: ['key'],
       },
-      // Phase 4.4: Advanced Features
-      {
-        name: 'context_branch_session',
-        description: 'Create a branch from current session for exploring alternatives',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            branchName: {
-              type: 'string',
-              description: 'Name for the new branch',
-            },
-            copyDepth: {
-              type: 'string',
-              enum: ['shallow', 'deep'],
-              description: 'How much to copy: shallow (high priority only) or deep (everything)',
-              default: 'shallow',
-            },
+    },
+    {
+      name: 'context_visualize',
+      description: 'Generate visualization data for the knowledge graph',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            enum: ['graph', 'timeline', 'heatmap'],
+            description: 'Visualization type',
+            default: 'graph',
           },
-          required: ['branchName'],
-        },
-      },
-      {
-        name: 'context_merge_sessions',
-        description: 'Merge another session into the current one',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            sourceSessionId: {
-              type: 'string',
-              description: 'ID of the session to merge from',
-            },
-            conflictResolution: {
-              type: 'string',
-              enum: ['keep_current', 'keep_source', 'keep_newest'],
-              description: 'How to resolve conflicts',
-              default: 'keep_current',
-            },
+          entityTypes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Entity types to include',
           },
-          required: ['sourceSessionId'],
-        },
-      },
-      {
-        name: 'context_journal_entry',
-        description: 'Add a timestamped journal entry with optional tags and mood',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            entry: {
-              type: 'string',
-              description: 'Journal entry text',
-            },
-            tags: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Tags for categorization',
-            },
-            mood: {
-              type: 'string',
-              description: 'Current mood/feeling',
-            },
-          },
-          required: ['entry'],
-        },
-      },
-      {
-        name: 'context_timeline',
-        description: 'Get timeline of activities with optional grouping',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            startDate: {
-              type: 'string',
-              description: 'Start date (ISO format)',
-            },
-            endDate: {
-              type: 'string',
-              description: 'End date (ISO format)',
-            },
-            groupBy: {
-              type: 'string',
-              enum: ['hour', 'day', 'week'],
-              description: 'How to group timeline data',
-              default: 'day',
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Session to analyze (defaults to current)',
-            },
-            includeItems: {
-              type: 'boolean',
-              description: 'Include item details in timeline',
-            },
-            categories: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Filter by categories',
-            },
-            relativeTime: {
-              type: 'string',
-              description: 'Natural language time (e.g., "2 hours ago", "today")',
-            },
-            itemsPerPeriod: {
-              type: 'number',
-              description: 'Max items per time period',
-            },
-            minItemsPerPeriod: {
-              type: 'number',
-              description: 'Only include periods with at least N items',
-            },
-            showEmpty: {
-              type: 'boolean',
-              description: 'Include periods with 0 items (default: false)',
-            },
+          sessionId: {
+            type: 'string',
+            description: 'Session to visualize (defaults to current)',
           },
         },
       },
-      {
-        name: 'context_compress',
-        description: 'Intelligently compress old context to save space',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            olderThan: {
-              type: 'string',
-              description: 'Compress items older than this date (ISO format)',
-            },
-            preserveCategories: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Categories to preserve (not compress)',
-            },
-            targetSize: {
-              type: 'number',
-              description: 'Target size in KB (optional)',
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Session to compress (defaults to current)',
-            },
+    },
+    // Phase 4.2: Semantic Search
+    {
+      name: 'context_semantic_search',
+      description: 'Search context using natural language queries',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Natural language search query' },
+          topK: {
+            type: 'number',
+            description: 'Number of results to return',
+            default: 10,
+          },
+          minSimilarity: {
+            type: 'number',
+            description: 'Minimum similarity score (0-1)',
+            default: 0.3,
+          },
+          sessionId: {
+            type: 'string',
+            description: 'Search within specific session (defaults to current)',
           },
         },
+        required: ['query'],
       },
-      {
-        name: 'context_integrate_tool',
-        description: 'Track events from other MCP tools',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            toolName: {
-              type: 'string',
-              description: 'Name of the tool',
-            },
-            eventType: {
-              type: 'string',
-              description: 'Type of event',
-            },
-            data: {
-              type: 'object',
-              description: 'Event data',
-              properties: {
-                important: {
-                  type: 'boolean',
-                  description: 'Mark as important to save as context item',
-                },
-              },
-            },
+    },
+    // Phase 4.3: Multi-Agent System
+    {
+      name: 'context_delegate',
+      description: 'Delegate complex analysis tasks to specialized agents',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          taskType: {
+            type: 'string',
+            enum: ['analyze', 'synthesize'],
+            description: 'Type of task to delegate',
           },
-          required: ['toolName', 'eventType', 'data'],
-        },
-      },
-      {
-        name: 'context_diff',
-        description:
-          'Get changes to context items since a specific point in time (timestamp, checkpoint, or relative time)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            since: {
-              type: 'string',
-              description:
-                'Point in time to compare against (ISO timestamp, checkpoint name/ID, or relative time like "2 hours ago")',
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Session ID to analyze (defaults to current)',
-            },
-            category: {
-              type: 'string',
-              description: 'Filter by category',
-            },
-            channel: {
-              type: 'string',
-              description: 'Filter by single channel',
-            },
-            channels: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Filter by multiple channels',
-            },
-            includeValues: {
-              type: 'boolean',
-              description: 'Include full item values in response',
-              default: true,
-            },
-            limit: {
-              type: 'number',
-              description: 'Maximum items per category (added/modified)',
-            },
-            offset: {
-              type: 'number',
-              description: 'Pagination offset',
-            },
-          },
-        },
-      },
-      {
-        name: 'context_list_channels',
-        description: 'List all channels with metadata (counts, activity, categories)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            sessionId: {
-              type: 'string',
-              description: 'Filter by specific session (shows accessible items)',
-            },
-            sessionIds: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Filter by multiple sessions',
-            },
-            sort: {
-              type: 'string',
-              enum: ['name', 'count', 'activity'],
-              description: 'Sort order for results',
-              default: 'name',
-            },
-            includeEmpty: {
-              type: 'boolean',
-              description: 'Include channels with no items',
-              default: false,
-            },
-          },
-        },
-      },
-      {
-        name: 'context_channel_stats',
-        description: 'Get detailed statistics for a specific channel or all channels',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            channel: {
-              type: 'string',
-              description: 'Specific channel name (omit for all channels overview)',
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Session context for privacy filtering',
-            },
-            includeTimeSeries: {
-              type: 'boolean',
-              description: 'Include hourly/daily activity data',
-              default: false,
-            },
-            includeInsights: {
-              type: 'boolean',
-              description: 'Include AI-generated insights',
-              default: false,
-            },
-          },
-        },
-      },
-      // Context Watch - Real-time monitoring
-      {
-        name: 'context_watch',
-        description: 'Create and manage watchers for real-time context change monitoring',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            action: {
-              type: 'string',
-              enum: ['create', 'poll', 'stop', 'list'],
-              description: 'Action to perform',
-            },
-            watcherId: {
-              type: 'string',
-              description: 'Watcher ID (required for poll/stop actions)',
-            },
-            filters: {
-              type: 'object',
-              description: 'Filters for watching specific changes (for create action)',
-              properties: {
-                keys: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Key patterns to watch (supports wildcards: *, ?)',
-                },
-                categories: {
-                  type: 'array',
-                  items: {
-                    type: 'string',
-                    enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
-                  },
-                  description: 'Categories to watch',
-                },
-                channels: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Channels to watch',
-                },
-                priorities: {
-                  type: 'array',
-                  items: {
-                    type: 'string',
-                    enum: ['high', 'normal', 'low'],
-                  },
-                  description: 'Priority levels to watch',
-                },
-              },
-            },
-            pollTimeout: {
-              type: 'number',
-              description: 'Polling timeout in seconds (default: 30)',
-              default: 30,
-            },
-          },
-          required: ['action'],
-        },
-      },
-      // Context Reassign Channel
-      {
-        name: 'context_reassign_channel',
-        description:
-          'Move context items between channels based on keys, patterns, or entire channel',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            keys: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Specific keys to reassign',
-            },
-            keyPattern: {
-              type: 'string',
-              description: 'Pattern to match keys (supports wildcards: *, ?)',
-            },
-            fromChannel: {
-              type: 'string',
-              description: 'Source channel to move all items from',
-            },
-            toChannel: {
-              type: 'string',
-              description: 'Target channel to move items to',
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Session ID (defaults to current)',
-            },
-            category: {
-              type: 'string',
-              enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
-              description: 'Filter by category',
-            },
-            priorities: {
-              type: 'array',
-              items: {
+          input: {
+            type: 'object',
+            properties: {
+              analysisType: {
                 type: 'string',
-                enum: ['high', 'normal', 'low'],
+                enum: ['patterns', 'relationships', 'trends', 'comprehensive'],
+                description: 'For analyze tasks: type of analysis',
               },
-              description: 'Filter by priority levels',
-            },
-            dryRun: {
-              type: 'boolean',
-              description: 'Preview changes without applying them',
-              default: false,
+              synthesisType: {
+                type: 'string',
+                enum: ['summary', 'merge', 'recommendations'],
+                description: 'For synthesize tasks: type of synthesis',
+              },
+              categories: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Categories to include in analysis',
+              },
+              timeframe: {
+                type: 'string',
+                description: 'Time period for analysis (e.g., "-7 days")',
+              },
+              maxLength: {
+                type: 'number',
+                description: 'Maximum length for summaries',
+              },
+              insights: {
+                type: 'array',
+                description: 'For merge synthesis: array of insights to merge',
+              },
             },
           },
-          required: ['toChannel'],
+          chain: {
+            type: 'boolean',
+            description: 'Process multiple tasks in sequence',
+            default: false,
+          },
+          sessionId: { type: 'string', description: 'Session to analyze (defaults to current)' },
+        },
+        required: ['taskType', 'input'],
+      },
+    },
+    // Phase 4.4: Advanced Features
+    {
+      name: 'context_branch_session',
+      description: 'Create a branch from current session for exploring alternatives',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          branchName: {
+            type: 'string',
+            description: 'Name for the new branch',
+          },
+          copyDepth: {
+            type: 'string',
+            enum: ['shallow', 'deep'],
+            description: 'How much to copy: shallow (high priority only) or deep (everything)',
+            default: 'shallow',
+          },
+        },
+        required: ['branchName'],
+      },
+    },
+    {
+      name: 'context_merge_sessions',
+      description: 'Merge another session into the current one',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sourceSessionId: {
+            type: 'string',
+            description: 'ID of the session to merge from',
+          },
+          conflictResolution: {
+            type: 'string',
+            enum: ['keep_current', 'keep_source', 'keep_newest'],
+            description: 'How to resolve conflicts',
+            default: 'keep_current',
+          },
+        },
+        required: ['sourceSessionId'],
+      },
+    },
+    {
+      name: 'context_journal_entry',
+      description: 'Add a timestamped journal entry with optional tags and mood',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          entry: {
+            type: 'string',
+            description: 'Journal entry text',
+          },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Tags for categorization',
+          },
+          mood: {
+            type: 'string',
+            description: 'Current mood/feeling',
+          },
+        },
+        required: ['entry'],
+      },
+    },
+    {
+      name: 'context_timeline',
+      description: 'Get timeline of activities with optional grouping',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          startDate: {
+            type: 'string',
+            description: 'Start date (ISO format)',
+          },
+          endDate: {
+            type: 'string',
+            description: 'End date (ISO format)',
+          },
+          groupBy: {
+            type: 'string',
+            enum: ['hour', 'day', 'week'],
+            description: 'How to group timeline data',
+            default: 'day',
+          },
+          sessionId: {
+            type: 'string',
+            description: 'Session to analyze (defaults to current)',
+          },
+          includeItems: {
+            type: 'boolean',
+            description: 'Include item details in timeline',
+          },
+          categories: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by categories',
+          },
+          relativeTime: {
+            type: 'string',
+            description: 'Natural language time (e.g., "2 hours ago", "today")',
+          },
+          itemsPerPeriod: {
+            type: 'number',
+            description: 'Max items per time period',
+          },
+          minItemsPerPeriod: {
+            type: 'number',
+            description: 'Only include periods with at least N items',
+          },
+          showEmpty: {
+            type: 'boolean',
+            description: 'Include periods with 0 items (default: false)',
+          },
         },
       },
-      // Batch Operations
-      {
-        name: 'context_batch_save',
-        description: 'Save multiple context items in a single atomic operation',
-        inputSchema: {
-          type: 'object',
-          properties: {
+    },
+    {
+      name: 'context_compress',
+      description: 'Intelligently compress old context to save space',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          olderThan: {
+            type: 'string',
+            description: 'Compress items older than this date (ISO format)',
+          },
+          preserveCategories: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Categories to preserve (not compress)',
+          },
+          targetSize: {
+            type: 'number',
+            description: 'Target size in KB (optional)',
+          },
+          sessionId: {
+            type: 'string',
+            description: 'Session to compress (defaults to current)',
+          },
+        },
+      },
+    },
+    {
+      name: 'context_integrate_tool',
+      description: 'Track events from other MCP tools',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          toolName: {
+            type: 'string',
+            description: 'Name of the tool',
+          },
+          eventType: {
+            type: 'string',
+            description: 'Type of event',
+          },
+          data: {
+            type: 'object',
+            description: 'Event data',
+            properties: {
+              important: {
+                type: 'boolean',
+                description: 'Mark as important to save as context item',
+              },
+            },
+          },
+        },
+        required: ['toolName', 'eventType', 'data'],
+      },
+    },
+    {
+      name: 'context_diff',
+      description:
+        'Get changes to context items since a specific point in time (timestamp, checkpoint, or relative time)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          since: {
+            type: 'string',
+            description:
+              'Point in time to compare against (ISO timestamp, checkpoint name/ID, or relative time like "2 hours ago")',
+          },
+          sessionId: {
+            type: 'string',
+            description: 'Session ID to analyze (defaults to current)',
+          },
+          category: {
+            type: 'string',
+            description: 'Filter by category',
+          },
+          channel: {
+            type: 'string',
+            description: 'Filter by single channel',
+          },
+          channels: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by multiple channels',
+          },
+          includeValues: {
+            type: 'boolean',
+            description: 'Include full item values in response',
+            default: true,
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum items per category (added/modified)',
+          },
+          offset: {
+            type: 'number',
+            description: 'Pagination offset',
+          },
+        },
+      },
+    },
+    {
+      name: 'context_list_channels',
+      description: 'List all channels with metadata (counts, activity, categories)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'Filter by specific session (shows accessible items)',
+          },
+          sessionIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by multiple sessions',
+          },
+          sort: {
+            type: 'string',
+            enum: ['name', 'count', 'activity'],
+            description: 'Sort order for results',
+            default: 'name',
+          },
+          includeEmpty: {
+            type: 'boolean',
+            description: 'Include channels with no items',
+            default: false,
+          },
+        },
+      },
+    },
+    {
+      name: 'context_channel_stats',
+      description: 'Get detailed statistics for a specific channel or all channels',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          channel: {
+            type: 'string',
+            description: 'Specific channel name (omit for all channels overview)',
+          },
+          sessionId: {
+            type: 'string',
+            description: 'Session context for privacy filtering',
+          },
+          includeTimeSeries: {
+            type: 'boolean',
+            description: 'Include hourly/daily activity data',
+            default: false,
+          },
+          includeInsights: {
+            type: 'boolean',
+            description: 'Include AI-generated insights',
+            default: false,
+          },
+        },
+      },
+    },
+    // Context Watch - Real-time monitoring
+    {
+      name: 'context_watch',
+      description: 'Create and manage watchers for real-time context change monitoring',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['create', 'poll', 'stop', 'list'],
+            description: 'Action to perform',
+          },
+          watcherId: {
+            type: 'string',
+            description: 'Watcher ID (required for poll/stop actions)',
+          },
+          filters: {
+            type: 'object',
+            description: 'Filters for watching specific changes (for create action)',
+            properties: {
+              keys: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Key patterns to watch (supports wildcards: *, ?)',
+              },
+              categories: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                  enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+                },
+                description: 'Categories to watch',
+              },
+              channels: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Channels to watch',
+              },
+              priorities: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                  enum: ['high', 'normal', 'low'],
+                },
+                description: 'Priority levels to watch',
+              },
+            },
+          },
+          pollTimeout: {
+            type: 'number',
+            description: 'Polling timeout in seconds (default: 30)',
+            default: 30,
+          },
+        },
+        required: ['action'],
+      },
+    },
+    // Context Reassign Channel
+    {
+      name: 'context_reassign_channel',
+      description: 'Move context items between channels based on keys, patterns, or entire channel',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          keys: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Specific keys to reassign',
+          },
+          keyPattern: {
+            type: 'string',
+            description: 'Pattern to match keys (supports wildcards: *, ?)',
+          },
+          fromChannel: {
+            type: 'string',
+            description: 'Source channel to move all items from',
+          },
+          toChannel: {
+            type: 'string',
+            description: 'Target channel to move items to',
+          },
+          sessionId: {
+            type: 'string',
+            description: 'Session ID (defaults to current)',
+          },
+          category: {
+            type: 'string',
+            enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+            description: 'Filter by category',
+          },
+          priorities: {
+            type: 'array',
             items: {
-              type: 'array',
-              description: 'Array of items to save',
-              items: {
-                type: 'object',
-                properties: {
-                  key: { type: 'string', description: 'Unique key for the context item' },
-                  value: { type: 'string', description: 'Context value to save' },
-                  category: {
-                    type: 'string',
-                    description: 'Category (e.g., task, decision, progress)',
-                    enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
-                  },
-                  priority: {
-                    type: 'string',
-                    description: 'Priority level',
-                    enum: ['high', 'normal', 'low'],
-                  },
-                  channel: {
-                    type: 'string',
-                    description: 'Channel to organize this item',
-                  },
-                },
-                required: ['key', 'value'],
-              },
+              type: 'string',
+              enum: ['high', 'normal', 'low'],
             },
-            updateExisting: {
-              type: 'boolean',
-              description: 'Update existing items with same key (default: true)',
-              default: true,
-            },
+            description: 'Filter by priority levels',
           },
-          required: ['items'],
-        },
-      },
-      {
-        name: 'context_batch_delete',
-        description:
-          'Delete multiple context items by keys or pattern in a single atomic operation',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            keys: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Array of specific keys to delete',
-            },
-            keyPattern: {
-              type: 'string',
-              description: 'Pattern to match keys for deletion (supports wildcards: *, ?)',
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Session ID (defaults to current)',
-            },
-            dryRun: {
-              type: 'boolean',
-              description: 'Preview items to be deleted without actually deleting',
-              default: false,
-            },
+          dryRun: {
+            type: 'boolean',
+            description: 'Preview changes without applying them',
+            default: false,
           },
         },
+        required: ['toChannel'],
       },
-      {
-        name: 'context_batch_update',
-        description:
-          'Update multiple context items with partial updates in a single atomic operation',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            updates: {
-              type: 'array',
-              description: 'Array of updates to apply',
-              items: {
-                type: 'object',
-                properties: {
-                  key: { type: 'string', description: 'Key of the item to update' },
-                  value: { type: 'string', description: 'New value (optional)' },
-                  category: {
-                    type: 'string',
-                    description: 'New category (optional)',
-                    enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
-                  },
-                  priority: {
-                    type: 'string',
-                    description: 'New priority (optional)',
-                    enum: ['high', 'normal', 'low'],
-                  },
-                  channel: {
-                    type: 'string',
-                    description: 'New channel (optional)',
-                  },
-                },
-                required: ['key'],
-              },
-            },
-            sessionId: {
-              type: 'string',
-              description: 'Session ID (defaults to current)',
-            },
-          },
-          required: ['updates'],
-        },
-      },
-      // Context Relationships
-      {
-        name: 'context_link',
-        description: 'Create a relationship between two context items',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            sourceKey: {
-              type: 'string',
-              description: 'Key of the source context item',
-            },
-            targetKey: {
-              type: 'string',
-              description: 'Key of the target context item',
-            },
-            relationship: {
-              type: 'string',
-              description: 'Type of relationship',
-              enum: [
-                'contains',
-                'depends_on',
-                'references',
-                'implements',
-                'extends',
-                'related_to',
-                'blocks',
-                'blocked_by',
-                'parent_of',
-                'child_of',
-                'has_task',
-                'documented_in',
-                'serves',
-                'leads_to',
-              ],
-            },
-            metadata: {
+    },
+    // Batch Operations
+    {
+      name: 'context_batch_save',
+      description: 'Save multiple context items in a single atomic operation',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            description: 'Array of items to save',
+            items: {
               type: 'object',
-              description: 'Optional metadata for the relationship',
+              properties: {
+                key: { type: 'string', description: 'Unique key for the context item' },
+                value: { type: 'string', description: 'Context value to save' },
+                category: {
+                  type: 'string',
+                  description: 'Category (e.g., task, decision, progress)',
+                  enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+                },
+                priority: {
+                  type: 'string',
+                  description: 'Priority level',
+                  enum: ['high', 'normal', 'low'],
+                },
+                channel: {
+                  type: 'string',
+                  description: 'Channel to organize this item',
+                },
+              },
+              required: ['key', 'value'],
             },
           },
-          required: ['sourceKey', 'targetKey', 'relationship'],
+          updateExisting: {
+            type: 'boolean',
+            description: 'Update existing items with same key (default: true)',
+            default: true,
+          },
+        },
+        required: ['items'],
+      },
+    },
+    {
+      name: 'context_batch_delete',
+      description: 'Delete multiple context items by keys or pattern in a single atomic operation',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          keys: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of specific keys to delete',
+          },
+          keyPattern: {
+            type: 'string',
+            description: 'Pattern to match keys for deletion (supports wildcards: *, ?)',
+          },
+          sessionId: {
+            type: 'string',
+            description: 'Session ID (defaults to current)',
+          },
+          dryRun: {
+            type: 'boolean',
+            description: 'Preview items to be deleted without actually deleting',
+            default: false,
+          },
         },
       },
-      {
-        name: 'context_get_related',
-        description: 'Get items related to a given context item',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            key: {
-              type: 'string',
-              description: 'Key of the context item to find relationships for',
-            },
-            relationship: {
-              type: 'string',
-              description: 'Filter by specific relationship type',
-            },
-            depth: {
-              type: 'number',
-              description: 'Traversal depth for multi-level relationships (default: 1)',
-              default: 1,
-            },
-            direction: {
-              type: 'string',
-              description: 'Direction of relationships to retrieve',
-              enum: ['outgoing', 'incoming', 'both'],
-              default: 'both',
+    },
+    {
+      name: 'context_batch_update',
+      description:
+        'Update multiple context items with partial updates in a single atomic operation',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          updates: {
+            type: 'array',
+            description: 'Array of updates to apply',
+            items: {
+              type: 'object',
+              properties: {
+                key: { type: 'string', description: 'Key of the item to update' },
+                value: { type: 'string', description: 'New value (optional)' },
+                category: {
+                  type: 'string',
+                  description: 'New category (optional)',
+                  enum: ['task', 'decision', 'progress', 'note', 'error', 'warning'],
+                },
+                priority: {
+                  type: 'string',
+                  description: 'New priority (optional)',
+                  enum: ['high', 'normal', 'low'],
+                },
+                channel: {
+                  type: 'string',
+                  description: 'New channel (optional)',
+                },
+              },
+              required: ['key'],
             },
           },
-          required: ['key'],
+          sessionId: {
+            type: 'string',
+            description: 'Session ID (defaults to current)',
+          },
         },
+        required: ['updates'],
       },
-    ],
+    },
+    // Context Relationships
+    {
+      name: 'context_link',
+      description: 'Create a relationship between two context items',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sourceKey: {
+            type: 'string',
+            description: 'Key of the source context item',
+          },
+          targetKey: {
+            type: 'string',
+            description: 'Key of the target context item',
+          },
+          relationship: {
+            type: 'string',
+            description: 'Type of relationship',
+            enum: [
+              'contains',
+              'depends_on',
+              'references',
+              'implements',
+              'extends',
+              'related_to',
+              'blocks',
+              'blocked_by',
+              'parent_of',
+              'child_of',
+              'has_task',
+              'documented_in',
+              'serves',
+              'leads_to',
+            ],
+          },
+          metadata: {
+            type: 'object',
+            description: 'Optional metadata for the relationship',
+          },
+        },
+        required: ['sourceKey', 'targetKey', 'relationship'],
+      },
+    },
+    {
+      name: 'context_get_related',
+      description: 'Get items related to a given context item',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          key: {
+            type: 'string',
+            description: 'Key of the context item to find relationships for',
+          },
+          relationship: {
+            type: 'string',
+            description: 'Filter by specific relationship type',
+          },
+          depth: {
+            type: 'number',
+            description: 'Traversal depth for multi-level relationships (default: 1)',
+            default: 1,
+          },
+          direction: {
+            type: 'string',
+            description: 'Direction of relationships to retrieve',
+            enum: ['outgoing', 'incoming', 'both'],
+            default: 'both',
+          },
+        },
+        required: ['key'],
+      },
+    },
+  ];
+
+  return {
+    tools: allTools.filter(tool => enabledTools.has(tool.name)),
   };
 });
 
