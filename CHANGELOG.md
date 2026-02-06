@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-02-06
+
+### Added
+
+- **Selective Tool Filtering via Profiles** (#29)
+  - Control which tools are exposed to reduce context window usage (~10-15K tokens saved with minimal profile)
+  - Three built-in profiles: `minimal` (8 tools), `standard` (22 tools), `full` (38 tools, default)
+  - `TOOL_PROFILE` environment variable to select active profile at startup
+  - `TOOL_PROFILE_CONFIG` environment variable to specify custom config file path
+  - Custom profile definitions via `~/.mcp-memory-keeper/config.json`
+  - Config file profiles take precedence over built-in defaults
+  - Helpful error messages when disabled tools are called, with guidance on enabling them
+  - Startup logging shows active profile, tool count, and source
+  - Example config file included in `examples/config.json`
+
+### Technical
+
+- New `src/utils/tool-profiles.ts` module with `ALL_TOOL_NAMES` source of truth
+- `ToolName` union type for compile-time safety
+- Deep config validation (guards against malformed JSON, null values, non-array profiles, non-string elements)
+- Drift-detection integration test verifies `ALL_TOOL_NAMES` stays in sync with `index.ts` tool definitions
+- Defense-in-depth: both `ListTools` filtering and `CallTool` guard for disabled tools
+- 100% backwards compatible — no env var + no config = all 38 tools (existing behavior unchanged)
+- All 1185 tests passing across Node.js 20, 22, and 24
+
 ## [0.11.0] - 2025-12-10
 
 ### Breaking Changes
@@ -466,7 +491,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Security updates
 - **Technical**: Internal improvements
 
-[Unreleased]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.10.2...v0.11.0
+[0.10.2]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.10.1...v0.10.2
+[0.10.1]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.8.3...v0.8.4
