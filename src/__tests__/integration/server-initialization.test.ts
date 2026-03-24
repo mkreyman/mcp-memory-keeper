@@ -150,6 +150,7 @@ describe('Server Initialization Tests', () => {
       // Start the server
       serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
         stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, DATA_DIR: tempDir },
       });
 
       // Track for global cleanup

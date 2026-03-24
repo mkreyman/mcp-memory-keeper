@@ -161,7 +161,7 @@ describe('Git Integration Tests', () => {
       // Parse the status to check properly
       const status = JSON.parse(checkpoint.git_status);
       expect(status.not_added).toContain('new.txt');
-      expect(checkpoint.git_branch).toBe('master'); // Default branch name
+      expect(checkpoint.git_branch).toBe('main'); // Default branch name
     });
 
     it('should handle commits with message containing context summary', async () => {
