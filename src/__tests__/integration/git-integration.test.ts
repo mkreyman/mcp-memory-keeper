@@ -25,7 +25,7 @@ describe('Git Integration Tests', () => {
     // Create and initialize a real git repo for testing
     fs.mkdirSync(tempRepoPath, { recursive: true });
     git = simpleGit(tempRepoPath);
-    await git.init();
+    await git.init(['--initial-branch=master']);
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');
     // Use repo-local hooks directory to prevent global hooks from interfering
@@ -161,7 +161,7 @@ describe('Git Integration Tests', () => {
       // Parse the status to check properly
       const status = JSON.parse(checkpoint.git_status);
       expect(status.not_added).toContain('new.txt');
-      expect(checkpoint.git_branch).toBe('main'); // Default branch name
+      expect(checkpoint.git_branch).toBe('master'); // Default branch name
     });
 
     it('should handle commits with message containing context summary', async () => {
