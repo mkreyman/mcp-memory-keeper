@@ -1214,7 +1214,7 @@ Test categories:
 
 ## Upgrading
 
-### Database path change (v0.13.0+)
+### Database path change (v0.12.x+)
 
 Prior to this release, the server resolved `context.db` relative to the process's current working directory. The database now lives at an absolute path:
 

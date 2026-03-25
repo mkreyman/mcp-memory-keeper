@@ -31,7 +31,15 @@ import { resolveActiveProfile, ALL_TOOL_NAMES, ALL_TOOL_NAMES_SET } from './util
 const dataDir = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.join(os.homedir(), 'mcp-data', 'memory-keeper');
-fs.mkdirSync(dataDir, { recursive: true });
+try {
+  fs.mkdirSync(dataDir, { recursive: true });
+} catch (err) {
+  console.error(
+    `[memory-keeper] FATAL: Cannot create data directory "${dataDir}": ${(err as NodeJS.ErrnoException).message}\n` +
+      `Set DATA_DIR to a writable location or create the directory manually.`
+  );
+  process.exit(1);
+}
 
 // Warn users whose legacy DB is sitting in CWD
 const legacyDb = path.join(process.cwd(), 'context.db');

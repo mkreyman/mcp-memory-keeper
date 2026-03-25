@@ -61,13 +61,11 @@ describe('Server Initialization Tests', () => {
   });
 
   it('should start server and respond to initialize request', done => {
-    const dbPath = path.join(tempDir, 'test.db');
-
     // Start the server
     serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
       env: {
         ...process.env,
-        MCP_DB_PATH: dbPath,
+        DATA_DIR: tempDir,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -183,12 +181,10 @@ describe('Server Initialization Tests', () => {
   });
 
   it('should handle invalid requests gracefully', done => {
-    const dbPath = path.join(tempDir, 'test.db');
-
     serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
       env: {
         ...process.env,
-        MCP_DB_PATH: dbPath,
+        DATA_DIR: tempDir,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -261,12 +257,10 @@ describe('Server Initialization Tests', () => {
   });
 
   it('should handle server shutdown gracefully', done => {
-    const dbPath = path.join(tempDir, 'test.db');
-
     serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
       env: {
         ...process.env,
-        MCP_DB_PATH: dbPath,
+        DATA_DIR: tempDir,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
