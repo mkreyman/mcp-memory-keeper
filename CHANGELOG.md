@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-03-24
+
+### Fixed
+
+- **Server crashes with SQLITE_CANTOPEN when parent process CWD changes** (#31)
+  - Server now resolves database path to an absolute location (`$DATA_DIR` or `~/mcp-data/memory-keeper/`) instead of relying on CWD
+  - Added try/catch around data directory creation with actionable error message
+  - Startup warning with exact `cp` command when legacy `context.db` detected in CWD
+  - README "from source" install command now points to `bin/mcp-memory-keeper` instead of `node dist/index.js`
+  - Added Upgrading section documenting database path change and migration steps
+
+### Technical
+
+- Fixed integration tests to use `DATA_DIR` instead of dead `MCP_DB_PATH` environment variable
+- Fixed `git.init()` in tests to use `--initial-branch=master` for deterministic behavior
+
 ## [0.12.0] - 2026-02-06
 
 ### Added
@@ -491,7 +507,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Security updates
 - **Technical**: Internal improvements
 
-[Unreleased]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.10.1...v0.10.2
