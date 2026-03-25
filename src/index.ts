@@ -28,7 +28,31 @@ import { handleContextWatch } from './handlers/contextWatchHandlers.js';
 import { resolveActiveProfile, ALL_TOOL_NAMES, ALL_TOOL_NAMES_SET } from './utils/tool-profiles.js';
 
 // Initialize database with migrations
-const dbManager = new DatabaseManager({ filename: 'context.db' });
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(os.homedir(), 'mcp-data', 'memory-keeper');
+try {
+  fs.mkdirSync(dataDir, { recursive: true });
+} catch (err) {
+  console.error(
+    `[memory-keeper] FATAL: Cannot create data directory "${dataDir}": ${(err as NodeJS.ErrnoException).message}\n` +
+      `Set DATA_DIR to a writable location or create the directory manually.`
+  );
+  process.exit(1);
+}
+
+// Warn users whose legacy DB is sitting in CWD
+const legacyDb = path.join(process.cwd(), 'context.db');
+if (process.cwd() !== dataDir && fs.existsSync(legacyDb)) {
+  console.error(
+    `[memory-keeper] WARNING: context.db found in current directory but the ` +
+      `database now lives in ${dataDir}. ` +
+      `To preserve your data, run:\n` +
+      `  cp "${legacyDb}" "${path.join(dataDir, 'context.db')}"`
+  );
+}
+
+const dbManager = new DatabaseManager({ filename: path.join(dataDir, 'context.db') });
 const db = dbManager.getDatabase();
 
 // Initialize repository manager

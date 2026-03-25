@@ -174,7 +174,7 @@ npm install
 npm run build
 
 # 4. Add to Claude
-claude mcp add memory-keeper node /absolute/path/to/mcp-memory-keeper/dist/index.js
+claude mcp add memory-keeper /absolute/path/to/mcp-memory-keeper/bin/mcp-memory-keeper
 ```
 
 </details>
@@ -1211,6 +1211,38 @@ Test categories:
 - [ ] Advanced analytics and insights
 - [ ] Custom context templates
 - [ ] Automatic retention policies
+
+## Upgrading
+
+### Database path change (v0.12.x+)
+
+Prior to this release, the server resolved `context.db` relative to the process's current working directory. The database now lives at an absolute path:
+
+- **Default:** `~/mcp-data/memory-keeper/context.db`
+- **Custom:** set `DATA_DIR=/your/path` — the server will use `$DATA_DIR/context.db`
+
+If you have existing data in a `context.db` in your old working directory, move it to the new location before restarting the server:
+
+```bash
+mkdir -p ~/mcp-data/memory-keeper
+cp /path/to/old/context.db ~/mcp-data/memory-keeper/context.db
+```
+
+If `DATA_DIR` is set, use that path as the destination instead of `~/mcp-data/memory-keeper/`.
+
+The server will print a warning to stderr if it detects a `context.db` in the current directory that differs from the configured data directory, including the exact `cp` command to run.
+
+### From-source install command change
+
+If you registered memory-keeper using `node dist/index.js` directly, update your MCP config to use the bin wrapper instead:
+
+```bash
+# remove the old entry
+claude mcp remove memory-keeper
+
+# add the updated entry
+claude mcp add memory-keeper /absolute/path/to/mcp-memory-keeper/bin/mcp-memory-keeper
+```
 
 ## Contributing
 
