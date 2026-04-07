@@ -4501,7 +4501,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               },
               insights: {
                 type: 'array',
-                items: { type: 'object' },
+                items: {
+                  type: 'object',
+                  properties: {
+                    patterns: { type: 'object', properties: {} },
+                    relationships: { type: 'object', properties: {} },
+                    trends: { type: 'object', properties: {} },
+                    themes: { type: 'array', items: { type: 'string' } },
+                  },
+                },
                 description: 'For merge synthesis: array of insights to merge',
               },
             },
@@ -5041,6 +5049,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           metadata: {
             type: 'object',
+            properties: {},
             description: 'Optional metadata for the relationship',
           },
         },

@@ -56,21 +56,26 @@ function findArrayPropertiesMissingItems(
     if (!line.match(/type:\s*'array'/)) continue;
     if (!currentTool) continue;
 
-    // Look backwards to find the property name
+    // Find the property name (check current line first for single-line declarations)
     let propertyName = '(unknown)';
-    for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
-      const propMatch = lines[j].match(/(\w+)\s*:\s*\{/);
-      if (propMatch) {
-        propertyName = propMatch[1];
-        break;
+    const currentLinePropMatch = line.match(/(\w+)\s*:\s*\{/);
+    if (currentLinePropMatch) {
+      propertyName = currentLinePropMatch[1];
+    } else {
+      for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+        const propMatch = lines[j].match(/(\w+)\s*:\s*\{/);
+        if (propMatch) {
+          propertyName = propMatch[1];
+          break;
+        }
       }
     }
 
-    // Scan forward for `items` declaration before the property closes
-    let foundItems = false;
+    // Check current line first (handles single-line array declarations)
+    let foundItems = line.includes('items');
     let depth = 0;
 
-    for (let j = i + 1; j < Math.min(lines.length, i + 50); j++) {
+    for (let j = i + 1; !foundItems && j < Math.min(lines.length, i + 50); j++) {
       const fwdLine = lines[j];
 
       for (const ch of fwdLine) {

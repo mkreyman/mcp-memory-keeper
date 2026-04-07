@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`full` tool profile breaks OpenAI-compatible providers** (#33)
   - `context_delegate.input.insights` array property was missing required `items` declaration
   - Stricter providers rejected the schema with `invalid_function_parameters`
-  - Added `items: { type: 'object' }` to the `insights` property
+  - Added `items: { type: 'object', properties: {...} }` to the `insights` property with proper `patterns`, `relationships`, `trends`, and `themes` fields
+  - Added `properties: {}` to `context_link.metadata` bare object schema for strict validator compatibility
   - Added regression test that validates all array properties across all tool schemas have `items` declared
 
 ## [0.12.1] - 2026-03-24
