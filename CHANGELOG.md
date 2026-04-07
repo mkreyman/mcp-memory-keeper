@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `items: { type: 'object', properties: {...} }` to the `insights` property with proper `patterns`, `relationships`, `trends`, and `themes` fields
   - Added `properties: {}` to `context_link.metadata` bare object schema for strict validator compatibility
   - Added regression test that validates all array properties across all tool schemas have `items` declared
+  - Added comprehensive E2E test suite that spawns the actual MCP server and validates tool schemas, tool calls, and error handling over stdio
 
 ## [0.12.1] - 2026-03-24
 
