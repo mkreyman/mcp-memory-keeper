@@ -16,10 +16,8 @@ import * as path from 'path';
 
 /**
  * Scan the source for tool definitions and find array properties missing `items`.
- *
- * Strategy: for each tool (name: 'context_*'), extract its inputSchema block,
- * then find every `type: 'array'` and check that `items` appears as the next
- * sibling property (before the next `}` that closes that property).
+ * Skips block comments to avoid false positives from commented-out schemas.
+ * Line numbers refer to the original source file for accurate debugging.
  */
 function findArrayPropertiesMissingItems(
   src: string
@@ -28,19 +26,37 @@ function findArrayPropertiesMissingItems(
   const lines = src.split('\n');
 
   let currentTool = '';
+  let inBlockComment = false;
 
   for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Track block comment state
+    if (inBlockComment) {
+      if (line.includes('*/')) {
+        inBlockComment = false;
+      }
+      continue;
+    }
+    if (line.includes('/*')) {
+      inBlockComment = true;
+      if (line.includes('*/')) {
+        inBlockComment = false;
+      }
+      continue;
+    }
+
     // Track which tool we're inside
-    const toolMatch = lines[i].match(/name:\s*'(context_[a-z_]+)'/);
+    const toolMatch = line.match(/name:\s*'(context_[a-z_]+)'/);
     if (toolMatch) {
       currentTool = toolMatch[1];
     }
 
     // Find array type declarations
-    if (!lines[i].match(/type:\s*'array'/)) continue;
+    if (!line.match(/type:\s*'array'/)) continue;
     if (!currentTool) continue;
 
-    // Look at the surrounding context to find the property name (look backwards)
+    // Look backwards to find the property name
     let propertyName = '(unknown)';
     for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
       const propMatch = lines[j].match(/(\w+)\s*:\s*\{/);
@@ -50,28 +66,23 @@ function findArrayPropertiesMissingItems(
       }
     }
 
-    // Check if `items` appears within the next few lines before the property closes
-    // We need to look forward until we find either `items` or a closing `}` at the
-    // same or lower depth
+    // Scan forward for `items` declaration before the property closes
     let foundItems = false;
     let depth = 0;
 
     for (let j = i + 1; j < Math.min(lines.length, i + 50); j++) {
-      const line = lines[j];
+      const fwdLine = lines[j];
 
-      // Count braces to track depth
-      for (const ch of line) {
+      for (const ch of fwdLine) {
         if (ch === '{') depth++;
         if (ch === '}') depth--;
       }
 
-      // Check for items declaration at current property level
-      if (line.match(/^\s*items\s*:/) || line.match(/^\s*items:\s/)) {
+      if (fwdLine.match(/^\s*items\s*:/)) {
         foundItems = true;
         break;
       }
 
-      // If we've closed back to or past the array property's level, stop
       if (depth < 0) break;
     }
 
@@ -79,7 +90,7 @@ function findArrayPropertiesMissingItems(
       violations.push({
         tool: currentTool,
         property: propertyName,
-        line: i + 1, // 1-indexed
+        line: i + 1,
       });
     }
   }
@@ -89,9 +100,7 @@ function findArrayPropertiesMissingItems(
 
 describe('Issue #33: Array properties must declare items', () => {
   const indexPath = path.join(__dirname, '..', '..', 'index.ts');
-  // Strip block comments to avoid scanning commented-out tool schemas
-  const rawSrc = fs.readFileSync(indexPath, 'utf-8');
-  const src = rawSrc.split(/\/\*[\s\S]*?\*\//).join('');
+  const src = fs.readFileSync(indexPath, 'utf-8');
 
   it('should find tool definitions in source', () => {
     const toolNames = src.match(/name:\s*'context_[a-z_]+'/g);
@@ -106,7 +115,6 @@ describe('Issue #33: Array properties must declare items', () => {
   });
 
   it('context_delegate.input.insights specifically must have items', () => {
-    // Find the insights property in context_delegate's schema
     const lines = src.split('\n');
     let inDelegate = false;
     let insightsLine = -1;
@@ -115,7 +123,6 @@ describe('Issue #33: Array properties must declare items', () => {
       if (lines[i].match(/name:\s*'context_delegate'/)) {
         inDelegate = true;
       }
-      // Stop at next tool definition
       if (
         inDelegate &&
         i > 0 &&
@@ -132,7 +139,6 @@ describe('Issue #33: Array properties must declare items', () => {
 
     expect(insightsLine).toBeGreaterThan(-1);
 
-    // Check that the insights property has type: 'array' and items
     const insightsBlock = lines.slice(insightsLine, insightsLine + 5).join('\n');
     expect(insightsBlock).toContain("type: 'array'");
     expect(insightsBlock).toMatch(/items\s*:/);

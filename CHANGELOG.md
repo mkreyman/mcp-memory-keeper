@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`full` tool profile breaks OpenAI-compatible providers** (#33)
   - `context_delegate.input.insights` array property was missing required `items` declaration
   - Stricter providers rejected the schema with `invalid_function_parameters`
-  - Added `items: { type: 'string' }` to the `insights` property
+  - Added `items: { type: 'object' }` to the `insights` property
   - Added regression test that validates all array properties across all tool schemas have `items` declared
 
 ## [0.12.1] - 2026-03-24
@@ -517,7 +517,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Security updates
 - **Technical**: Internal improvements
 
-[Unreleased]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mkreyman/mcp-memory-keeper/compare/v0.10.2...v0.11.0
