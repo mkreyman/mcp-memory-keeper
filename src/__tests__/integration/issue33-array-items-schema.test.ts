@@ -8,9 +8,8 @@ import * as path from 'path';
  * Some providers reject tool schemas where an array property lacks an `items` declaration.
  * Per JSON Schema spec, `items` is required for `type: 'array'` to fully describe the schema.
  *
- * This test scans the built dist/index.js (plain JS object literals) and verifies that
- * every property with `type: 'array'` is immediately followed by an `items` declaration
- * within the same schema block.
+ * This test scans src/index.ts and verifies that every property with `type: 'array'`
+ * has an `items` declaration within the same schema block.
  *
  * @see https://github.com/mkreyman/mcp-memory-keeper/issues/33
  */
@@ -90,7 +89,9 @@ function findArrayPropertiesMissingItems(
 
 describe('Issue #33: Array properties must declare items', () => {
   const indexPath = path.join(__dirname, '..', '..', 'index.ts');
-  const src = fs.readFileSync(indexPath, 'utf-8');
+  // Strip block comments to avoid scanning commented-out tool schemas
+  const rawSrc = fs.readFileSync(indexPath, 'utf-8');
+  const src = rawSrc.split(/\/\*[\s\S]*?\*\//).join('');
 
   it('should find tool definitions in source', () => {
     const toolNames = src.match(/name:\s*'context_[a-z_]+'/g);

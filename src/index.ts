@@ -4501,7 +4501,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               },
               insights: {
                 type: 'array',
-                items: { type: 'string' },
+                items: { type: 'object' },
                 description: 'For merge synthesis: array of insights to merge',
               },
             },
