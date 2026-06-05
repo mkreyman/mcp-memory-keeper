@@ -162,17 +162,20 @@ describe('Security: context_import path confinement (issue #35)', () => {
     expect(text).not.toContain(SECRET);
   });
 
-  it('rejects a non-JSON system file without leaking its bytes', async () => {
-    if (!fs.existsSync('/etc/passwd')) {
-      return; // Not on this platform — skip.
+  // Use an explicit conditional skip (not a bare `return`) so the platform gap
+  // is visible in the test report on systems without /etc/passwd.
+  const hasEtcPasswd = fs.existsSync('/etc/passwd');
+  (hasEtcPasswd ? it : it.skip)(
+    'rejects a non-JSON system file without leaking its bytes',
+    async () => {
+      const text = await callTool('context_import', { filePath: '/etc/passwd' });
+      expect(text).toMatch(/Import failed/i);
+      // The classic leak was "Unexpected token 'r', "root:x:0:0"...". Ensure no
+      // file bytes are reflected back.
+      expect(text).not.toMatch(/root:/);
+      expect(text).not.toMatch(/Unexpected token/);
     }
-    const text = await callTool('context_import', { filePath: '/etc/passwd' });
-    expect(text).toMatch(/Import failed/i);
-    // The classic leak was "Unexpected token 'r', "root:x:0:0"...". Ensure no
-    // file bytes are reflected back.
-    expect(text).not.toMatch(/root:/);
-    expect(text).not.toMatch(/Unexpected token/);
-  });
+  );
 
   it('rejects `..` traversal out of the exports directory', async () => {
     const text = await callTool('context_import', {
@@ -180,6 +183,69 @@ describe('Security: context_import path confinement (issue #35)', () => {
     });
     expect(text).toMatch(/Import failed/i);
     expect(text).not.toMatch(/Unexpected token/);
+  });
+
+  it('rejects a symlink inside the exports dir that points outside it', async () => {
+    // realpathSync must resolve the symlink to its target before the
+    // confinement check, so an inside-the-dir symlink cannot escape.
+    const linkPath = path.join(exportsDir, 'escape.json');
+    try {
+      fs.symlinkSync(victimPath, linkPath);
+    } catch {
+      // Some platforms/CI restrict symlink creation — skip if unsupported.
+      return;
+    }
+    const text = await callTool('context_import', { filePath: 'escape.json' });
+    expect(text).toMatch(/Import failed/i);
+    expect(text).toMatch(/access denied/i);
+    expect(text).not.toContain(SECRET);
+    fs.unlinkSync(linkPath);
+  });
+
+  it('rejects a sibling directory whose name shares the exports-dir prefix', async () => {
+    // Guards the `startsWith(exportsDirReal + path.sep)` boundary: a sibling
+    // like "<exportsDir>-evil" must NOT be treated as inside the exports dir.
+    const evilDir = `${exportsDir}-evil`;
+    fs.mkdirSync(evilDir, { recursive: true });
+    const evilFile = path.join(evilDir, 'data.json');
+    fs.writeFileSync(evilFile, JSON.stringify({ session: { name: 'x' }, contextItems: [] }));
+    try {
+      const text = await callTool('context_import', { filePath: evilFile });
+      expect(text).toMatch(/Import failed/i);
+      expect(text).toMatch(/access denied/i);
+    } finally {
+      fs.rmSync(evilDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an empty filePath', async () => {
+    const text = await callTool('context_import', { filePath: '' });
+    expect(text).toMatch(/Import failed/i);
+    expect(text).toMatch(/non-empty string/i);
+  });
+
+  it('rejects a non-string filePath', async () => {
+    const text = await callTool('context_import', { filePath: 12345 as unknown as string });
+    expect(text).toMatch(/Import failed/i);
+    expect(text).toMatch(/non-empty string/i);
+  });
+
+  it('rejects the exports directory itself (not a regular file)', async () => {
+    const text = await callTool('context_import', { filePath: exportsDir });
+    expect(text).toMatch(/Import failed/i);
+    expect(text).toMatch(/regular file/i);
+  });
+
+  it('rejects a confined file that is valid JSON but not an export', async () => {
+    const notExport = path.join(exportsDir, 'not-an-export.json');
+    fs.writeFileSync(notExport, JSON.stringify({ hello: 'world' }));
+    try {
+      const text = await callTool('context_import', { filePath: 'not-an-export.json' });
+      expect(text).toMatch(/Import failed/i);
+      expect(text).toMatch(/not a valid memory-keeper export/i);
+    } finally {
+      fs.rmSync(notExport, { force: true });
+    }
   });
 
   it('still supports the legitimate export -> import round trip', async () => {
@@ -192,7 +258,9 @@ describe('Security: context_import path confinement (issue #35)', () => {
     });
 
     const exportText = await callTool('context_export', { confirmEmpty: true });
-    const match = exportText.match(/to:\s*(\S+\.json)/);
+    // `.+?\.json` (with `.` not matching newlines) tolerates spaces in the
+    // path, unlike `\S+`.
+    const match = exportText.match(/to:\s*(.+?\.json)/);
     expect(match).toBeTruthy();
     const exportPath = match![1];
     // Export must write inside the exports directory.

@@ -58,7 +58,21 @@ try {
   process.exit(1);
 }
 // Resolve symlinks once so confinement checks compare real paths on both sides.
-const exportsDirReal = fs.realpathSync(exportsDir);
+let exportsDirReal: string;
+try {
+  exportsDirReal = fs.realpathSync(exportsDir);
+} catch (err) {
+  console.error(
+    `[memory-keeper] FATAL: Cannot resolve exports directory "${exportsDir}": ${(err as NodeJS.ErrnoException).message}\n` +
+      `Set MEMORY_KEEPER_EXPORT_DIR to a readable location or create the directory manually.`
+  );
+  process.exit(1);
+}
+
+// Upper bound on the size of a file context_import will read into memory. The
+// exports directory is server-owned, but context_export can write arbitrarily
+// large session dumps there, so cap the read to avoid memory exhaustion.
+const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
 
 /**
  * Resolve a caller-supplied import path and confine it to the exports
@@ -78,10 +92,13 @@ function resolveConfinedImportPath(filePath: unknown): string {
   const candidate = path.resolve(exportsDirReal, filePath);
 
   // realpathSync follows symlinks and requires the file to exist; an attacker
-  // cannot use a symlink inside the exports dir to escape it.
+  // cannot use a symlink inside the exports dir to escape it. statSync on the
+  // resolved path then tells us it is a regular file of acceptable size.
   let resolved: string;
+  let stats: fs.Stats;
   try {
     resolved = fs.realpathSync(candidate);
+    stats = fs.statSync(resolved);
   } catch {
     throw new Error('import file not found inside the exports directory');
   }
@@ -92,6 +109,14 @@ function resolveConfinedImportPath(filePath: unknown): string {
     throw new Error(
       `access denied: imports must reside inside the exports directory (${exportsDirReal})`
     );
+  }
+
+  if (!stats.isFile()) {
+    throw new Error('import path must be a regular file');
+  }
+
+  if (stats.size > MAX_IMPORT_BYTES) {
+    throw new Error(`import file exceeds the maximum allowed size (${MAX_IMPORT_BYTES} bytes)`);
   }
 
   return resolved;
@@ -1813,6 +1838,7 @@ Files: ${stats.files}`,
         importData === null ||
         typeof importData.session !== 'object' ||
         importData.session === null ||
+        typeof importData.session.name !== 'string' ||
         !Array.isArray(importData.contextItems)
       ) {
         return {
@@ -1825,69 +1851,99 @@ Files: ${stats.files}`,
         };
       }
 
+      // Merge only when there is actually a session to merge into; otherwise
+      // fall back to creating a new session (and report that honestly).
+      const merged = merge && !!currentSessionId;
+
       try {
-        // Create new session or merge
-        let targetSessionId: string;
-        if (merge && currentSessionId) {
-          targetSessionId = currentSessionId;
-        } else {
-          targetSessionId = uuidv4();
-          const importedSession = importData.session;
-          db.prepare(
+        // Apply the whole import atomically so a malformed row cannot leave an
+        // orphaned session or a partially-populated one behind.
+        const runImport = db.transaction(() => {
+          let targetSessionId: string;
+          if (merged) {
+            targetSessionId = currentSessionId as string;
+          } else {
+            targetSessionId = uuidv4();
+            const importedSession = importData.session;
+            db.prepare(
+              `
+              INSERT INTO sessions (id, name, description, branch, working_directory, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)
             `
-            INSERT INTO sessions (id, name, description, branch, working_directory, created_at)
+            ).run(
+              targetSessionId,
+              `Imported: ${importedSession.name}`,
+              `Imported from ${safePath} on ${new Date().toISOString()}`,
+              typeof importedSession.branch === 'string' ? importedSession.branch : null,
+              null,
+              new Date().toISOString()
+            );
+            currentSessionId = targetSessionId;
+          }
+
+          // Import context items
+          const itemStmt = db.prepare(`
+            INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          `);
+
+          let itemCount = 0;
+          for (const item of importData.contextItems) {
+            // Skip entries that are not well-formed items rather than letting a
+            // bad row abort the whole transaction with a SQLite binding error.
+            if (
+              typeof item !== 'object' ||
+              item === null ||
+              typeof item.key !== 'string' ||
+              typeof item.value !== 'string'
+            ) {
+              continue;
+            }
+            itemStmt.run(
+              uuidv4(),
+              targetSessionId,
+              item.key,
+              item.value,
+              typeof item.category === 'string' ? item.category : null,
+              typeof item.priority === 'string' ? item.priority : null,
+              item.size || calculateSize(item.value),
+              typeof item.created_at === 'string' ? item.created_at : new Date().toISOString()
+            );
+            itemCount++;
+          }
+
+          // Import file cache
+          const fileStmt = db.prepare(`
+            INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, last_read)
             VALUES (?, ?, ?, ?, ?, ?)
-          `
-          ).run(
-            targetSessionId,
-            `Imported: ${importedSession.name}`,
-            `Imported from ${safePath} on ${new Date().toISOString()}`,
-            importedSession.branch,
-            null,
-            new Date().toISOString()
-          );
-          currentSessionId = targetSessionId;
-        }
+          `);
 
-        // Import context items
-        const itemStmt = db.prepare(`
-          INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `);
+          let fileCount = 0;
+          const fileCacheEntries = Array.isArray(importData.fileCache) ? importData.fileCache : [];
+          for (const file of fileCacheEntries) {
+            if (
+              typeof file !== 'object' ||
+              file === null ||
+              typeof file.file_path !== 'string' ||
+              typeof file.content !== 'string'
+            ) {
+              continue;
+            }
+            fileStmt.run(
+              uuidv4(),
+              targetSessionId,
+              file.file_path,
+              file.content,
+              typeof file.hash === 'string' ? file.hash : null,
+              typeof file.last_read === 'string' ? file.last_read : null
+            );
+            fileCount++;
+          }
 
-        let itemCount = 0;
-        for (const item of importData.contextItems) {
-          itemStmt.run(
-            uuidv4(),
-            targetSessionId,
-            item.key,
-            item.value,
-            item.category,
-            item.priority,
-            item.size || calculateSize(item.value),
-            item.created_at
-          );
-          itemCount++;
-        }
+          return { targetSessionId, itemCount, fileCount };
+        });
 
-        // Import file cache
-        const fileStmt = db.prepare(`
-          INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, last_read)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-
-        let fileCount = 0;
-        for (const file of importData.fileCache || []) {
-          fileStmt.run(
-            uuidv4(),
-            targetSessionId,
-            file.file_path,
-            file.content,
-            file.hash,
-            file.last_read
-          );
-          fileCount++;
-        }
+        const { targetSessionId, itemCount, fileCount } = runImport();
 
         return {
           content: [
@@ -1897,16 +1953,19 @@ Files: ${stats.files}`,
 Session: ${targetSessionId.substring(0, 8)}
 Context items: ${itemCount}
 Files: ${fileCount}
-Mode: ${merge ? 'Merged' : 'New session'}`,
+Mode: ${merged ? 'Merged' : 'New session'}`,
             },
           ],
         };
       } catch (error: any) {
+        // The error here comes from the DB layer and may echo the values being
+        // inserted; keep the caller-facing message generic and log the detail.
+        console.error(`[memory-keeper] context_import failed: ${error?.message ?? error}`);
         return {
           content: [
             {
               type: 'text',
-              text: `Import failed: ${error.message}`,
+              text: 'Import failed: could not write imported data to the database',
             },
           ],
         };
@@ -4444,7 +4503,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     // Phase 3: Export/Import
     {
       name: 'context_export',
-      description: 'Export session data for backup or sharing',
+      description:
+        'Export session data for backup or sharing. JSON exports are written to the ' +
+        "server's exports directory (<DATA_DIR>/exports, overridable via MEMORY_KEEPER_EXPORT_DIR); " +
+        'the response includes the full path, which can be passed back to context_import.',
       inputSchema: {
         type: 'object',
         properties: {

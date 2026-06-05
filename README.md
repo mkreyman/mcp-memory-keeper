@@ -843,6 +843,11 @@ mcp_context_import({
 > `MEMORY_KEEPER_EXPORT_DIR` if set). Absolute paths outside that directory and
 > `../` traversal are rejected, so the tool cannot be steered at arbitrary
 > files on disk. Drop any file you want to import into that directory first.
+> Point `MEMORY_KEEPER_EXPORT_DIR` at a dedicated directory — not at a home
+> folder or a tree containing secrets — since any JSON file inside it becomes
+> importable. (Prior to this change, exports were written to the OS temp
+> directory; existing exports there must be moved into the exports directory to
+> be re-imported.)
 
 ### Knowledge Graph (Phase 4)
 
