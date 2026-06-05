@@ -74,6 +74,12 @@ try {
 // large session dumps there, so cap the read to avoid memory exhaustion.
 const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
 
+// Upper bound on how many context items / file-cache entries a single import
+// will process. better-sqlite3 transactions run synchronously and block the
+// event loop, so an export crafted with millions of tiny rows (still under the
+// byte cap) must not be allowed to stall the server.
+const MAX_IMPORT_ITEMS = 100_000;
+
 /**
  * Resolve a caller-supplied import path and confine it to the exports
  * directory. Relative paths are resolved against the exports directory;
@@ -100,15 +106,16 @@ function resolveConfinedImportPath(filePath: unknown): string {
     resolved = fs.realpathSync(candidate);
     stats = fs.statSync(resolved);
   } catch {
-    throw new Error('import file not found inside the exports directory');
+    throw new Error('import file not found in the exports directory');
   }
 
+  // Use the SAME message as the not-found case so a file that exists outside
+  // the exports directory is indistinguishable from a missing one (no
+  // existence oracle), and never echo the resolved absolute path.
   const withinExports =
     resolved === exportsDirReal || resolved.startsWith(exportsDirReal + path.sep);
   if (!withinExports) {
-    throw new Error(
-      `access denied: imports must reside inside the exports directory (${exportsDirReal})`
-    );
+    throw new Error('import file not found in the exports directory');
   }
 
   if (!stats.isFile()) {
@@ -1758,12 +1765,20 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
           size: fs.statSync(exportPath).size,
         };
 
+        // context_import caps reads at MAX_IMPORT_BYTES; warn if this export is
+        // too large to be re-imported, so the round trip never breaks silently.
+        const sizeWarning =
+          stats.size > MAX_IMPORT_BYTES
+            ? `\n⚠️  This export is ${(stats.size / (1024 * 1024)).toFixed(1)} MB and exceeds the ${MAX_IMPORT_BYTES / (1024 * 1024)} MB import limit; context_import will reject it.`
+            : '';
+
         return {
           content: [
             {
               type: 'text',
-              text: includeStats
-                ? `✅ Successfully exported session "${session.name}" to: ${exportPath}
+              text:
+                (includeStats
+                  ? `✅ Successfully exported session "${session.name}" to: ${exportPath}
 
 📊 Export Statistics:
 - Context Items: ${stats.items}
@@ -1772,9 +1787,9 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
 - Export Size: ${(stats.size / 1024).toFixed(2)} KB
 
 Session ID: ${targetSessionId}`
-                : `Exported session to: ${exportPath}
+                  : `Exported session to: ${exportPath}
 Items: ${stats.items}
-Files: ${stats.files}`,
+Files: ${stats.files}`) + sizeWarning,
             },
           ],
           exportPath,
@@ -1855,11 +1870,34 @@ Files: ${stats.files}`,
       // fall back to creating a new session (and report that honestly).
       const merged = merge && !!currentSessionId;
 
+      const fileCacheEntries = Array.isArray(importData.fileCache) ? importData.fileCache : [];
+
+      // Bound the work before opening the (synchronous, event-loop-blocking)
+      // transaction so a huge row count cannot stall the server.
+      if (
+        importData.contextItems.length > MAX_IMPORT_ITEMS ||
+        fileCacheEntries.length > MAX_IMPORT_ITEMS
+      ) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Import failed: file exceeds the maximum allowed entry count (${MAX_IMPORT_ITEMS})`,
+            },
+          ],
+        };
+      }
+
       try {
         // Apply the whole import atomically so a malformed row cannot leave an
-        // orphaned session or a partially-populated one behind.
+        // orphaned session or a partially-populated one behind. We do NOT mutate
+        // the module-level currentSessionId inside the transaction: better-sqlite3
+        // rolls back the database on error but cannot revert a JS assignment, so a
+        // post-assignment failure would leave currentSessionId dangling. Instead we
+        // return the new id and publish it only after the transaction commits.
         const runImport = db.transaction(() => {
           let targetSessionId: string;
+          const createdNew = !merged;
           if (merged) {
             targetSessionId = currentSessionId as string;
           } else {
@@ -1878,16 +1916,17 @@ Files: ${stats.files}`,
               null,
               new Date().toISOString()
             );
-            currentSessionId = targetSessionId;
           }
 
-          // Import context items
+          // Import context items. Restore the channel/is_private/metadata columns
+          // too so a round trip is faithful, not lossy.
           const itemStmt = db.prepare(`
-            INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, metadata, is_private, channel, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           `);
 
           let itemCount = 0;
+          let skippedItems = 0;
           for (const item of importData.contextItems) {
             // Skip entries that are not well-formed items rather than letting a
             // bad row abort the whole transaction with a SQLite binding error.
@@ -1897,6 +1936,7 @@ Files: ${stats.files}`,
               typeof item.key !== 'string' ||
               typeof item.value !== 'string'
             ) {
+              skippedItems++;
               continue;
             }
             itemStmt.run(
@@ -1906,56 +1946,83 @@ Files: ${stats.files}`,
               item.value,
               typeof item.category === 'string' ? item.category : null,
               typeof item.priority === 'string' ? item.priority : null,
-              item.size || calculateSize(item.value),
+              // Use the stored size only when it is a valid non-negative number;
+              // `|| calculateSize(...)` would wrongly recompute a legitimate 0.
+              typeof item.size === 'number' && item.size >= 0
+                ? item.size
+                : calculateSize(item.value),
+              typeof item.metadata === 'string' ? item.metadata : null,
+              typeof item.is_private === 'number' ? item.is_private : 0,
+              typeof item.channel === 'string' ? item.channel : 'general',
               typeof item.created_at === 'string' ? item.created_at : new Date().toISOString()
             );
             itemCount++;
           }
 
-          // Import file cache
+          // Import file cache. content is a nullable column, so null is valid and
+          // must NOT be treated as a malformed row (that would drop legit rows).
           const fileStmt = db.prepare(`
             INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, last_read)
             VALUES (?, ?, ?, ?, ?, ?)
           `);
 
           let fileCount = 0;
-          const fileCacheEntries = Array.isArray(importData.fileCache) ? importData.fileCache : [];
+          let skippedFiles = 0;
           for (const file of fileCacheEntries) {
             if (
               typeof file !== 'object' ||
               file === null ||
               typeof file.file_path !== 'string' ||
-              typeof file.content !== 'string'
+              (file.content !== null && typeof file.content !== 'string')
             ) {
+              skippedFiles++;
               continue;
             }
             fileStmt.run(
               uuidv4(),
               targetSessionId,
               file.file_path,
-              file.content,
+              file.content ?? null,
               typeof file.hash === 'string' ? file.hash : null,
               typeof file.last_read === 'string' ? file.last_read : null
             );
             fileCount++;
           }
 
-          return { targetSessionId, itemCount, fileCount };
+          return { targetSessionId, createdNew, itemCount, fileCount, skippedItems, skippedFiles };
         });
 
-        const { targetSessionId, itemCount, fileCount } = runImport();
+        const result = runImport();
+        // Publish the new current session only after a successful commit.
+        if (result.createdNew) {
+          currentSessionId = result.targetSessionId;
+        }
+
+        const lines = [
+          'Import successful!',
+          `Session: ${result.targetSessionId.substring(0, 8)}`,
+          `Context items: ${result.itemCount}${result.skippedItems ? ` (skipped ${result.skippedItems} malformed)` : ''}`,
+          `Files: ${result.fileCount}${result.skippedFiles ? ` (skipped ${result.skippedFiles} malformed)` : ''}`,
+          `Mode: ${result.createdNew ? 'New session' : 'Merged'}`,
+        ];
+        // Checkpoints are present in exports but not restored by import; say so
+        // explicitly instead of silently dropping them.
+        const checkpointCount = Array.isArray(importData.checkpoints)
+          ? importData.checkpoints.length
+          : 0;
+        if (checkpointCount > 0) {
+          lines.push(`Checkpoints in file: ${checkpointCount} (not imported)`);
+        }
+        // Warn when the caller asked to merge but there was no active session.
+        if (merge && !merged) {
+          lines.push('Note: merge requested but no active session existed; created a new session.');
+        }
+        if (result.itemCount === 0 && importData.contextItems.length > 0) {
+          lines.push('Warning: no valid context items were found; nothing was imported.');
+        }
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Import successful!
-Session: ${targetSessionId.substring(0, 8)}
-Context items: ${itemCount}
-Files: ${fileCount}
-Mode: ${merged ? 'Merged' : 'New session'}`,
-            },
-          ],
+          content: [{ type: 'text', text: lines.join('\n') }],
         };
       } catch (error: any) {
         // The error here comes from the DB layer and may echo the values being

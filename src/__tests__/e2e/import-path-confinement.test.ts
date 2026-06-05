@@ -152,9 +152,21 @@ describe('Security: context_import path confinement (issue #35)', () => {
   it('rejects an absolute path to a JSON file outside the exports directory', async () => {
     const text = await callTool('context_import', { filePath: victimPath });
     expect(text).toMatch(/Import failed/i);
-    expect(text).toMatch(/access denied|not found inside/i);
+    expect(text).toMatch(/not found in the exports directory/i);
     // The secret must never appear in the response.
     expect(text).not.toContain(SECRET);
+  });
+
+  it('returns the same message for a missing path and an existing outside path (no existence oracle)', async () => {
+    // A file that exists outside the exports dir and a path that does not exist
+    // at all must be indistinguishable, so the error cannot be used to probe
+    // for the existence of arbitrary files on the host.
+    const missing = await callTool('context_import', { filePath: '/no/such/file/anywhere.json' });
+    const existsOutside = await callTool('context_import', { filePath: victimPath });
+    const strip = (t: string) => t.replace(/^Import failed:\s*/i, '').trim();
+    expect(strip(existsOutside)).toBe(strip(missing));
+    // And neither echoes the resolved exports-directory absolute path.
+    expect(existsOutside).not.toContain(exportsDir);
   });
 
   it('does not make the rejected file’s secret retrievable via context_get', async () => {
@@ -191,15 +203,22 @@ describe('Security: context_import path confinement (issue #35)', () => {
     const linkPath = path.join(exportsDir, 'escape.json');
     try {
       fs.symlinkSync(victimPath, linkPath);
-    } catch {
-      // Some platforms/CI restrict symlink creation — skip if unsupported.
-      return;
+    } catch (e) {
+      // Only treat a genuine platform restriction as "skip"; surface anything else.
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === 'EPERM' || code === 'ENOSYS' || code === 'EACCES') {
+        return;
+      }
+      throw e;
     }
-    const text = await callTool('context_import', { filePath: 'escape.json' });
-    expect(text).toMatch(/Import failed/i);
-    expect(text).toMatch(/access denied/i);
-    expect(text).not.toContain(SECRET);
-    fs.unlinkSync(linkPath);
+    try {
+      const text = await callTool('context_import', { filePath: 'escape.json' });
+      expect(text).toMatch(/Import failed/i);
+      expect(text).toMatch(/not found in the exports directory/i);
+      expect(text).not.toContain(SECRET);
+    } finally {
+      fs.unlinkSync(linkPath);
+    }
   });
 
   it('rejects a sibling directory whose name shares the exports-dir prefix', async () => {
@@ -212,7 +231,7 @@ describe('Security: context_import path confinement (issue #35)', () => {
     try {
       const text = await callTool('context_import', { filePath: evilFile });
       expect(text).toMatch(/Import failed/i);
-      expect(text).toMatch(/access denied/i);
+      expect(text).toMatch(/not found in the exports directory/i);
     } finally {
       fs.rmSync(evilDir, { recursive: true, force: true });
     }
@@ -248,7 +267,7 @@ describe('Security: context_import path confinement (issue #35)', () => {
     }
   });
 
-  it('still supports the legitimate export -> import round trip', async () => {
+  it('still supports the legitimate export -> import round trip and preserves data', async () => {
     // Seed a context item, export it (lands inside the exports dir), then
     // import the produced file back.
     await callTool('context_save', {
@@ -268,5 +287,39 @@ describe('Security: context_import path confinement (issue #35)', () => {
 
     const importText = await callTool('context_import', { filePath: exportPath });
     expect(importText).toMatch(/Import successful/i);
+    // A regression that silently dropped every item would still say "successful";
+    // assert at least one item was imported AND that the value is retrievable.
+    expect(importText).toMatch(/Context items:\s*[1-9]/);
+    const getResult = await callTool('context_get', { key: 'roundtrip_key' });
+    expect(getResult).toContain('roundtrip_value');
+  });
+
+  it('skips malformed items but imports the valid ones and reports the skip count', async () => {
+    // A confined, well-formed export envelope with one good item and several
+    // malformed ones: the good item imports, the bad ones are skipped (not
+    // silently — the count is surfaced), and nothing aborts the transaction.
+    const mixed = path.join(exportsDir, 'mixed.json');
+    fs.writeFileSync(
+      mixed,
+      JSON.stringify({
+        session: { name: 'mixed', branch: 'main' },
+        contextItems: [
+          { key: 'good_key', value: 'good_value', category: 'note', priority: 'high' },
+          { key: 'no_value' }, // missing value -> skipped
+          { value: 'no_key' }, // missing key -> skipped
+          'not-an-object', // not an object -> skipped
+        ],
+        fileCache: [],
+      })
+    );
+    try {
+      const text = await callTool('context_import', { filePath: 'mixed.json' });
+      expect(text).toMatch(/Import successful/i);
+      expect(text).toMatch(/Context items:\s*1\s*\(skipped 3 malformed\)/);
+      const getResult = await callTool('context_get', { key: 'good_key' });
+      expect(getResult).toContain('good_value');
+    } finally {
+      fs.rmSync(mixed, { force: true });
+    }
   });
 });
