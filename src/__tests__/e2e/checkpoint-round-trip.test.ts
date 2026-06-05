@@ -45,37 +45,41 @@ async function startServer(): Promise<Client> {
     (global as any).testProcesses.push(proc);
   }
 
+  // A single persistent reader dispatches each response to its pending request
+  // by id, so concurrent calls cannot share/consume each other's buffer.
+  const pending = new Map<number, { resolve: (v: any) => void; timer: NodeJS.Timeout }>();
   let buffer = '';
   let nextId = 0;
 
-  const send = (method: string, params: Record<string, unknown>, id?: number): Promise<any> =>
+  proc.stdout?.on('data', (data: Buffer) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let msg: any;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (msg.id != null && pending.has(msg.id)) {
+        const p = pending.get(msg.id)!;
+        clearTimeout(p.timer);
+        pending.delete(msg.id);
+        p.resolve(msg);
+      }
+    }
+  });
+
+  const send = (method: string, params: Record<string, unknown>): Promise<any> =>
     new Promise((resolve, reject) => {
-      const reqId = id ?? ++nextId;
-      const timeout = setTimeout(() => {
-        proc.stdout?.removeListener('data', onData);
+      const reqId = ++nextId;
+      const timer = setTimeout(() => {
+        pending.delete(reqId);
         reject(new Error(`Timeout waiting for ${method} (id=${reqId})`));
       }, 5000);
-
-      const onData = (data: Buffer) => {
-        buffer += data.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const msg = JSON.parse(line);
-            if (msg.id === reqId) {
-              clearTimeout(timeout);
-              proc.stdout?.removeListener('data', onData);
-              resolve(msg);
-            }
-          } catch {
-            // not JSON for us
-          }
-        }
-      };
-
-      proc.stdout?.on('data', onData);
+      pending.set(reqId, { resolve, timer });
       proc.stdin?.write(JSON.stringify({ jsonrpc: '2.0', method, params, id: reqId }) + '\n');
     });
 
@@ -94,6 +98,8 @@ async function startServer(): Promise<Client> {
   };
 
   const close = async (): Promise<void> => {
+    for (const p of pending.values()) clearTimeout(p.timer);
+    pending.clear();
     if (!proc.killed) {
       proc.kill('SIGTERM');
       await new Promise<void>(resolve => {
@@ -153,7 +159,7 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
       includeGitStatus: false,
     });
     expect(cpText).toMatch(/Created checkpoint/i);
-    expect(cpText).toMatch(/Context items:\s*2/);
+    expect(cpText).toMatch(/Context items:\s*2\b/);
 
     const exportText = await server.call('context_export', { confirmEmpty: true });
     const exportPath = parseExportPath(exportText);
@@ -169,7 +175,7 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
 
       const importText = await importer.call('context_import', { filePath: 'incoming.json' });
       expect(importText).toMatch(/Import successful/i);
-      expect(importText).toMatch(/Context items:\s*2/);
+      expect(importText).toMatch(/Context items:\s*2\b/);
       // 2 item links + 1 file link = 3, none dropped.
       expect(importText).toMatch(/Checkpoints:\s*1, links restored:\s*3$/m);
 
@@ -181,8 +187,8 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
         restoreFiles: true,
       });
       expect(restoreText).toMatch(/Successfully restored from checkpoint/i);
-      expect(restoreText).toMatch(/Context items:\s*2/);
-      expect(restoreText).toMatch(/Files:\s*1/);
+      expect(restoreText).toMatch(/Context items:\s*2\b/);
+      expect(restoreText).toMatch(/Files:\s*1\b/);
     } finally {
       await importer.close();
     }
@@ -205,7 +211,7 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
     try {
       const text = await server.call('context_import', { filePath: 'legacy-export.json' });
       expect(text).toMatch(/Import successful/i);
-      expect(text).toMatch(/Context items:\s*1/);
+      expect(text).toMatch(/Context items:\s*1\b/);
       expect(text).toMatch(/Checkpoints in file:\s*1 \(not imported/i);
     } finally {
       fs.rmSync(legacy, { force: true });
@@ -244,9 +250,56 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
         name: 'partial-cp',
         restoreFiles: true,
       });
-      expect(restoreText).toMatch(/Context items:\s*1/); // not 2 — dangling link was dropped
+      expect(restoreText).toMatch(/Context items:\s*1\b/); // not 2 — dangling link was dropped
     } finally {
       fs.rmSync(partial, { force: true });
+    }
+  });
+
+  it('merge import updates a colliding item in place and preserves a pre-existing checkpoint link', async () => {
+    // Regression guard: a merge import whose item key collides with an existing
+    // row must UPDATE in place (preserving the row id) rather than INSERT OR
+    // REPLACE. REPLACE would cascade-delete the existing checkpoint's link.
+    await server.call('context_session_start', { name: 'merge-target' });
+    await server.call('context_save', { key: 'shared_key', value: 'original', category: 'task' });
+    const cp = await server.call('context_checkpoint', {
+      name: 'pre-merge-cp',
+      includeFiles: false,
+      includeGitStatus: false,
+    });
+    expect(cp).toMatch(/Context items:\s*1\b/);
+
+    const mergeFile = path.join(server.exportsDir, 'merge-in.json');
+    fs.mkdirSync(server.exportsDir, { recursive: true });
+    fs.writeFileSync(
+      mergeFile,
+      JSON.stringify({
+        version: '0.5.0',
+        session: { name: 'incoming', branch: 'main' },
+        contextItems: [{ id: 'x', key: 'shared_key', value: 'updated' }],
+        fileCache: [],
+        checkpoints: [],
+        checkpointItems: [],
+        checkpointFiles: [],
+      })
+    );
+    try {
+      const imp = await server.call('context_import', { filePath: 'merge-in.json', merge: true });
+      expect(imp).toMatch(/Mode:\s*Merged/);
+
+      // The colliding item was updated in place (value changed).
+      const got = await server.call('context_get', { key: 'shared_key' });
+      expect(got).toContain('updated');
+
+      // The pre-existing checkpoint still restores its 1 item — the link
+      // survived because the row id was preserved (no REPLACE-cascade).
+      const restore = await server.call('context_restore_checkpoint', {
+        name: 'pre-merge-cp',
+        restoreFiles: false,
+      });
+      expect(restore).toMatch(/Context items:\s*1\b/);
+    } finally {
+      fs.rmSync(mergeFile, { force: true });
     }
   });
 });

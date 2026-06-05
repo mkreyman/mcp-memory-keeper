@@ -1977,11 +1977,22 @@ Files: ${stats.files}`) + sizeWarning,
             );
           }
 
-          // Import context items. Restore the channel/is_private/metadata columns
-          // too so a round trip is faithful, not lossy.
-          const itemStmt = db.prepare(`
-            INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, metadata, is_private, channel, created_at, updated_at)
+          // Import context items, restoring channel/is_private/metadata so the
+          // round trip is faithful. On a key collision we UPDATE the existing row
+          // in place (preserving its id) rather than INSERT OR REPLACE: REPLACE
+          // would delete the row and ON DELETE CASCADE would silently strip a
+          // pre-existing checkpoint's link to it. Preserving the id keeps links.
+          const insertItemStmt = db.prepare(`
+            INSERT INTO context_items (id, session_id, key, value, category, priority, size, metadata, is_private, channel, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          `);
+          const findItemStmt = db.prepare(
+            'SELECT id FROM context_items WHERE session_id = ? AND key = ?'
+          );
+          const updateItemStmt = db.prepare(`
+            UPDATE context_items
+            SET value = ?, category = ?, priority = ?, size = ?, metadata = ?, is_private = ?, channel = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
           `);
 
           // Map each exported row's id to the new id we generate, so checkpoint
@@ -1998,6 +2009,7 @@ Files: ${stats.files}`) + sizeWarning,
           // import. Keeping the last occurrence matches INSERT OR REPLACE
           // semantics; every exported id for that key is mapped to the survivor.
           let skippedItems = 0;
+          let validItems = 0;
           const itemsByKey = new Map<string, any>();
           const itemOldIdsByKey = new Map<string, string[]>();
           for (const item of importData.contextItems) {
@@ -2012,6 +2024,7 @@ Files: ${stats.files}`) + sizeWarning,
               skippedItems++;
               continue;
             }
+            validItems++;
             itemsByKey.set(item.key, item);
             const oldIds = itemOldIdsByKey.get(item.key) ?? [];
             if (typeof item.id === 'string') {
@@ -2019,44 +2032,83 @@ Files: ${stats.files}`) + sizeWarning,
             }
             itemOldIdsByKey.set(item.key, oldIds);
           }
+          // Valid rows that collapsed onto an earlier duplicate key.
+          const collapsedItems = validItems - itemsByKey.size;
 
           let itemCount = 0;
           for (const [key, item] of itemsByKey) {
-            const newItemId = uuidv4();
-            for (const oldId of itemOldIdsByKey.get(key) ?? []) {
-              itemIdMap.set(oldId, newItemId);
+            const value = item.value;
+            const category = typeof item.category === 'string' ? item.category : null;
+            const priority = typeof item.priority === 'string' ? item.priority : null;
+            // Use the stored size only when it is a valid non-negative number;
+            // `|| calculateSize(...)` would wrongly recompute a legitimate 0.
+            const size =
+              typeof item.size === 'number' && item.size >= 0 ? item.size : calculateSize(value);
+            const metadata = typeof item.metadata === 'string' ? item.metadata : null;
+            const isPrivate = typeof item.is_private === 'number' ? item.is_private : 0;
+            const channel = typeof item.channel === 'string' ? item.channel : 'general';
+
+            // In merge mode, reuse the existing row id on a key collision so its
+            // existing checkpoint links are preserved (no REPLACE-cascade).
+            const existing = merged
+              ? (findItemStmt.get(targetSessionId, key) as { id: string } | undefined)
+              : undefined;
+            let targetItemId: string;
+            if (existing) {
+              targetItemId = existing.id;
+              updateItemStmt.run(
+                value,
+                category,
+                priority,
+                size,
+                metadata,
+                isPrivate,
+                channel,
+                targetItemId
+              );
+            } else {
+              targetItemId = uuidv4();
+              insertItemStmt.run(
+                targetItemId,
+                targetSessionId,
+                key,
+                value,
+                category,
+                priority,
+                size,
+                metadata,
+                isPrivate,
+                channel,
+                typeof item.created_at === 'string' ? item.created_at : new Date().toISOString()
+              );
             }
-            itemStmt.run(
-              newItemId,
-              targetSessionId,
-              item.key,
-              item.value,
-              typeof item.category === 'string' ? item.category : null,
-              typeof item.priority === 'string' ? item.priority : null,
-              // Use the stored size only when it is a valid non-negative number;
-              // `|| calculateSize(...)` would wrongly recompute a legitimate 0.
-              typeof item.size === 'number' && item.size >= 0
-                ? item.size
-                : calculateSize(item.value),
-              typeof item.metadata === 'string' ? item.metadata : null,
-              typeof item.is_private === 'number' ? item.is_private : 0,
-              typeof item.channel === 'string' ? item.channel : 'general',
-              typeof item.created_at === 'string' ? item.created_at : new Date().toISOString()
-            );
+            for (const oldId of itemOldIdsByKey.get(key) ?? []) {
+              itemIdMap.set(oldId, targetItemId);
+            }
             itemCount++;
           }
 
           // Import file cache. content is a nullable column, so null is valid and
           // must NOT be treated as a malformed row (that would drop legit rows).
           // size is restored too so the round trip is faithful. Like context
-          // items, file_cache has UNIQUE(session_id, file_path), so de-duplicate
-          // by file_path (keep last) to avoid stranding fileIdMap on a collapse.
-          const fileStmt = db.prepare(`
-            INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, size, last_read)
+          // items, file_cache has UNIQUE(session_id, file_path); de-duplicate by
+          // file_path and UPDATE-in-place on collision (preserving the id, hence
+          // any pre-existing checkpoint_files link) rather than INSERT OR REPLACE.
+          const insertFileStmt = db.prepare(`
+            INSERT INTO file_cache (id, session_id, file_path, content, hash, size, last_read)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+          `);
+          const findFileStmt = db.prepare(
+            'SELECT id FROM file_cache WHERE session_id = ? AND file_path = ?'
+          );
+          const updateFileStmt = db.prepare(`
+            UPDATE file_cache
+            SET content = ?, hash = ?, size = ?, last_read = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
           `);
 
           let skippedFiles = 0;
+          let validFiles = 0;
           const filesByPath = new Map<string, any>();
           const fileOldIdsByPath = new Map<string, string[]>();
           for (const file of fileCacheEntries) {
@@ -2069,6 +2121,7 @@ Files: ${stats.files}`) + sizeWarning,
               skippedFiles++;
               continue;
             }
+            validFiles++;
             filesByPath.set(file.file_path, file);
             const oldIds = fileOldIdsByPath.get(file.file_path) ?? [];
             if (typeof file.id === 'string') {
@@ -2076,27 +2129,42 @@ Files: ${stats.files}`) + sizeWarning,
             }
             fileOldIdsByPath.set(file.file_path, oldIds);
           }
+          const collapsedFiles = validFiles - filesByPath.size;
 
           let fileCount = 0;
           for (const [filePath, file] of filesByPath) {
-            const newFileId = uuidv4();
-            for (const oldId of fileOldIdsByPath.get(filePath) ?? []) {
-              fileIdMap.set(oldId, newFileId);
-            }
             const content = file.content ?? null;
-            fileStmt.run(
-              newFileId,
-              targetSessionId,
-              file.file_path,
-              content,
-              typeof file.hash === 'string' ? file.hash : null,
+            const hash = typeof file.hash === 'string' ? file.hash : null;
+            const size =
               typeof file.size === 'number' && file.size >= 0
                 ? file.size
                 : typeof content === 'string'
                   ? calculateSize(content)
-                  : 0,
-              typeof file.last_read === 'string' ? file.last_read : null
-            );
+                  : 0;
+            const lastRead = typeof file.last_read === 'string' ? file.last_read : null;
+
+            const existing = merged
+              ? (findFileStmt.get(targetSessionId, filePath) as { id: string } | undefined)
+              : undefined;
+            let targetFileId: string;
+            if (existing) {
+              targetFileId = existing.id;
+              updateFileStmt.run(content, hash, size, lastRead, targetFileId);
+            } else {
+              targetFileId = uuidv4();
+              insertFileStmt.run(
+                targetFileId,
+                targetSessionId,
+                filePath,
+                content,
+                hash,
+                size,
+                lastRead
+              );
+            }
+            for (const oldId of fileOldIdsByPath.get(filePath) ?? []) {
+              fileIdMap.set(oldId, targetFileId);
+            }
             fileCount++;
           }
 
@@ -2199,6 +2267,8 @@ Files: ${stats.files}`) + sizeWarning,
             skippedCheckpoints,
             checkpointLinkCount,
             droppedCheckpointLinks,
+            collapsedItems,
+            collapsedFiles,
           };
         });
 
@@ -2211,8 +2281,8 @@ Files: ${stats.files}`) + sizeWarning,
         const lines = [
           'Import successful!',
           `Session: ${result.targetSessionId.substring(0, 8)}`,
-          `Context items: ${result.itemCount}${result.skippedItems ? ` (skipped ${result.skippedItems} malformed)` : ''}`,
-          `Files: ${result.fileCount}${result.skippedFiles ? ` (skipped ${result.skippedFiles} malformed)` : ''}`,
+          `Context items: ${result.itemCount}${result.skippedItems ? ` (skipped ${result.skippedItems} malformed)` : ''}${result.collapsedItems ? ` (collapsed ${result.collapsedItems} duplicate-key)` : ''}`,
+          `Files: ${result.fileCount}${result.skippedFiles ? ` (skipped ${result.skippedFiles} malformed)` : ''}${result.collapsedFiles ? ` (collapsed ${result.collapsedFiles} duplicate-path)` : ''}`,
           `Mode: ${result.createdNew ? 'New session' : 'Merged'}`,
         ];
         // Report checkpoints: restored for 0.5.0+ exports, or flagged as not
@@ -2231,7 +2301,7 @@ Files: ${stats.files}`) + sizeWarning,
           }
         } else if (checkpointEntries.length > 0) {
           lines.push(
-            `Checkpoints in file: ${checkpointEntries.length} (not imported — re-export with v0.5.0+ to include them)`
+            `Checkpoints in file: ${checkpointEntries.length} (not imported — this export predates checkpoint support and does not carry the item/file links)`
           );
         }
         // Warn when the caller asked to merge but there was no active session.
