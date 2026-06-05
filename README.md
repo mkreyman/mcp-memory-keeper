@@ -814,7 +814,8 @@ mcp_context_search({
 Share context or backup your work:
 
 ```javascript
-// Export current session
+// Export current session — writes into the exports directory
+// (<DATA_DIR>/exports/, overridable via MEMORY_KEEPER_EXPORT_DIR)
 mcp_context_export(); // Creates memory-keeper-export-xxx.json
 
 // Export specific session
@@ -823,7 +824,9 @@ mcp_context_export({
   format: 'json',
 });
 
-// Import from file
+// Import from a file inside the exports directory.
+// A bare filename resolves against that directory; the absolute path
+// returned by context_export also works.
 mcp_context_import({
   filePath: 'memory-keeper-export-xxx.json',
 });
@@ -834,6 +837,12 @@ mcp_context_import({
   merge: true,
 });
 ```
+
+> **Security note:** For safety, `context_import` only reads files inside the
+> server-owned exports directory (`<DATA_DIR>/exports/`, or
+> `MEMORY_KEEPER_EXPORT_DIR` if set). Absolute paths outside that directory and
+> `../` traversal are rejected, so the tool cannot be steered at arbitrary
+> files on disk. Drop any file you want to import into that directory first.
 
 ### Knowledge Graph (Phase 4)
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Arbitrary local file read via unvalidated `context_import` filePath** (#35)
+  - `context_import` passed the caller-supplied `filePath` straight to `fs.readFileSync`, with no path confinement. A malicious MCP client — or a prompt-injected agent — could point it at any file the server process could read: full contents for any JSON file (imported into the session, then retrievable via `context_get`/`context_export`), and the leading bytes of any other file (echoed back inside the `JSON.parse` error message)
+  - Imports are now confined to a server-owned exports directory (`<DATA_DIR>/exports`, overridable via `MEMORY_KEEPER_EXPORT_DIR`). Relative paths resolve against that directory; absolute paths are accepted only if they resolve — after following symlinks via `realpath` — to a location inside it. Traversal (`../`) and absolute paths outside the directory are rejected
+  - `context_export` now writes to that same exports directory (previously the OS temp dir), so the export → import round trip stays within the confined location
+  - Import failures no longer echo raw exception messages: read/parse errors return a generic message instead of reflecting file bytes back to the caller. Import data is also shape-validated before use
+  - Added an E2E security regression test that reproduces the issue #35 PoC (arbitrary JSON read, `/etc/passwd` byte leak, `..` traversal) and verifies the legitimate round trip still works
+  - Reported by Zhihao Zhang (@mcfly-zzh)
+
 ## [0.12.2] - 2026-04-07
 
 ### Fixed

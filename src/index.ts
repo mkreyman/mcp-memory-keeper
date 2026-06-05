@@ -41,6 +41,62 @@ try {
   process.exit(1);
 }
 
+// Server-owned directory for session exports/imports. Both context_export
+// (writes) and context_import (reads) are confined to this directory so that
+// context_import can never be steered at an arbitrary file on disk. Override
+// with MEMORY_KEEPER_EXPORT_DIR; defaults to a subdirectory of the data dir.
+const exportsDir = process.env.MEMORY_KEEPER_EXPORT_DIR
+  ? path.resolve(process.env.MEMORY_KEEPER_EXPORT_DIR)
+  : path.join(dataDir, 'exports');
+try {
+  fs.mkdirSync(exportsDir, { recursive: true });
+} catch (err) {
+  console.error(
+    `[memory-keeper] FATAL: Cannot create exports directory "${exportsDir}": ${(err as NodeJS.ErrnoException).message}\n` +
+      `Set MEMORY_KEEPER_EXPORT_DIR to a writable location or create the directory manually.`
+  );
+  process.exit(1);
+}
+// Resolve symlinks once so confinement checks compare real paths on both sides.
+const exportsDirReal = fs.realpathSync(exportsDir);
+
+/**
+ * Resolve a caller-supplied import path and confine it to the exports
+ * directory. Relative paths are resolved against the exports directory;
+ * absolute paths are accepted only if they resolve (after following symlinks)
+ * to a location inside the exports directory.
+ *
+ * Throws an Error whose message is safe to surface to the caller — it never
+ * contains any bytes read from the target file.
+ */
+function resolveConfinedImportPath(filePath: unknown): string {
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    throw new Error('filePath is required and must be a non-empty string');
+  }
+
+  // Resolve relative paths against the exports directory; leave absolute as-is.
+  const candidate = path.resolve(exportsDirReal, filePath);
+
+  // realpathSync follows symlinks and requires the file to exist; an attacker
+  // cannot use a symlink inside the exports dir to escape it.
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(candidate);
+  } catch {
+    throw new Error('import file not found inside the exports directory');
+  }
+
+  const withinExports =
+    resolved === exportsDirReal || resolved.startsWith(exportsDirReal + path.sep);
+  if (!withinExports) {
+    throw new Error(
+      `access denied: imports must reside inside the exports directory (${exportsDirReal})`
+    );
+  }
+
+  return resolved;
+}
+
 // Warn users whose legacy DB is sitting in CWD
 const legacyDb = path.join(process.cwd(), 'context.db');
 if (process.cwd() !== dataDir && fs.existsSync(legacyDb)) {
@@ -1656,7 +1712,7 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
 
       if (format === 'json') {
         const exportPath = path.join(
-          os.tmpdir(),
+          exportsDir,
           `memory-keeper-export-${targetSessionId.substring(0, 8)}.json`
         );
 
@@ -1720,9 +1776,56 @@ Files: ${stats.files}`,
     case 'context_import': {
       const { filePath, merge = false } = args;
 
+      // Confine the path to the server-owned exports directory BEFORE touching
+      // the filesystem. A failure here is a path/permission problem, never file
+      // content, so the message is safe to return verbatim.
+      let safePath: string;
       try {
-        const importData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        safePath = resolveConfinedImportPath(filePath);
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `Import failed: ${error.message}` }],
+        };
+      }
 
+      // Read and parse separately so a JSON.parse error can never echo file
+      // bytes back to the caller (V8 includes the offending input in its
+      // SyntaxError message).
+      let importData: any;
+      try {
+        const raw = fs.readFileSync(safePath, 'utf8');
+        try {
+          importData = JSON.parse(raw);
+        } catch {
+          return {
+            content: [{ type: 'text', text: 'Import failed: file is not valid JSON export data' }],
+          };
+        }
+      } catch {
+        return {
+          content: [{ type: 'text', text: 'Import failed: could not read import file' }],
+        };
+      }
+
+      // Validate the import has the expected shape before using it.
+      if (
+        typeof importData !== 'object' ||
+        importData === null ||
+        typeof importData.session !== 'object' ||
+        importData.session === null ||
+        !Array.isArray(importData.contextItems)
+      ) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Import failed: file is not a valid memory-keeper export (missing session or contextItems)',
+            },
+          ],
+        };
+      }
+
+      try {
         // Create new session or merge
         let targetSessionId: string;
         if (merge && currentSessionId) {
@@ -1738,7 +1841,7 @@ Files: ${stats.files}`,
           ).run(
             targetSessionId,
             `Imported: ${importedSession.name}`,
-            `Imported from ${filePath} on ${new Date().toISOString()}`,
+            `Imported from ${safePath} on ${new Date().toISOString()}`,
             importedSession.branch,
             null,
             new Date().toISOString()
@@ -4357,11 +4460,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     },
     {
       name: 'context_import',
-      description: 'Import previously exported session data',
+      description:
+        'Import previously exported session data. For security, imports are confined to the ' +
+        "server's exports directory (where context_export writes); arbitrary filesystem paths are rejected.",
       inputSchema: {
         type: 'object',
         properties: {
-          filePath: { type: 'string', description: 'Path to import file' },
+          filePath: {
+            type: 'string',
+            description:
+              'Path to an export file inside the exports directory. Relative paths resolve ' +
+              'against that directory; absolute paths must point inside it.',
+          },
           merge: {
             type: 'boolean',
             description: 'Merge with current session instead of creating new',
