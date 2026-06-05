@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-05
+
+### Fixed
+
+- Server-reported version is now read from `package.json` at runtime instead of a hardcoded string, which had drifted to `0.10.0`. Added an E2E test asserting the reported version matches `package.json` so it can't fall out of sync again.
+
+### Security
+
+- **Arbitrary local file read via unvalidated `context_import` filePath** (#35)
+  - `context_import` passed the caller-supplied `filePath` straight to `fs.readFileSync`, with no path confinement. A malicious MCP client — or a prompt-injected agent — could point it at any file the server process could read: full contents for any JSON file (imported into the session, then retrievable via `context_get`/`context_export`), and the leading bytes of any other file (echoed back inside the `JSON.parse` error message)
+  - Imports are now confined to a server-owned exports directory (`<DATA_DIR>/exports`, overridable via `MEMORY_KEEPER_EXPORT_DIR`). Relative paths resolve against that directory; absolute paths are accepted only if they resolve — after following symlinks via `realpath` — to a location inside it. Traversal (`../`) and absolute paths outside the directory are rejected
+  - `context_export` now writes to that same exports directory (previously the OS temp dir), so the export → import round trip stays within the confined location
+  - Import failures no longer echo raw exception messages — at every stage (read, JSON parse, and the database write) a generic message is returned and the detail is logged server-side, so no file bytes or inserted values can leak back to the caller
+  - Import is hardened further: the resolved path must be a regular file (directories are rejected), capped at 50 MB and 100k entries to avoid memory/CPU exhaustion, and the whole import runs in a single transaction so a malformed row can never leave an orphaned or partially-populated session. Per-item and session-name shape are validated; `merge` only merges when a current session actually exists (and the result is reported honestly)
+  - The "not found" and "outside the exports directory" cases now return an identical generic message, removing a file-existence oracle, and the resolved absolute path is never echoed back to the caller
+  - `context_export`'s tool description and the import path resolution now guard the exports-directory startup (graceful FATAL on an unreadable directory)
+  - **Round-trip fidelity fixes** surfaced by review of the above: imported items now restore their `channel`, `is_private`, and `metadata` columns (previously dropped); file-cache rows with `NULL` content are preserved (previously dropped); a stored `size` of `0` is no longer wrongly recomputed; skipped-malformed counts and "checkpoints present but not imported" are reported instead of being silently lost; and `context_export` warns when a produced file is too large to be re-imported. The new current session is published only after the import transaction commits, so a failed import can no longer leave `currentSessionId` pointing at a rolled-back session
+  - Added an E2E security regression test suite that reproduces the issue #35 PoC (arbitrary JSON read, `/etc/passwd` byte leak, `..` traversal) and covers symlink escape, the `exports-dir`-prefix sibling boundary, the no-existence-oracle guarantee, empty/non-string paths, directory paths, valid-JSON-but-not-an-export, malformed-item skipping, and a data-preserving round trip
+  - Reported by Zhihao Zhang (@mcfly-zzh)
+
 ## [0.12.2] - 2026-04-07
 
 ### Fixed

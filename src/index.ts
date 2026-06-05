@@ -41,6 +41,94 @@ try {
   process.exit(1);
 }
 
+// Server-owned directory for session exports/imports. Both context_export
+// (writes) and context_import (reads) are confined to this directory so that
+// context_import can never be steered at an arbitrary file on disk. Override
+// with MEMORY_KEEPER_EXPORT_DIR; defaults to a subdirectory of the data dir.
+const exportsDir = process.env.MEMORY_KEEPER_EXPORT_DIR
+  ? path.resolve(process.env.MEMORY_KEEPER_EXPORT_DIR)
+  : path.join(dataDir, 'exports');
+try {
+  fs.mkdirSync(exportsDir, { recursive: true });
+} catch (err) {
+  console.error(
+    `[memory-keeper] FATAL: Cannot create exports directory "${exportsDir}": ${(err as NodeJS.ErrnoException).message}\n` +
+      `Set MEMORY_KEEPER_EXPORT_DIR to a writable location or create the directory manually.`
+  );
+  process.exit(1);
+}
+// Resolve symlinks once so confinement checks compare real paths on both sides.
+let exportsDirReal: string;
+try {
+  exportsDirReal = fs.realpathSync(exportsDir);
+} catch (err) {
+  console.error(
+    `[memory-keeper] FATAL: Cannot resolve exports directory "${exportsDir}": ${(err as NodeJS.ErrnoException).message}\n` +
+      `Set MEMORY_KEEPER_EXPORT_DIR to a readable location or create the directory manually.`
+  );
+  process.exit(1);
+}
+
+// Upper bound on the size of a file context_import will read into memory. The
+// exports directory is server-owned, but context_export can write arbitrarily
+// large session dumps there, so cap the read to avoid memory exhaustion.
+const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
+
+// Upper bound on how many context items / file-cache entries a single import
+// will process. better-sqlite3 transactions run synchronously and block the
+// event loop, so an export crafted with millions of tiny rows (still under the
+// byte cap) must not be allowed to stall the server.
+const MAX_IMPORT_ITEMS = 100_000;
+
+/**
+ * Resolve a caller-supplied import path and confine it to the exports
+ * directory. Relative paths are resolved against the exports directory;
+ * absolute paths are accepted only if they resolve (after following symlinks)
+ * to a location inside the exports directory.
+ *
+ * Throws an Error whose message is safe to surface to the caller — it never
+ * contains any bytes read from the target file.
+ */
+function resolveConfinedImportPath(filePath: unknown): string {
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    throw new Error('filePath is required and must be a non-empty string');
+  }
+
+  // Resolve relative paths against the exports directory; leave absolute as-is.
+  const candidate = path.resolve(exportsDirReal, filePath);
+
+  // realpathSync follows symlinks and requires the file to exist; an attacker
+  // cannot use a symlink inside the exports dir to escape it. statSync on the
+  // resolved path then tells us it is a regular file of acceptable size.
+  let resolved: string;
+  let stats: fs.Stats;
+  try {
+    resolved = fs.realpathSync(candidate);
+    stats = fs.statSync(resolved);
+  } catch {
+    throw new Error('import file not found in the exports directory');
+  }
+
+  // Use the SAME message as the not-found case so a file that exists outside
+  // the exports directory is indistinguishable from a missing one (no
+  // existence oracle), and never echo the resolved absolute path.
+  const withinExports =
+    resolved === exportsDirReal || resolved.startsWith(exportsDirReal + path.sep);
+  if (!withinExports) {
+    throw new Error('import file not found in the exports directory');
+  }
+
+  if (!stats.isFile()) {
+    throw new Error('import path must be a regular file');
+  }
+
+  if (stats.size > MAX_IMPORT_BYTES) {
+    throw new Error(`import file exceeds the maximum allowed size (${MAX_IMPORT_BYTES} bytes)`);
+  }
+
+  return resolved;
+}
+
 // Warn users whose legacy DB is sitting in CWD
 const legacyDb = path.join(process.cwd(), 'context.db');
 if (process.cwd() !== dataDir && fs.existsSync(legacyDb)) {
@@ -355,11 +443,24 @@ function createSummary(
   return summary;
 }
 
+// Read the package version at runtime so the server-reported version can never
+// drift from package.json. The compiled entry (dist/index.js) sits one level
+// below the package root, so package.json is at ../package.json.
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+const SERVER_VERSION = readPackageVersion();
+
 // Create MCP server
 const server = new Server(
   {
     name: 'memory-keeper',
-    version: '0.10.0',
+    version: SERVER_VERSION,
   },
   {
     capabilities: {
@@ -1656,7 +1757,7 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
 
       if (format === 'json') {
         const exportPath = path.join(
-          os.tmpdir(),
+          exportsDir,
           `memory-keeper-export-${targetSessionId.substring(0, 8)}.json`
         );
 
@@ -1677,12 +1778,20 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
           size: fs.statSync(exportPath).size,
         };
 
+        // context_import caps reads at MAX_IMPORT_BYTES; warn if this export is
+        // too large to be re-imported, so the round trip never breaks silently.
+        const sizeWarning =
+          stats.size > MAX_IMPORT_BYTES
+            ? `\n⚠️  This export is ${(stats.size / (1024 * 1024)).toFixed(1)} MB and exceeds the ${MAX_IMPORT_BYTES / (1024 * 1024)} MB import limit; context_import will reject it.`
+            : '';
+
         return {
           content: [
             {
               type: 'text',
-              text: includeStats
-                ? `✅ Successfully exported session "${session.name}" to: ${exportPath}
+              text:
+                (includeStats
+                  ? `✅ Successfully exported session "${session.name}" to: ${exportPath}
 
 📊 Export Statistics:
 - Context Items: ${stats.items}
@@ -1691,9 +1800,9 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
 - Export Size: ${(stats.size / 1024).toFixed(2)} KB
 
 Session ID: ${targetSessionId}`
-                : `Exported session to: ${exportPath}
+                  : `Exported session to: ${exportPath}
 Items: ${stats.items}
-Files: ${stats.files}`,
+Files: ${stats.files}`) + sizeWarning,
             },
           ],
           exportPath,
@@ -1720,90 +1829,223 @@ Files: ${stats.files}`,
     case 'context_import': {
       const { filePath, merge = false } = args;
 
+      // Confine the path to the server-owned exports directory BEFORE touching
+      // the filesystem. A failure here is a path/permission problem, never file
+      // content, so the message is safe to return verbatim.
+      let safePath: string;
       try {
-        const importData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        safePath = resolveConfinedImportPath(filePath);
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `Import failed: ${error.message}` }],
+        };
+      }
 
-        // Create new session or merge
-        let targetSessionId: string;
-        if (merge && currentSessionId) {
-          targetSessionId = currentSessionId;
-        } else {
-          targetSessionId = uuidv4();
-          const importedSession = importData.session;
-          db.prepare(
-            `
-            INSERT INTO sessions (id, name, description, branch, working_directory, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `
-          ).run(
-            targetSessionId,
-            `Imported: ${importedSession.name}`,
-            `Imported from ${filePath} on ${new Date().toISOString()}`,
-            importedSession.branch,
-            null,
-            new Date().toISOString()
-          );
-          currentSessionId = targetSessionId;
+      // Read and parse separately so a JSON.parse error can never echo file
+      // bytes back to the caller (V8 includes the offending input in its
+      // SyntaxError message).
+      let importData: any;
+      try {
+        const raw = fs.readFileSync(safePath, 'utf8');
+        try {
+          importData = JSON.parse(raw);
+        } catch {
+          return {
+            content: [{ type: 'text', text: 'Import failed: file is not valid JSON export data' }],
+          };
         }
+      } catch {
+        return {
+          content: [{ type: 'text', text: 'Import failed: could not read import file' }],
+        };
+      }
 
-        // Import context items
-        const itemStmt = db.prepare(`
-          INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `);
-
-        let itemCount = 0;
-        for (const item of importData.contextItems) {
-          itemStmt.run(
-            uuidv4(),
-            targetSessionId,
-            item.key,
-            item.value,
-            item.category,
-            item.priority,
-            item.size || calculateSize(item.value),
-            item.created_at
-          );
-          itemCount++;
-        }
-
-        // Import file cache
-        const fileStmt = db.prepare(`
-          INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, last_read)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-
-        let fileCount = 0;
-        for (const file of importData.fileCache || []) {
-          fileStmt.run(
-            uuidv4(),
-            targetSessionId,
-            file.file_path,
-            file.content,
-            file.hash,
-            file.last_read
-          );
-          fileCount++;
-        }
-
+      // Validate the import has the expected shape before using it.
+      if (
+        typeof importData !== 'object' ||
+        importData === null ||
+        typeof importData.session !== 'object' ||
+        importData.session === null ||
+        typeof importData.session.name !== 'string' ||
+        !Array.isArray(importData.contextItems)
+      ) {
         return {
           content: [
             {
               type: 'text',
-              text: `Import successful!
-Session: ${targetSessionId.substring(0, 8)}
-Context items: ${itemCount}
-Files: ${fileCount}
-Mode: ${merge ? 'Merged' : 'New session'}`,
+              text: 'Import failed: file is not a valid memory-keeper export (missing session or contextItems)',
             },
           ],
         };
-      } catch (error: any) {
+      }
+
+      // Merge only when there is actually a session to merge into; otherwise
+      // fall back to creating a new session (and report that honestly).
+      const merged = merge && !!currentSessionId;
+
+      const fileCacheEntries = Array.isArray(importData.fileCache) ? importData.fileCache : [];
+
+      // Bound the work before opening the (synchronous, event-loop-blocking)
+      // transaction so a huge row count cannot stall the server.
+      if (
+        importData.contextItems.length > MAX_IMPORT_ITEMS ||
+        fileCacheEntries.length > MAX_IMPORT_ITEMS
+      ) {
         return {
           content: [
             {
               type: 'text',
-              text: `Import failed: ${error.message}`,
+              text: `Import failed: file exceeds the maximum allowed entry count (${MAX_IMPORT_ITEMS})`,
+            },
+          ],
+        };
+      }
+
+      try {
+        // Apply the whole import atomically so a malformed row cannot leave an
+        // orphaned session or a partially-populated one behind. We do NOT mutate
+        // the module-level currentSessionId inside the transaction: better-sqlite3
+        // rolls back the database on error but cannot revert a JS assignment, so a
+        // post-assignment failure would leave currentSessionId dangling. Instead we
+        // return the new id and publish it only after the transaction commits.
+        const runImport = db.transaction(() => {
+          let targetSessionId: string;
+          const createdNew = !merged;
+          if (merged) {
+            targetSessionId = currentSessionId as string;
+          } else {
+            targetSessionId = uuidv4();
+            const importedSession = importData.session;
+            db.prepare(
+              `
+              INSERT INTO sessions (id, name, description, branch, working_directory, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `
+            ).run(
+              targetSessionId,
+              `Imported: ${importedSession.name}`,
+              `Imported from ${safePath} on ${new Date().toISOString()}`,
+              typeof importedSession.branch === 'string' ? importedSession.branch : null,
+              null,
+              new Date().toISOString()
+            );
+          }
+
+          // Import context items. Restore the channel/is_private/metadata columns
+          // too so a round trip is faithful, not lossy.
+          const itemStmt = db.prepare(`
+            INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, metadata, is_private, channel, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          `);
+
+          let itemCount = 0;
+          let skippedItems = 0;
+          for (const item of importData.contextItems) {
+            // Skip entries that are not well-formed items rather than letting a
+            // bad row abort the whole transaction with a SQLite binding error.
+            if (
+              typeof item !== 'object' ||
+              item === null ||
+              typeof item.key !== 'string' ||
+              typeof item.value !== 'string'
+            ) {
+              skippedItems++;
+              continue;
+            }
+            itemStmt.run(
+              uuidv4(),
+              targetSessionId,
+              item.key,
+              item.value,
+              typeof item.category === 'string' ? item.category : null,
+              typeof item.priority === 'string' ? item.priority : null,
+              // Use the stored size only when it is a valid non-negative number;
+              // `|| calculateSize(...)` would wrongly recompute a legitimate 0.
+              typeof item.size === 'number' && item.size >= 0
+                ? item.size
+                : calculateSize(item.value),
+              typeof item.metadata === 'string' ? item.metadata : null,
+              typeof item.is_private === 'number' ? item.is_private : 0,
+              typeof item.channel === 'string' ? item.channel : 'general',
+              typeof item.created_at === 'string' ? item.created_at : new Date().toISOString()
+            );
+            itemCount++;
+          }
+
+          // Import file cache. content is a nullable column, so null is valid and
+          // must NOT be treated as a malformed row (that would drop legit rows).
+          const fileStmt = db.prepare(`
+            INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, last_read)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `);
+
+          let fileCount = 0;
+          let skippedFiles = 0;
+          for (const file of fileCacheEntries) {
+            if (
+              typeof file !== 'object' ||
+              file === null ||
+              typeof file.file_path !== 'string' ||
+              (file.content !== null && typeof file.content !== 'string')
+            ) {
+              skippedFiles++;
+              continue;
+            }
+            fileStmt.run(
+              uuidv4(),
+              targetSessionId,
+              file.file_path,
+              file.content ?? null,
+              typeof file.hash === 'string' ? file.hash : null,
+              typeof file.last_read === 'string' ? file.last_read : null
+            );
+            fileCount++;
+          }
+
+          return { targetSessionId, createdNew, itemCount, fileCount, skippedItems, skippedFiles };
+        });
+
+        const result = runImport();
+        // Publish the new current session only after a successful commit.
+        if (result.createdNew) {
+          currentSessionId = result.targetSessionId;
+        }
+
+        const lines = [
+          'Import successful!',
+          `Session: ${result.targetSessionId.substring(0, 8)}`,
+          `Context items: ${result.itemCount}${result.skippedItems ? ` (skipped ${result.skippedItems} malformed)` : ''}`,
+          `Files: ${result.fileCount}${result.skippedFiles ? ` (skipped ${result.skippedFiles} malformed)` : ''}`,
+          `Mode: ${result.createdNew ? 'New session' : 'Merged'}`,
+        ];
+        // Checkpoints are present in exports but not restored by import; say so
+        // explicitly instead of silently dropping them.
+        const checkpointCount = Array.isArray(importData.checkpoints)
+          ? importData.checkpoints.length
+          : 0;
+        if (checkpointCount > 0) {
+          lines.push(`Checkpoints in file: ${checkpointCount} (not imported)`);
+        }
+        // Warn when the caller asked to merge but there was no active session.
+        if (merge && !merged) {
+          lines.push('Note: merge requested but no active session existed; created a new session.');
+        }
+        if (result.itemCount === 0 && importData.contextItems.length > 0) {
+          lines.push('Warning: no valid context items were found; nothing was imported.');
+        }
+
+        return {
+          content: [{ type: 'text', text: lines.join('\n') }],
+        };
+      } catch (error: any) {
+        // The error here comes from the DB layer and may echo the values being
+        // inserted; keep the caller-facing message generic and log the detail.
+        console.error(`[memory-keeper] context_import failed: ${error?.message ?? error}`);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Import failed: could not write imported data to the database',
             },
           ],
         };
@@ -4341,7 +4583,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     // Phase 3: Export/Import
     {
       name: 'context_export',
-      description: 'Export session data for backup or sharing',
+      description:
+        'Export session data for backup or sharing. JSON exports are written to the ' +
+        "server's exports directory (<DATA_DIR>/exports, overridable via MEMORY_KEEPER_EXPORT_DIR); " +
+        'the response includes the full path, which can be passed back to context_import.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -4357,11 +4602,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     },
     {
       name: 'context_import',
-      description: 'Import previously exported session data',
+      description:
+        'Import previously exported session data. For security, imports are confined to the ' +
+        "server's exports directory (where context_export writes); arbitrary filesystem paths are rejected.",
       inputSchema: {
         type: 'object',
         properties: {
-          filePath: { type: 'string', description: 'Path to import file' },
+          filePath: {
+            type: 'string',
+            description:
+              'Path to an export file inside the exports directory. Relative paths resolve ' +
+              'against that directory; absolute paths must point inside it.',
+          },
           merge: {
             type: 'boolean',
             description: 'Merge with current session instead of creating new',
