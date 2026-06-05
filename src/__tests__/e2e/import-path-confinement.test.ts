@@ -26,6 +26,7 @@ import * as os from 'os';
  */
 
 let serverProcess: ChildProcess | null = null;
+let serverInfo: { name?: string; version?: string } | undefined;
 let tempDir: string;
 let exportsDir: string;
 let victimPath: string;
@@ -118,6 +119,7 @@ describe('Security: context_import path confinement (issue #35)', () => {
       clientInfo: { name: 'import-sec-test', version: '1.0.0' },
     });
     expect(initResponse.result).toHaveProperty('protocolVersion');
+    serverInfo = initResponse.result.serverInfo;
 
     serverProcess?.stdin?.write(
       JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n'
@@ -147,6 +149,15 @@ describe('Security: context_import path confinement (issue #35)', () => {
     } catch {
       // ignore cleanup errors
     }
+  });
+
+  it('reports its version from package.json (no drift)', () => {
+    // The server version is read from package.json at runtime; this guards
+    // against the hardcoded value silently falling out of sync on a release.
+
+    const pkgVersion = require('../../../package.json').version;
+    expect(serverInfo?.name).toBe('memory-keeper');
+    expect(serverInfo?.version).toBe(pkgVersion);
   });
 
   it('rejects an absolute path to a JSON file outside the exports directory', async () => {

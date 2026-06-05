@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.13.0] - 2026-06-05
 
+### Fixed
+
+- Server-reported version is now read from `package.json` at runtime instead of a hardcoded string, which had drifted to `0.10.0`. Added an E2E test asserting the reported version matches `package.json` so it can't fall out of sync again.
+
 ### Security
 
 - **Arbitrary local file read via unvalidated `context_import` filePath** (#35)

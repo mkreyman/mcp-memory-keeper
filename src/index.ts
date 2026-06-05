@@ -443,11 +443,24 @@ function createSummary(
   return summary;
 }
 
+// Read the package version at runtime so the server-reported version can never
+// drift from package.json. The compiled entry (dist/index.js) sits one level
+// below the package root, so package.json is at ../package.json.
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+const SERVER_VERSION = readPackageVersion();
+
 // Create MCP server
 const server = new Server(
   {
     name: 'memory-keeper',
-    version: '0.10.0',
+    version: SERVER_VERSION,
   },
   {
     capabilities: {
