@@ -14,55 +14,108 @@ import * as os from 'os';
  * The 0.5.0 export format adds `checkpointItems` / `checkpointFiles`, and import
  * rewires their foreign keys onto the freshly-generated ids.
  *
+ * The round-trip test imports into a SEPARATE server instance (its own
+ * DATA_DIR), so the only checkpoint named "cp-roundtrip" is the imported one —
+ * otherwise context_restore_checkpoint (which matches by name across all
+ * checkpoints) could resolve the original source checkpoint and mask a broken
+ * import.
+ *
  * @see https://github.com/mkreyman/mcp-memory-keeper/issues/37
  */
 
-let serverProcess: ChildProcess | null = null;
-let tempDir: string;
-let exportsDir: string;
-let msgId = 0;
-let outputBuffer = '';
+const SERVER_ENTRY = path.join(__dirname, '../../../dist/index.js');
 
-function sendRequest(
-  method: string,
-  params: Record<string, unknown> = {},
-  timeoutMs = 5000
-): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const id = ++msgId;
-    const timeout = setTimeout(() => {
-      reject(new Error(`Timeout waiting for response to ${method} (id=${id})`));
-    }, timeoutMs);
-
-    const onData = (data: Buffer) => {
-      outputBuffer += data.toString();
-      const lines = outputBuffer.split('\n');
-      outputBuffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const msg = JSON.parse(line);
-          if (msg.id === id) {
-            clearTimeout(timeout);
-            serverProcess?.stdout?.removeListener('data', onData);
-            resolve(msg);
-          }
-        } catch {
-          // Not JSON, skip
-        }
-      }
-    };
-
-    serverProcess?.stdout?.on('data', onData);
-    serverProcess?.stdin?.write(JSON.stringify({ jsonrpc: '2.0', method, params, id }) + '\n');
-  });
+/** A connected MCP server process with isolated JSON-RPC framing. */
+interface Client {
+  proc: ChildProcess;
+  dataDir: string;
+  exportsDir: string;
+  call: (name: string, args: Record<string, unknown>) => Promise<string>;
+  close: () => Promise<void>;
 }
 
-function callTool(name: string, args: Record<string, unknown>): Promise<string> {
-  return sendRequest('tools/call', { name, arguments: args }).then(
-    res => res.result?.content?.[0]?.text ?? JSON.stringify(res)
-  );
+async function startServer(): Promise<Client> {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-checkpoint-'));
+  const exportsDir = path.join(dataDir, 'exports');
+  const proc = spawn('node', [SERVER_ENTRY], {
+    env: { ...process.env, DATA_DIR: dataDir },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if ((global as any).testProcesses) {
+    (global as any).testProcesses.push(proc);
+  }
+
+  let buffer = '';
+  let nextId = 0;
+
+  const send = (method: string, params: Record<string, unknown>, id?: number): Promise<any> =>
+    new Promise((resolve, reject) => {
+      const reqId = id ?? ++nextId;
+      const timeout = setTimeout(() => {
+        proc.stdout?.removeListener('data', onData);
+        reject(new Error(`Timeout waiting for ${method} (id=${reqId})`));
+      }, 5000);
+
+      const onData = (data: Buffer) => {
+        buffer += data.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.id === reqId) {
+              clearTimeout(timeout);
+              proc.stdout?.removeListener('data', onData);
+              resolve(msg);
+            }
+          } catch {
+            // not JSON for us
+          }
+        }
+      };
+
+      proc.stdout?.on('data', onData);
+      proc.stdin?.write(JSON.stringify({ jsonrpc: '2.0', method, params, id: reqId }) + '\n');
+    });
+
+  const init = await send('initialize', {
+    protocolVersion: '2024-11-05',
+    capabilities: {},
+    clientInfo: { name: 'checkpoint-e2e', version: '1.0.0' },
+  });
+  expect(init.result).toHaveProperty('protocolVersion');
+  proc.stdin?.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+  await new Promise(resolve => setTimeout(resolve, 150));
+
+  const call = async (name: string, args: Record<string, unknown>): Promise<string> => {
+    const res = await send('tools/call', { name, arguments: args });
+    return res.result?.content?.[0]?.text ?? JSON.stringify(res);
+  };
+
+  const close = async (): Promise<void> => {
+    if (!proc.killed) {
+      proc.kill('SIGTERM');
+      await new Promise<void>(resolve => {
+        const t = setTimeout(() => {
+          proc.kill('SIGKILL');
+          resolve();
+        }, 3000);
+        proc.on('exit', () => {
+          clearTimeout(t);
+          resolve();
+        });
+      });
+      proc.removeAllListeners();
+    }
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  };
+
+  return { proc, dataDir, exportsDir, call, close };
 }
 
 /** Pull the export file path out of a context_export success message. */
@@ -73,68 +126,27 @@ function parseExportPath(exportText: string): string {
 }
 
 describe('E2E: checkpoint export/import round trip (issue #37)', () => {
+  let server: Client;
+
   beforeAll(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-checkpoint-'));
-    exportsDir = path.join(tempDir, 'exports');
-
-    serverProcess = spawn('node', [path.join(__dirname, '../../../dist/index.js')], {
-      env: { ...process.env, DATA_DIR: tempDir },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    if ((global as any).testProcesses) {
-      (global as any).testProcesses.push(serverProcess);
-    }
-
-    const initResponse = await sendRequest('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'checkpoint-e2e', version: '1.0.0' },
-    });
-    expect(initResponse.result).toHaveProperty('protocolVersion');
-
-    serverProcess?.stdin?.write(
-      JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n'
-    );
-    await new Promise(resolve => setTimeout(resolve, 200));
-  }, 10000);
+    server = await startServer();
+  }, 15000);
 
   afterAll(async () => {
-    if (serverProcess && !serverProcess.killed) {
-      serverProcess.kill('SIGTERM');
-      await new Promise<void>(resolve => {
-        const timeout = setTimeout(() => {
-          serverProcess?.kill('SIGKILL');
-          resolve();
-        }, 3000);
-        serverProcess?.on('exit', () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-      });
-      serverProcess?.removeAllListeners();
-    }
-    serverProcess = null;
-
-    try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
-    }
+    await server?.close();
   });
 
-  it('restores a checkpoint and its linked items + files through export -> import', async () => {
-    // Seed two items and a cached file in a fresh session.
-    await callTool('context_session_start', { name: 'cp-source' });
-    await callTool('context_save', { key: 'cp_item_a', value: 'value_a', category: 'task' });
-    await callTool('context_save', { key: 'cp_item_b', value: 'value_b', category: 'note' });
-    await callTool('context_cache_file', {
+  it('restores a checkpoint and its linked items + files into a clean instance', async () => {
+    // --- Source instance: seed, checkpoint, export ---
+    await server.call('context_session_start', { name: 'cp-source' });
+    await server.call('context_save', { key: 'cp_item_a', value: 'value_a', category: 'task' });
+    await server.call('context_save', { key: 'cp_item_b', value: 'value_b', category: 'note' });
+    await server.call('context_cache_file', {
       filePath: '/tmp/checkpoint-test.ts',
       content: 'cached file content',
     });
 
-    // Capture a checkpoint that links both items and the file.
-    const cpText = await callTool('context_checkpoint', {
+    const cpText = await server.call('context_checkpoint', {
       name: 'cp-roundtrip',
       description: 'round trip checkpoint',
       includeFiles: true,
@@ -143,32 +155,42 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
     expect(cpText).toMatch(/Created checkpoint/i);
     expect(cpText).toMatch(/Context items:\s*2/);
 
-    // Export, then import the produced file into a new session.
-    const exportText = await callTool('context_export', { confirmEmpty: true });
+    const exportText = await server.call('context_export', { confirmEmpty: true });
     const exportPath = parseExportPath(exportText);
-    expect(exportPath.startsWith(exportsDir)).toBe(true);
+    const exportBytes = fs.readFileSync(exportPath);
 
-    const importText = await callTool('context_import', { filePath: exportPath });
-    expect(importText).toMatch(/Import successful/i);
-    // The imported checkpoint must be restored with its links rewired: 2 item
-    // links + 1 file link = 3.
-    expect(importText).toMatch(/Checkpoints:\s*1.*links restored:\s*3/);
+    // --- Fresh instance: import the file, so the imported checkpoint is the
+    // ONLY one named "cp-roundtrip" (unambiguous restore-by-name). ---
+    const importer = await startServer();
+    try {
+      fs.mkdirSync(importer.exportsDir, { recursive: true });
+      const importFile = path.join(importer.exportsDir, 'incoming.json');
+      fs.writeFileSync(importFile, exportBytes);
 
-    // End-to-end proof: restoring the checkpoint by name reproduces its items
-    // and file (the join rows point at the freshly-imported rows).
-    const restoreText = await callTool('context_restore_checkpoint', {
-      name: 'cp-roundtrip',
-      restoreFiles: true,
-    });
-    expect(restoreText).toMatch(/Successfully restored from checkpoint/i);
-    expect(restoreText).toMatch(/Context items:\s*2/);
-    expect(restoreText).toMatch(/Files:\s*1/);
-  });
+      const importText = await importer.call('context_import', { filePath: 'incoming.json' });
+      expect(importText).toMatch(/Import successful/i);
+      expect(importText).toMatch(/Context items:\s*2/);
+      // 2 item links + 1 file link = 3, none dropped.
+      expect(importText).toMatch(/Checkpoints:\s*1, links restored:\s*3$/m);
+
+      // End-to-end proof: restoring reproduces the items AND the file, which can
+      // only be true if the join rows were rewired onto the freshly-imported
+      // rows in THIS instance.
+      const restoreText = await importer.call('context_restore_checkpoint', {
+        name: 'cp-roundtrip',
+        restoreFiles: true,
+      });
+      expect(restoreText).toMatch(/Successfully restored from checkpoint/i);
+      expect(restoreText).toMatch(/Context items:\s*2/);
+      expect(restoreText).toMatch(/Files:\s*1/);
+    } finally {
+      await importer.close();
+    }
+  }, 20000);
 
   it('reports legacy exports (no checkpointItems) as not imported, without error', async () => {
-    // A 0.4.0-style export: checkpoints present, but no join-row arrays.
-    const legacy = path.join(exportsDir, 'legacy-export.json');
-    fs.mkdirSync(exportsDir, { recursive: true });
+    const legacy = path.join(server.exportsDir, 'legacy-export.json');
+    fs.mkdirSync(server.exportsDir, { recursive: true });
     fs.writeFileSync(
       legacy,
       JSON.stringify({
@@ -181,7 +203,7 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
       })
     );
     try {
-      const text = await callTool('context_import', { filePath: 'legacy-export.json' });
+      const text = await server.call('context_import', { filePath: 'legacy-export.json' });
       expect(text).toMatch(/Import successful/i);
       expect(text).toMatch(/Context items:\s*1/);
       expect(text).toMatch(/Checkpoints in file:\s*1 \(not imported/i);
@@ -190,12 +212,12 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
     }
   });
 
-  it('drops checkpoint links that point at skipped/absent rows', async () => {
+  it('drops checkpoint links that point at skipped/absent rows and proves DB state', async () => {
     // 0.5.0 export with a checkpoint whose item link references an id that is
-    // not present in contextItems — the checkpoint imports, the dangling link
-    // is dropped, and the import does not error.
-    const partial = path.join(exportsDir, 'partial-cp.json');
-    fs.mkdirSync(exportsDir, { recursive: true });
+    // not present in contextItems — the checkpoint imports, the dangling link is
+    // dropped, and a subsequent restore yields exactly the one valid item.
+    const partial = path.join(server.exportsDir, 'partial-cp.json');
+    fs.mkdirSync(server.exportsDir, { recursive: true });
     fs.writeFileSync(
       partial,
       JSON.stringify({
@@ -212,10 +234,17 @@ describe('E2E: checkpoint export/import round trip (issue #37)', () => {
       })
     );
     try {
-      const text = await callTool('context_import', { filePath: 'partial-cp.json' });
+      const text = await server.call('context_import', { filePath: 'partial-cp.json' });
       expect(text).toMatch(/Import successful/i);
-      // 1 checkpoint, only the 1 valid link restored.
-      expect(text).toMatch(/Checkpoints:\s*1.*links restored:\s*1/);
+      // 1 checkpoint, only the 1 valid link restored, 1 dangling link dropped.
+      expect(text).toMatch(/Checkpoints:\s*1, links restored:\s*1 \(dropped 1 dangling\)/);
+
+      // "partial-cp" is unique here, so restore-by-name is unambiguous.
+      const restoreText = await server.call('context_restore_checkpoint', {
+        name: 'partial-cp',
+        restoreFiles: true,
+      });
+      expect(restoreText).toMatch(/Context items:\s*1/); // not 2 — dangling link was dropped
     } finally {
       fs.rmSync(partial, { force: true });
     }

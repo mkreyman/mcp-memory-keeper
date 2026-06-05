@@ -1773,7 +1773,13 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
           itemCount: contextItems.length,
           fileCount: fileCache.length,
           checkpointCount: checkpoints.length,
-          totalSize: JSON.stringify({ contextItems, fileCache, checkpoints }).length,
+          totalSize: JSON.stringify({
+            contextItems,
+            fileCache,
+            checkpoints,
+            checkpointItems,
+            checkpointFiles,
+          }).length,
         },
       };
 
@@ -1919,7 +1925,11 @@ Files: ${stats.files}`) + sizeWarning,
       const checkpointFormatSupported = Array.isArray(importData.checkpointItems);
 
       // Bound the work before opening the (synchronous, event-loop-blocking)
-      // transaction so a huge row count cannot stall the server.
+      // transaction so a huge row count cannot stall the server. The cap is
+      // per-array on purpose: checkpoint_items legitimately scales as
+      // (checkpoints × items), so it routinely exceeds the item count, and an
+      // aggregate sum cap would reject valid many-checkpoint sessions. The
+      // 50 MB MAX_IMPORT_BYTES cap bounds the total payload independently.
       if (
         importData.contextItems.length > MAX_IMPORT_ITEMS ||
         fileCacheEntries.length > MAX_IMPORT_ITEMS ||
@@ -1979,8 +1989,17 @@ Files: ${stats.files}`) + sizeWarning,
           const itemIdMap = new Map<string, string>();
           const fileIdMap = new Map<string, string>();
 
-          let itemCount = 0;
+          // De-duplicate by the natural key (session_id is implied) BEFORE
+          // inserting. context_items has UNIQUE(session_id, key), so two exported
+          // items sharing a key would otherwise INSERT OR REPLACE-collapse — the
+          // first row (still in itemIdMap) would be deleted, leaving the map
+          // pointing at a row that no longer exists and making a later
+          // checkpoint_items insert throw an FK error that aborts the whole
+          // import. Keeping the last occurrence matches INSERT OR REPLACE
+          // semantics; every exported id for that key is mapped to the survivor.
           let skippedItems = 0;
+          const itemsByKey = new Map<string, any>();
+          const itemOldIdsByKey = new Map<string, string[]>();
           for (const item of importData.contextItems) {
             // Skip entries that are not well-formed items rather than letting a
             // bad row abort the whole transaction with a SQLite binding error.
@@ -1993,9 +2012,19 @@ Files: ${stats.files}`) + sizeWarning,
               skippedItems++;
               continue;
             }
-            const newItemId = uuidv4();
+            itemsByKey.set(item.key, item);
+            const oldIds = itemOldIdsByKey.get(item.key) ?? [];
             if (typeof item.id === 'string') {
-              itemIdMap.set(item.id, newItemId);
+              oldIds.push(item.id);
+            }
+            itemOldIdsByKey.set(item.key, oldIds);
+          }
+
+          let itemCount = 0;
+          for (const [key, item] of itemsByKey) {
+            const newItemId = uuidv4();
+            for (const oldId of itemOldIdsByKey.get(key) ?? []) {
+              itemIdMap.set(oldId, newItemId);
             }
             itemStmt.run(
               newItemId,
@@ -2019,13 +2048,17 @@ Files: ${stats.files}`) + sizeWarning,
 
           // Import file cache. content is a nullable column, so null is valid and
           // must NOT be treated as a malformed row (that would drop legit rows).
+          // size is restored too so the round trip is faithful. Like context
+          // items, file_cache has UNIQUE(session_id, file_path), so de-duplicate
+          // by file_path (keep last) to avoid stranding fileIdMap on a collapse.
           const fileStmt = db.prepare(`
-            INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, last_read)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, size, last_read)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `);
 
-          let fileCount = 0;
           let skippedFiles = 0;
+          const filesByPath = new Map<string, any>();
+          const fileOldIdsByPath = new Map<string, string[]>();
           for (const file of fileCacheEntries) {
             if (
               typeof file !== 'object' ||
@@ -2036,16 +2069,32 @@ Files: ${stats.files}`) + sizeWarning,
               skippedFiles++;
               continue;
             }
-            const newFileId = uuidv4();
+            filesByPath.set(file.file_path, file);
+            const oldIds = fileOldIdsByPath.get(file.file_path) ?? [];
             if (typeof file.id === 'string') {
-              fileIdMap.set(file.id, newFileId);
+              oldIds.push(file.id);
             }
+            fileOldIdsByPath.set(file.file_path, oldIds);
+          }
+
+          let fileCount = 0;
+          for (const [filePath, file] of filesByPath) {
+            const newFileId = uuidv4();
+            for (const oldId of fileOldIdsByPath.get(filePath) ?? []) {
+              fileIdMap.set(oldId, newFileId);
+            }
+            const content = file.content ?? null;
             fileStmt.run(
               newFileId,
               targetSessionId,
               file.file_path,
-              file.content ?? null,
+              content,
               typeof file.hash === 'string' ? file.hash : null,
+              typeof file.size === 'number' && file.size >= 0
+                ? file.size
+                : typeof content === 'string'
+                  ? calculateSize(content)
+                  : 0,
               typeof file.last_read === 'string' ? file.last_read : null
             );
             fileCount++;
@@ -2058,6 +2107,7 @@ Files: ${stats.files}`) + sizeWarning,
           let checkpointCount = 0;
           let skippedCheckpoints = 0;
           let checkpointLinkCount = 0;
+          let droppedCheckpointLinks = 0;
           if (checkpointFormatSupported) {
             const checkpointIdMap = new Map<string, string>();
             const cpStmt = db.prepare(`
@@ -2093,10 +2143,23 @@ Files: ${stats.files}`) + sizeWarning,
               'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
             );
             for (const link of checkpointItemEntries) {
-              if (typeof link !== 'object' || link === null) continue;
+              if (
+                typeof link !== 'object' ||
+                link === null ||
+                typeof link.checkpoint_id !== 'string' ||
+                typeof link.context_item_id !== 'string'
+              ) {
+                droppedCheckpointLinks++;
+                continue;
+              }
               const newCpId = checkpointIdMap.get(link.checkpoint_id);
               const newItemId = itemIdMap.get(link.context_item_id);
-              if (!newCpId || !newItemId) continue;
+              // A link to a checkpoint/item that was skipped or absent is dropped
+              // rather than inserted (which would violate the foreign key).
+              if (!newCpId || !newItemId) {
+                droppedCheckpointLinks++;
+                continue;
+              }
               cpiStmt.run(uuidv4(), newCpId, newItemId);
               checkpointLinkCount++;
             }
@@ -2105,10 +2168,21 @@ Files: ${stats.files}`) + sizeWarning,
               'INSERT INTO checkpoint_files (id, checkpoint_id, file_cache_id) VALUES (?, ?, ?)'
             );
             for (const link of checkpointFileEntries) {
-              if (typeof link !== 'object' || link === null) continue;
+              if (
+                typeof link !== 'object' ||
+                link === null ||
+                typeof link.checkpoint_id !== 'string' ||
+                typeof link.file_cache_id !== 'string'
+              ) {
+                droppedCheckpointLinks++;
+                continue;
+              }
               const newCpId = checkpointIdMap.get(link.checkpoint_id);
               const newFileId = fileIdMap.get(link.file_cache_id);
-              if (!newCpId || !newFileId) continue;
+              if (!newCpId || !newFileId) {
+                droppedCheckpointLinks++;
+                continue;
+              }
               cpfStmt.run(uuidv4(), newCpId, newFileId);
               checkpointLinkCount++;
             }
@@ -2124,6 +2198,7 @@ Files: ${stats.files}`) + sizeWarning,
             checkpointCount,
             skippedCheckpoints,
             checkpointLinkCount,
+            droppedCheckpointLinks,
           };
         });
 
@@ -2147,8 +2222,11 @@ Files: ${stats.files}`) + sizeWarning,
             const skipNote = result.skippedCheckpoints
               ? ` (skipped ${result.skippedCheckpoints} malformed)`
               : '';
+            const dropNote = result.droppedCheckpointLinks
+              ? ` (dropped ${result.droppedCheckpointLinks} dangling)`
+              : '';
             lines.push(
-              `Checkpoints: ${result.checkpointCount}${skipNote}, links restored: ${result.checkpointLinkCount}`
+              `Checkpoints: ${result.checkpointCount}${skipNote}, links restored: ${result.checkpointLinkCount}${dropNote}`
             );
           }
         } else if (checkpointEntries.length > 0) {
