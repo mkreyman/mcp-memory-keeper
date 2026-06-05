@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { v4 as uuidv4 } from 'uuid';
+import type Database from 'better-sqlite3';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -127,6 +128,138 @@ function resolveConfinedImportPath(filePath: unknown): string {
   }
 
   return resolved;
+}
+
+// Shapes of the (untrusted) checkpoint rows in a 0.5.0+ import payload. Fields
+// are `unknown` because they come straight from JSON.parse and are validated at
+// runtime before use.
+interface ImportedCheckpoint {
+  id?: unknown;
+  name?: unknown;
+  description?: unknown;
+  metadata?: unknown;
+  git_status?: unknown;
+  git_branch?: unknown;
+  created_at?: unknown;
+}
+
+interface ImportedCheckpointLink {
+  checkpoint_id?: unknown;
+  context_item_id?: unknown;
+  file_cache_id?: unknown;
+}
+
+interface CheckpointRestoreResult {
+  checkpointCount: number;
+  skippedCheckpoints: number;
+  checkpointLinkCount: number;
+  droppedCheckpointLinks: number;
+}
+
+/**
+ * Restore checkpoints and their checkpoint_items / checkpoint_files join rows
+ * from a 0.5.0+ import payload. MUST be called inside the import transaction so
+ * its inserts are atomic with the rest of the import.
+ *
+ * Each checkpoint gets a fresh id; join rows are rewired onto the new item/file
+ * ids via the supplied maps. Malformed checkpoints are skipped, and links
+ * pointing at a skipped or absent row are dropped (never inserted — that would
+ * violate a foreign key).
+ */
+function restoreImportedCheckpoints(
+  db: Database.Database,
+  targetSessionId: string,
+  checkpointEntries: unknown[],
+  checkpointItemEntries: unknown[],
+  checkpointFileEntries: unknown[],
+  itemIdMap: Map<string, string>,
+  fileIdMap: Map<string, string>
+): CheckpointRestoreResult {
+  let checkpointCount = 0;
+  let skippedCheckpoints = 0;
+  let checkpointLinkCount = 0;
+  let droppedCheckpointLinks = 0;
+
+  const checkpointIdMap = new Map<string, string>();
+  const cpStmt = db.prepare(`
+    INSERT INTO checkpoints (id, session_id, name, description, metadata, git_status, git_branch, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const entry of checkpointEntries) {
+    const cp = entry as ImportedCheckpoint;
+    if (
+      typeof cp !== 'object' ||
+      cp === null ||
+      typeof cp.id !== 'string' ||
+      typeof cp.name !== 'string'
+    ) {
+      skippedCheckpoints++;
+      continue;
+    }
+    const newCpId = uuidv4();
+    checkpointIdMap.set(cp.id, newCpId);
+    cpStmt.run(
+      newCpId,
+      targetSessionId,
+      cp.name,
+      typeof cp.description === 'string' ? cp.description : null,
+      typeof cp.metadata === 'string' ? cp.metadata : null,
+      typeof cp.git_status === 'string' ? cp.git_status : null,
+      typeof cp.git_branch === 'string' ? cp.git_branch : null,
+      typeof cp.created_at === 'string' ? cp.created_at : new Date().toISOString()
+    );
+    checkpointCount++;
+  }
+
+  const cpiStmt = db.prepare(
+    'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
+  );
+  for (const entry of checkpointItemEntries) {
+    const link = entry as ImportedCheckpointLink;
+    if (
+      typeof link !== 'object' ||
+      link === null ||
+      typeof link.checkpoint_id !== 'string' ||
+      typeof link.context_item_id !== 'string'
+    ) {
+      droppedCheckpointLinks++;
+      continue;
+    }
+    const newCpId = checkpointIdMap.get(link.checkpoint_id);
+    const newItemId = itemIdMap.get(link.context_item_id);
+    if (!newCpId || !newItemId) {
+      droppedCheckpointLinks++;
+      continue;
+    }
+    cpiStmt.run(uuidv4(), newCpId, newItemId);
+    checkpointLinkCount++;
+  }
+
+  const cpfStmt = db.prepare(
+    'INSERT INTO checkpoint_files (id, checkpoint_id, file_cache_id) VALUES (?, ?, ?)'
+  );
+  for (const entry of checkpointFileEntries) {
+    const link = entry as ImportedCheckpointLink;
+    if (
+      typeof link !== 'object' ||
+      link === null ||
+      typeof link.checkpoint_id !== 'string' ||
+      typeof link.file_cache_id !== 'string'
+    ) {
+      droppedCheckpointLinks++;
+      continue;
+    }
+    const newCpId = checkpointIdMap.get(link.checkpoint_id);
+    const newFileId = fileIdMap.get(link.file_cache_id);
+    if (!newCpId || !newFileId) {
+      droppedCheckpointLinks++;
+      continue;
+    }
+    cpfStmt.run(uuidv4(), newCpId, newFileId);
+    checkpointLinkCount++;
+  }
+
+  return { checkpointCount, skippedCheckpoints, checkpointLinkCount, droppedCheckpointLinks };
 }
 
 // Warn users whose legacy DB is sitting in CWD
@@ -2168,93 +2301,24 @@ Files: ${stats.files}`) + sizeWarning,
             fileCount++;
           }
 
-          // Restore checkpoints and their links (0.5.0+ exports only). Each
-          // checkpoint gets a fresh id; its join rows are rewired onto the new
-          // item/file ids via the maps built above. Links pointing at a row that
-          // was skipped or absent are dropped.
-          let checkpointCount = 0;
-          let skippedCheckpoints = 0;
-          let checkpointLinkCount = 0;
-          let droppedCheckpointLinks = 0;
-          if (checkpointFormatSupported) {
-            const checkpointIdMap = new Map<string, string>();
-            const cpStmt = db.prepare(`
-              INSERT INTO checkpoints (id, session_id, name, description, metadata, git_status, git_branch, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-            for (const cp of checkpointEntries) {
-              if (
-                typeof cp !== 'object' ||
-                cp === null ||
-                typeof cp.id !== 'string' ||
-                typeof cp.name !== 'string'
-              ) {
-                skippedCheckpoints++;
-                continue;
-              }
-              const newCpId = uuidv4();
-              checkpointIdMap.set(cp.id, newCpId);
-              cpStmt.run(
-                newCpId,
+          // Restore checkpoints + their links (0.5.0+ exports only), within this
+          // same transaction. Extracted to a helper to keep the handler readable.
+          const cp: CheckpointRestoreResult = checkpointFormatSupported
+            ? restoreImportedCheckpoints(
+                db,
                 targetSessionId,
-                cp.name,
-                typeof cp.description === 'string' ? cp.description : null,
-                typeof cp.metadata === 'string' ? cp.metadata : null,
-                typeof cp.git_status === 'string' ? cp.git_status : null,
-                typeof cp.git_branch === 'string' ? cp.git_branch : null,
-                typeof cp.created_at === 'string' ? cp.created_at : new Date().toISOString()
-              );
-              checkpointCount++;
-            }
-
-            const cpiStmt = db.prepare(
-              'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
-            );
-            for (const link of checkpointItemEntries) {
-              if (
-                typeof link !== 'object' ||
-                link === null ||
-                typeof link.checkpoint_id !== 'string' ||
-                typeof link.context_item_id !== 'string'
-              ) {
-                droppedCheckpointLinks++;
-                continue;
-              }
-              const newCpId = checkpointIdMap.get(link.checkpoint_id);
-              const newItemId = itemIdMap.get(link.context_item_id);
-              // A link to a checkpoint/item that was skipped or absent is dropped
-              // rather than inserted (which would violate the foreign key).
-              if (!newCpId || !newItemId) {
-                droppedCheckpointLinks++;
-                continue;
-              }
-              cpiStmt.run(uuidv4(), newCpId, newItemId);
-              checkpointLinkCount++;
-            }
-
-            const cpfStmt = db.prepare(
-              'INSERT INTO checkpoint_files (id, checkpoint_id, file_cache_id) VALUES (?, ?, ?)'
-            );
-            for (const link of checkpointFileEntries) {
-              if (
-                typeof link !== 'object' ||
-                link === null ||
-                typeof link.checkpoint_id !== 'string' ||
-                typeof link.file_cache_id !== 'string'
-              ) {
-                droppedCheckpointLinks++;
-                continue;
-              }
-              const newCpId = checkpointIdMap.get(link.checkpoint_id);
-              const newFileId = fileIdMap.get(link.file_cache_id);
-              if (!newCpId || !newFileId) {
-                droppedCheckpointLinks++;
-                continue;
-              }
-              cpfStmt.run(uuidv4(), newCpId, newFileId);
-              checkpointLinkCount++;
-            }
-          }
+                checkpointEntries,
+                checkpointItemEntries,
+                checkpointFileEntries,
+                itemIdMap,
+                fileIdMap
+              )
+            : {
+                checkpointCount: 0,
+                skippedCheckpoints: 0,
+                checkpointLinkCount: 0,
+                droppedCheckpointLinks: 0,
+              };
 
           return {
             targetSessionId,
@@ -2263,10 +2327,10 @@ Files: ${stats.files}`) + sizeWarning,
             fileCount,
             skippedItems,
             skippedFiles,
-            checkpointCount,
-            skippedCheckpoints,
-            checkpointLinkCount,
-            droppedCheckpointLinks,
+            checkpointCount: cp.checkpointCount,
+            skippedCheckpoints: cp.skippedCheckpoints,
+            checkpointLinkCount: cp.checkpointLinkCount,
+            droppedCheckpointLinks: cp.droppedCheckpointLinks,
             collapsedItems,
             collapsedFiles,
           };
