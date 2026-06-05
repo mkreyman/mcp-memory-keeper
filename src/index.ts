@@ -1723,6 +1723,23 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
       const checkpoints = db
         .prepare('SELECT * FROM checkpoints WHERE session_id = ?')
         .all(targetSessionId);
+      // The join rows that link a checkpoint to the context items / files it
+      // captured. Without these, an imported checkpoint would be empty, so they
+      // are part of the export payload (format version 0.5.0+).
+      const checkpointItems = db
+        .prepare(
+          `SELECT cpi.* FROM checkpoint_items cpi
+           JOIN checkpoints cp ON cpi.checkpoint_id = cp.id
+           WHERE cp.session_id = ?`
+        )
+        .all(targetSessionId);
+      const checkpointFiles = db
+        .prepare(
+          `SELECT cpf.* FROM checkpoint_files cpf
+           JOIN checkpoints cp ON cpf.checkpoint_id = cp.id
+           WHERE cp.session_id = ?`
+        )
+        .all(targetSessionId);
 
       // Check if session is empty
       const isEmpty =
@@ -1741,12 +1758,17 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
       }
 
       const exportData = {
-        version: '0.4.0',
+        // 0.5.0 added checkpointItems / checkpointFiles so checkpoints survive
+        // a round trip. Older importers ignore the new keys; newer importers
+        // treat their absence as "legacy export, checkpoints not importable".
+        version: '0.5.0',
         exported: new Date().toISOString(),
         session,
         contextItems,
         fileCache,
         checkpoints,
+        checkpointItems,
+        checkpointFiles,
         metadata: {
           itemCount: contextItems.length,
           fileCount: fileCache.length,
@@ -1884,12 +1906,26 @@ Files: ${stats.files}`) + sizeWarning,
       const merged = merge && !!currentSessionId;
 
       const fileCacheEntries = Array.isArray(importData.fileCache) ? importData.fileCache : [];
+      const checkpointEntries = Array.isArray(importData.checkpoints) ? importData.checkpoints : [];
+      const checkpointItemEntries = Array.isArray(importData.checkpointItems)
+        ? importData.checkpointItems
+        : [];
+      const checkpointFileEntries = Array.isArray(importData.checkpointFiles)
+        ? importData.checkpointFiles
+        : [];
+      // Presence of the checkpointItems key marks a 0.5.0+ export that carries
+      // the join rows needed to restore checkpoints faithfully. Older exports
+      // lack it, so their checkpoints are reported as not imported.
+      const checkpointFormatSupported = Array.isArray(importData.checkpointItems);
 
       // Bound the work before opening the (synchronous, event-loop-blocking)
       // transaction so a huge row count cannot stall the server.
       if (
         importData.contextItems.length > MAX_IMPORT_ITEMS ||
-        fileCacheEntries.length > MAX_IMPORT_ITEMS
+        fileCacheEntries.length > MAX_IMPORT_ITEMS ||
+        checkpointEntries.length > MAX_IMPORT_ITEMS ||
+        checkpointItemEntries.length > MAX_IMPORT_ITEMS ||
+        checkpointFileEntries.length > MAX_IMPORT_ITEMS
       ) {
         return {
           content: [
@@ -1938,6 +1974,11 @@ Files: ${stats.files}`) + sizeWarning,
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           `);
 
+          // Map each exported row's id to the new id we generate, so checkpoint
+          // join rows can be rewired onto the freshly-imported items/files.
+          const itemIdMap = new Map<string, string>();
+          const fileIdMap = new Map<string, string>();
+
           let itemCount = 0;
           let skippedItems = 0;
           for (const item of importData.contextItems) {
@@ -1952,8 +1993,12 @@ Files: ${stats.files}`) + sizeWarning,
               skippedItems++;
               continue;
             }
+            const newItemId = uuidv4();
+            if (typeof item.id === 'string') {
+              itemIdMap.set(item.id, newItemId);
+            }
             itemStmt.run(
-              uuidv4(),
+              newItemId,
               targetSessionId,
               item.key,
               item.value,
@@ -1991,8 +2036,12 @@ Files: ${stats.files}`) + sizeWarning,
               skippedFiles++;
               continue;
             }
+            const newFileId = uuidv4();
+            if (typeof file.id === 'string') {
+              fileIdMap.set(file.id, newFileId);
+            }
             fileStmt.run(
-              uuidv4(),
+              newFileId,
               targetSessionId,
               file.file_path,
               file.content ?? null,
@@ -2002,7 +2051,80 @@ Files: ${stats.files}`) + sizeWarning,
             fileCount++;
           }
 
-          return { targetSessionId, createdNew, itemCount, fileCount, skippedItems, skippedFiles };
+          // Restore checkpoints and their links (0.5.0+ exports only). Each
+          // checkpoint gets a fresh id; its join rows are rewired onto the new
+          // item/file ids via the maps built above. Links pointing at a row that
+          // was skipped or absent are dropped.
+          let checkpointCount = 0;
+          let skippedCheckpoints = 0;
+          let checkpointLinkCount = 0;
+          if (checkpointFormatSupported) {
+            const checkpointIdMap = new Map<string, string>();
+            const cpStmt = db.prepare(`
+              INSERT INTO checkpoints (id, session_id, name, description, metadata, git_status, git_branch, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            for (const cp of checkpointEntries) {
+              if (
+                typeof cp !== 'object' ||
+                cp === null ||
+                typeof cp.id !== 'string' ||
+                typeof cp.name !== 'string'
+              ) {
+                skippedCheckpoints++;
+                continue;
+              }
+              const newCpId = uuidv4();
+              checkpointIdMap.set(cp.id, newCpId);
+              cpStmt.run(
+                newCpId,
+                targetSessionId,
+                cp.name,
+                typeof cp.description === 'string' ? cp.description : null,
+                typeof cp.metadata === 'string' ? cp.metadata : null,
+                typeof cp.git_status === 'string' ? cp.git_status : null,
+                typeof cp.git_branch === 'string' ? cp.git_branch : null,
+                typeof cp.created_at === 'string' ? cp.created_at : new Date().toISOString()
+              );
+              checkpointCount++;
+            }
+
+            const cpiStmt = db.prepare(
+              'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
+            );
+            for (const link of checkpointItemEntries) {
+              if (typeof link !== 'object' || link === null) continue;
+              const newCpId = checkpointIdMap.get(link.checkpoint_id);
+              const newItemId = itemIdMap.get(link.context_item_id);
+              if (!newCpId || !newItemId) continue;
+              cpiStmt.run(uuidv4(), newCpId, newItemId);
+              checkpointLinkCount++;
+            }
+
+            const cpfStmt = db.prepare(
+              'INSERT INTO checkpoint_files (id, checkpoint_id, file_cache_id) VALUES (?, ?, ?)'
+            );
+            for (const link of checkpointFileEntries) {
+              if (typeof link !== 'object' || link === null) continue;
+              const newCpId = checkpointIdMap.get(link.checkpoint_id);
+              const newFileId = fileIdMap.get(link.file_cache_id);
+              if (!newCpId || !newFileId) continue;
+              cpfStmt.run(uuidv4(), newCpId, newFileId);
+              checkpointLinkCount++;
+            }
+          }
+
+          return {
+            targetSessionId,
+            createdNew,
+            itemCount,
+            fileCount,
+            skippedItems,
+            skippedFiles,
+            checkpointCount,
+            skippedCheckpoints,
+            checkpointLinkCount,
+          };
         });
 
         const result = runImport();
@@ -2018,13 +2140,21 @@ Files: ${stats.files}`) + sizeWarning,
           `Files: ${result.fileCount}${result.skippedFiles ? ` (skipped ${result.skippedFiles} malformed)` : ''}`,
           `Mode: ${result.createdNew ? 'New session' : 'Merged'}`,
         ];
-        // Checkpoints are present in exports but not restored by import; say so
-        // explicitly instead of silently dropping them.
-        const checkpointCount = Array.isArray(importData.checkpoints)
-          ? importData.checkpoints.length
-          : 0;
-        if (checkpointCount > 0) {
-          lines.push(`Checkpoints in file: ${checkpointCount} (not imported)`);
+        // Report checkpoints: restored for 0.5.0+ exports, or flagged as not
+        // imported for legacy exports that lack the join rows.
+        if (checkpointFormatSupported) {
+          if (result.checkpointCount > 0 || checkpointEntries.length > 0) {
+            const skipNote = result.skippedCheckpoints
+              ? ` (skipped ${result.skippedCheckpoints} malformed)`
+              : '';
+            lines.push(
+              `Checkpoints: ${result.checkpointCount}${skipNote}, links restored: ${result.checkpointLinkCount}`
+            );
+          }
+        } else if (checkpointEntries.length > 0) {
+          lines.push(
+            `Checkpoints in file: ${checkpointEntries.length} (not imported — re-export with v0.5.0+ to include them)`
+          );
         }
         // Warn when the caller asked to merge but there was no active session.
         if (merge && !merged) {
@@ -4584,7 +4714,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     {
       name: 'context_export',
       description:
-        'Export session data for backup or sharing. JSON exports are written to the ' +
+        'Export session data (context items, cached files, and checkpoints with their ' +
+        'links) for backup or sharing. JSON exports are written to the ' +
         "server's exports directory (<DATA_DIR>/exports, overridable via MEMORY_KEEPER_EXPORT_DIR); " +
         'the response includes the full path, which can be passed back to context_import.',
       inputSchema: {
