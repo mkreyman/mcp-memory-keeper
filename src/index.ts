@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { v4 as uuidv4 } from 'uuid';
+import type Database from 'better-sqlite3';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -127,6 +128,138 @@ function resolveConfinedImportPath(filePath: unknown): string {
   }
 
   return resolved;
+}
+
+// Shapes of the (untrusted) checkpoint rows in a 0.5.0+ import payload. Fields
+// are `unknown` because they come straight from JSON.parse and are validated at
+// runtime before use.
+interface ImportedCheckpoint {
+  id?: unknown;
+  name?: unknown;
+  description?: unknown;
+  metadata?: unknown;
+  git_status?: unknown;
+  git_branch?: unknown;
+  created_at?: unknown;
+}
+
+interface ImportedCheckpointLink {
+  checkpoint_id?: unknown;
+  context_item_id?: unknown;
+  file_cache_id?: unknown;
+}
+
+interface CheckpointRestoreResult {
+  checkpointCount: number;
+  skippedCheckpoints: number;
+  checkpointLinkCount: number;
+  droppedCheckpointLinks: number;
+}
+
+/**
+ * Restore checkpoints and their checkpoint_items / checkpoint_files join rows
+ * from a 0.5.0+ import payload. MUST be called inside the import transaction so
+ * its inserts are atomic with the rest of the import.
+ *
+ * Each checkpoint gets a fresh id; join rows are rewired onto the new item/file
+ * ids via the supplied maps. Malformed checkpoints are skipped, and links
+ * pointing at a skipped or absent row are dropped (never inserted — that would
+ * violate a foreign key).
+ */
+function restoreImportedCheckpoints(
+  db: Database.Database,
+  targetSessionId: string,
+  checkpointEntries: unknown[],
+  checkpointItemEntries: unknown[],
+  checkpointFileEntries: unknown[],
+  itemIdMap: Map<string, string>,
+  fileIdMap: Map<string, string>
+): CheckpointRestoreResult {
+  let checkpointCount = 0;
+  let skippedCheckpoints = 0;
+  let checkpointLinkCount = 0;
+  let droppedCheckpointLinks = 0;
+
+  const checkpointIdMap = new Map<string, string>();
+  const cpStmt = db.prepare(`
+    INSERT INTO checkpoints (id, session_id, name, description, metadata, git_status, git_branch, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const entry of checkpointEntries) {
+    const cp = entry as ImportedCheckpoint;
+    if (
+      typeof cp !== 'object' ||
+      cp === null ||
+      typeof cp.id !== 'string' ||
+      typeof cp.name !== 'string'
+    ) {
+      skippedCheckpoints++;
+      continue;
+    }
+    const newCpId = uuidv4();
+    checkpointIdMap.set(cp.id, newCpId);
+    cpStmt.run(
+      newCpId,
+      targetSessionId,
+      cp.name,
+      typeof cp.description === 'string' ? cp.description : null,
+      typeof cp.metadata === 'string' ? cp.metadata : null,
+      typeof cp.git_status === 'string' ? cp.git_status : null,
+      typeof cp.git_branch === 'string' ? cp.git_branch : null,
+      typeof cp.created_at === 'string' ? cp.created_at : new Date().toISOString()
+    );
+    checkpointCount++;
+  }
+
+  const cpiStmt = db.prepare(
+    'INSERT INTO checkpoint_items (id, checkpoint_id, context_item_id) VALUES (?, ?, ?)'
+  );
+  for (const entry of checkpointItemEntries) {
+    const link = entry as ImportedCheckpointLink;
+    if (
+      typeof link !== 'object' ||
+      link === null ||
+      typeof link.checkpoint_id !== 'string' ||
+      typeof link.context_item_id !== 'string'
+    ) {
+      droppedCheckpointLinks++;
+      continue;
+    }
+    const newCpId = checkpointIdMap.get(link.checkpoint_id);
+    const newItemId = itemIdMap.get(link.context_item_id);
+    if (!newCpId || !newItemId) {
+      droppedCheckpointLinks++;
+      continue;
+    }
+    cpiStmt.run(uuidv4(), newCpId, newItemId);
+    checkpointLinkCount++;
+  }
+
+  const cpfStmt = db.prepare(
+    'INSERT INTO checkpoint_files (id, checkpoint_id, file_cache_id) VALUES (?, ?, ?)'
+  );
+  for (const entry of checkpointFileEntries) {
+    const link = entry as ImportedCheckpointLink;
+    if (
+      typeof link !== 'object' ||
+      link === null ||
+      typeof link.checkpoint_id !== 'string' ||
+      typeof link.file_cache_id !== 'string'
+    ) {
+      droppedCheckpointLinks++;
+      continue;
+    }
+    const newCpId = checkpointIdMap.get(link.checkpoint_id);
+    const newFileId = fileIdMap.get(link.file_cache_id);
+    if (!newCpId || !newFileId) {
+      droppedCheckpointLinks++;
+      continue;
+    }
+    cpfStmt.run(uuidv4(), newCpId, newFileId);
+    checkpointLinkCount++;
+  }
+
+  return { checkpointCount, skippedCheckpoints, checkpointLinkCount, droppedCheckpointLinks };
 }
 
 // Warn users whose legacy DB is sitting in CWD
@@ -1723,6 +1856,23 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
       const checkpoints = db
         .prepare('SELECT * FROM checkpoints WHERE session_id = ?')
         .all(targetSessionId);
+      // The join rows that link a checkpoint to the context items / files it
+      // captured. Without these, an imported checkpoint would be empty, so they
+      // are part of the export payload (format version 0.5.0+).
+      const checkpointItems = db
+        .prepare(
+          `SELECT cpi.* FROM checkpoint_items cpi
+           JOIN checkpoints cp ON cpi.checkpoint_id = cp.id
+           WHERE cp.session_id = ?`
+        )
+        .all(targetSessionId);
+      const checkpointFiles = db
+        .prepare(
+          `SELECT cpf.* FROM checkpoint_files cpf
+           JOIN checkpoints cp ON cpf.checkpoint_id = cp.id
+           WHERE cp.session_id = ?`
+        )
+        .all(targetSessionId);
 
       // Check if session is empty
       const isEmpty =
@@ -1741,17 +1891,28 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
       }
 
       const exportData = {
-        version: '0.4.0',
+        // 0.5.0 added checkpointItems / checkpointFiles so checkpoints survive
+        // a round trip. Older importers ignore the new keys; newer importers
+        // treat their absence as "legacy export, checkpoints not importable".
+        version: '0.5.0',
         exported: new Date().toISOString(),
         session,
         contextItems,
         fileCache,
         checkpoints,
+        checkpointItems,
+        checkpointFiles,
         metadata: {
           itemCount: contextItems.length,
           fileCount: fileCache.length,
           checkpointCount: checkpoints.length,
-          totalSize: JSON.stringify({ contextItems, fileCache, checkpoints }).length,
+          totalSize: JSON.stringify({
+            contextItems,
+            fileCache,
+            checkpoints,
+            checkpointItems,
+            checkpointFiles,
+          }).length,
         },
       };
 
@@ -1884,12 +2045,30 @@ Files: ${stats.files}`) + sizeWarning,
       const merged = merge && !!currentSessionId;
 
       const fileCacheEntries = Array.isArray(importData.fileCache) ? importData.fileCache : [];
+      const checkpointEntries = Array.isArray(importData.checkpoints) ? importData.checkpoints : [];
+      const checkpointItemEntries = Array.isArray(importData.checkpointItems)
+        ? importData.checkpointItems
+        : [];
+      const checkpointFileEntries = Array.isArray(importData.checkpointFiles)
+        ? importData.checkpointFiles
+        : [];
+      // Presence of the checkpointItems key marks a 0.5.0+ export that carries
+      // the join rows needed to restore checkpoints faithfully. Older exports
+      // lack it, so their checkpoints are reported as not imported.
+      const checkpointFormatSupported = Array.isArray(importData.checkpointItems);
 
       // Bound the work before opening the (synchronous, event-loop-blocking)
-      // transaction so a huge row count cannot stall the server.
+      // transaction so a huge row count cannot stall the server. The cap is
+      // per-array on purpose: checkpoint_items legitimately scales as
+      // (checkpoints × items), so it routinely exceeds the item count, and an
+      // aggregate sum cap would reject valid many-checkpoint sessions. The
+      // 50 MB MAX_IMPORT_BYTES cap bounds the total payload independently.
       if (
         importData.contextItems.length > MAX_IMPORT_ITEMS ||
-        fileCacheEntries.length > MAX_IMPORT_ITEMS
+        fileCacheEntries.length > MAX_IMPORT_ITEMS ||
+        checkpointEntries.length > MAX_IMPORT_ITEMS ||
+        checkpointItemEntries.length > MAX_IMPORT_ITEMS ||
+        checkpointFileEntries.length > MAX_IMPORT_ITEMS
       ) {
         return {
           content: [
@@ -1931,15 +2110,41 @@ Files: ${stats.files}`) + sizeWarning,
             );
           }
 
-          // Import context items. Restore the channel/is_private/metadata columns
-          // too so a round trip is faithful, not lossy.
-          const itemStmt = db.prepare(`
-            INSERT OR REPLACE INTO context_items (id, session_id, key, value, category, priority, size, metadata, is_private, channel, created_at, updated_at)
+          // Import context items, restoring channel/is_private/metadata so the
+          // round trip is faithful. On a key collision we UPDATE the existing row
+          // in place (preserving its id) rather than INSERT OR REPLACE: REPLACE
+          // would delete the row and ON DELETE CASCADE would silently strip a
+          // pre-existing checkpoint's link to it. Preserving the id keeps links.
+          const insertItemStmt = db.prepare(`
+            INSERT INTO context_items (id, session_id, key, value, category, priority, size, metadata, is_private, channel, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           `);
+          const findItemStmt = db.prepare(
+            'SELECT id FROM context_items WHERE session_id = ? AND key = ?'
+          );
+          const updateItemStmt = db.prepare(`
+            UPDATE context_items
+            SET value = ?, category = ?, priority = ?, size = ?, metadata = ?, is_private = ?, channel = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `);
 
-          let itemCount = 0;
+          // Map each exported row's id to the new id we generate, so checkpoint
+          // join rows can be rewired onto the freshly-imported items/files.
+          const itemIdMap = new Map<string, string>();
+          const fileIdMap = new Map<string, string>();
+
+          // De-duplicate by the natural key (session_id is implied) BEFORE
+          // inserting. context_items has UNIQUE(session_id, key), so two exported
+          // items sharing a key would otherwise INSERT OR REPLACE-collapse — the
+          // first row (still in itemIdMap) would be deleted, leaving the map
+          // pointing at a row that no longer exists and making a later
+          // checkpoint_items insert throw an FK error that aborts the whole
+          // import. Keeping the last occurrence matches INSERT OR REPLACE
+          // semantics; every exported id for that key is mapped to the survivor.
           let skippedItems = 0;
+          let validItems = 0;
+          const itemsByKey = new Map<string, any>();
+          const itemOldIdsByKey = new Map<string, string[]>();
           for (const item of importData.contextItems) {
             // Skip entries that are not well-formed items rather than letting a
             // bad row abort the whole transaction with a SQLite binding error.
@@ -1952,35 +2157,93 @@ Files: ${stats.files}`) + sizeWarning,
               skippedItems++;
               continue;
             }
-            itemStmt.run(
-              uuidv4(),
-              targetSessionId,
-              item.key,
-              item.value,
-              typeof item.category === 'string' ? item.category : null,
-              typeof item.priority === 'string' ? item.priority : null,
-              // Use the stored size only when it is a valid non-negative number;
-              // `|| calculateSize(...)` would wrongly recompute a legitimate 0.
-              typeof item.size === 'number' && item.size >= 0
-                ? item.size
-                : calculateSize(item.value),
-              typeof item.metadata === 'string' ? item.metadata : null,
-              typeof item.is_private === 'number' ? item.is_private : 0,
-              typeof item.channel === 'string' ? item.channel : 'general',
-              typeof item.created_at === 'string' ? item.created_at : new Date().toISOString()
-            );
+            validItems++;
+            itemsByKey.set(item.key, item);
+            const oldIds = itemOldIdsByKey.get(item.key) ?? [];
+            if (typeof item.id === 'string') {
+              oldIds.push(item.id);
+            }
+            itemOldIdsByKey.set(item.key, oldIds);
+          }
+          // Valid rows that collapsed onto an earlier duplicate key.
+          const collapsedItems = validItems - itemsByKey.size;
+
+          let itemCount = 0;
+          for (const [key, item] of itemsByKey) {
+            const value = item.value;
+            const category = typeof item.category === 'string' ? item.category : null;
+            const priority = typeof item.priority === 'string' ? item.priority : null;
+            // Use the stored size only when it is a valid non-negative number;
+            // `|| calculateSize(...)` would wrongly recompute a legitimate 0.
+            const size =
+              typeof item.size === 'number' && item.size >= 0 ? item.size : calculateSize(value);
+            const metadata = typeof item.metadata === 'string' ? item.metadata : null;
+            const isPrivate = typeof item.is_private === 'number' ? item.is_private : 0;
+            const channel = typeof item.channel === 'string' ? item.channel : 'general';
+
+            // In merge mode, reuse the existing row id on a key collision so its
+            // existing checkpoint links are preserved (no REPLACE-cascade).
+            const existing = merged
+              ? (findItemStmt.get(targetSessionId, key) as { id: string } | undefined)
+              : undefined;
+            let targetItemId: string;
+            if (existing) {
+              targetItemId = existing.id;
+              updateItemStmt.run(
+                value,
+                category,
+                priority,
+                size,
+                metadata,
+                isPrivate,
+                channel,
+                targetItemId
+              );
+            } else {
+              targetItemId = uuidv4();
+              insertItemStmt.run(
+                targetItemId,
+                targetSessionId,
+                key,
+                value,
+                category,
+                priority,
+                size,
+                metadata,
+                isPrivate,
+                channel,
+                typeof item.created_at === 'string' ? item.created_at : new Date().toISOString()
+              );
+            }
+            for (const oldId of itemOldIdsByKey.get(key) ?? []) {
+              itemIdMap.set(oldId, targetItemId);
+            }
             itemCount++;
           }
 
           // Import file cache. content is a nullable column, so null is valid and
           // must NOT be treated as a malformed row (that would drop legit rows).
-          const fileStmt = db.prepare(`
-            INSERT OR REPLACE INTO file_cache (id, session_id, file_path, content, hash, last_read)
-            VALUES (?, ?, ?, ?, ?, ?)
+          // size is restored too so the round trip is faithful. Like context
+          // items, file_cache has UNIQUE(session_id, file_path); de-duplicate by
+          // file_path and UPDATE-in-place on collision (preserving the id, hence
+          // any pre-existing checkpoint_files link) rather than INSERT OR REPLACE.
+          const insertFileStmt = db.prepare(`
+            INSERT INTO file_cache (id, session_id, file_path, content, hash, size, last_read)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `);
+          const findFileStmt = db.prepare(
+            'SELECT id FROM file_cache WHERE session_id = ? AND file_path = ?'
+          );
+          const updateFileStmt = db.prepare(`
+            UPDATE file_cache
+            SET content = ?, hash = ?, size = ?, last_read = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
           `);
 
-          let fileCount = 0;
           let skippedFiles = 0;
+          let validFiles = 0;
+          const filesByPath = new Map<string, any>();
+          const fileOldIdsByPath = new Map<string, string[]>();
           for (const file of fileCacheEntries) {
             if (
               typeof file !== 'object' ||
@@ -1991,18 +2254,86 @@ Files: ${stats.files}`) + sizeWarning,
               skippedFiles++;
               continue;
             }
-            fileStmt.run(
-              uuidv4(),
-              targetSessionId,
-              file.file_path,
-              file.content ?? null,
-              typeof file.hash === 'string' ? file.hash : null,
-              typeof file.last_read === 'string' ? file.last_read : null
-            );
+            validFiles++;
+            filesByPath.set(file.file_path, file);
+            const oldIds = fileOldIdsByPath.get(file.file_path) ?? [];
+            if (typeof file.id === 'string') {
+              oldIds.push(file.id);
+            }
+            fileOldIdsByPath.set(file.file_path, oldIds);
+          }
+          const collapsedFiles = validFiles - filesByPath.size;
+
+          let fileCount = 0;
+          for (const [filePath, file] of filesByPath) {
+            const content = file.content ?? null;
+            const hash = typeof file.hash === 'string' ? file.hash : null;
+            const size =
+              typeof file.size === 'number' && file.size >= 0
+                ? file.size
+                : typeof content === 'string'
+                  ? calculateSize(content)
+                  : 0;
+            const lastRead = typeof file.last_read === 'string' ? file.last_read : null;
+
+            const existing = merged
+              ? (findFileStmt.get(targetSessionId, filePath) as { id: string } | undefined)
+              : undefined;
+            let targetFileId: string;
+            if (existing) {
+              targetFileId = existing.id;
+              updateFileStmt.run(content, hash, size, lastRead, targetFileId);
+            } else {
+              targetFileId = uuidv4();
+              insertFileStmt.run(
+                targetFileId,
+                targetSessionId,
+                filePath,
+                content,
+                hash,
+                size,
+                lastRead
+              );
+            }
+            for (const oldId of fileOldIdsByPath.get(filePath) ?? []) {
+              fileIdMap.set(oldId, targetFileId);
+            }
             fileCount++;
           }
 
-          return { targetSessionId, createdNew, itemCount, fileCount, skippedItems, skippedFiles };
+          // Restore checkpoints + their links (0.5.0+ exports only), within this
+          // same transaction. Extracted to a helper to keep the handler readable.
+          const cp: CheckpointRestoreResult = checkpointFormatSupported
+            ? restoreImportedCheckpoints(
+                db,
+                targetSessionId,
+                checkpointEntries,
+                checkpointItemEntries,
+                checkpointFileEntries,
+                itemIdMap,
+                fileIdMap
+              )
+            : {
+                checkpointCount: 0,
+                skippedCheckpoints: 0,
+                checkpointLinkCount: 0,
+                droppedCheckpointLinks: 0,
+              };
+
+          return {
+            targetSessionId,
+            createdNew,
+            itemCount,
+            fileCount,
+            skippedItems,
+            skippedFiles,
+            checkpointCount: cp.checkpointCount,
+            skippedCheckpoints: cp.skippedCheckpoints,
+            checkpointLinkCount: cp.checkpointLinkCount,
+            droppedCheckpointLinks: cp.droppedCheckpointLinks,
+            collapsedItems,
+            collapsedFiles,
+          };
         });
 
         const result = runImport();
@@ -2014,17 +2345,28 @@ Files: ${stats.files}`) + sizeWarning,
         const lines = [
           'Import successful!',
           `Session: ${result.targetSessionId.substring(0, 8)}`,
-          `Context items: ${result.itemCount}${result.skippedItems ? ` (skipped ${result.skippedItems} malformed)` : ''}`,
-          `Files: ${result.fileCount}${result.skippedFiles ? ` (skipped ${result.skippedFiles} malformed)` : ''}`,
+          `Context items: ${result.itemCount}${result.skippedItems ? ` (skipped ${result.skippedItems} malformed)` : ''}${result.collapsedItems ? ` (collapsed ${result.collapsedItems} duplicate-key)` : ''}`,
+          `Files: ${result.fileCount}${result.skippedFiles ? ` (skipped ${result.skippedFiles} malformed)` : ''}${result.collapsedFiles ? ` (collapsed ${result.collapsedFiles} duplicate-path)` : ''}`,
           `Mode: ${result.createdNew ? 'New session' : 'Merged'}`,
         ];
-        // Checkpoints are present in exports but not restored by import; say so
-        // explicitly instead of silently dropping them.
-        const checkpointCount = Array.isArray(importData.checkpoints)
-          ? importData.checkpoints.length
-          : 0;
-        if (checkpointCount > 0) {
-          lines.push(`Checkpoints in file: ${checkpointCount} (not imported)`);
+        // Report checkpoints: restored for 0.5.0+ exports, or flagged as not
+        // imported for legacy exports that lack the join rows.
+        if (checkpointFormatSupported) {
+          if (result.checkpointCount > 0 || checkpointEntries.length > 0) {
+            const skipNote = result.skippedCheckpoints
+              ? ` (skipped ${result.skippedCheckpoints} malformed)`
+              : '';
+            const dropNote = result.droppedCheckpointLinks
+              ? ` (dropped ${result.droppedCheckpointLinks} dangling)`
+              : '';
+            lines.push(
+              `Checkpoints: ${result.checkpointCount}${skipNote}, links restored: ${result.checkpointLinkCount}${dropNote}`
+            );
+          }
+        } else if (checkpointEntries.length > 0) {
+          lines.push(
+            `Checkpoints in file: ${checkpointEntries.length} (not imported — this export predates checkpoint support and does not carry the item/file links)`
+          );
         }
         // Warn when the caller asked to merge but there was no active session.
         if (merge && !merged) {
@@ -4584,7 +4926,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     {
       name: 'context_export',
       description:
-        'Export session data for backup or sharing. JSON exports are written to the ' +
+        'Export session data (context items, cached files, and checkpoints with their ' +
+        'links) for backup or sharing. JSON exports are written to the ' +
         "server's exports directory (<DATA_DIR>/exports, overridable via MEMORY_KEEPER_EXPORT_DIR); " +
         'the response includes the full path, which can be passed back to context_import.',
       inputSchema: {

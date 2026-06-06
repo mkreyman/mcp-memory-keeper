@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-05
+
+### Added
+
+- **Checkpoints now survive an export → import round trip** (#37, follow-up to #36)
+  - `context_export` writes a new `0.5.0` format that includes the `checkpointItems` and `checkpointFiles` join rows (previously only the bare `checkpoints` rows were exported, which made imported checkpoints empty/useless).
+  - `context_import` restores checkpoints and rewires their links: each checkpoint gets a fresh id, and its item/file links are remapped onto the freshly-imported context-item and file-cache ids. Links pointing at a skipped or absent row are dropped rather than aborting the import. The whole restore happens inside the existing atomic transaction.
+  - The import summary now reports `Checkpoints: N (skipped M malformed), links restored: K`.
+  - **Backward compatible:** importing a pre-`0.5.0` export (no join-row arrays) does not error and reports the checkpoints as not imported, preserving the prior explicit-not-imported behaviour.
+  - The entry-count cap from #36 now also bounds checkpoint and join-row arrays.
+  - **Merge safety:** on a key/path collision during `merge` import, the existing row is now UPDATED in place (its id preserved) instead of `INSERT OR REPLACE`, so a pre-existing checkpoint's links to that row are no longer cascade-deleted. Both `context_items` and `file_cache` (which have UNIQUE constraints) are handled this way.
+  - **Fidelity & observability:** `file_cache.size` is restored on import; duplicate-key/path rows that collapse during import are reported (`collapsed N duplicate-key`); dropped dangling checkpoint links are surfaced (`links restored: K (dropped N dangling)`); and `metadata.totalSize` now accounts for the checkpoint join arrays.
+
 ## [0.13.0] - 2026-06-05
 
 ### Fixed
