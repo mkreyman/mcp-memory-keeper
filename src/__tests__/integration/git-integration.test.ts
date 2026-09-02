@@ -24,7 +24,7 @@ describe('Git Integration Tests', () => {
 
     // Create and initialize a real git repo for testing
     fs.mkdirSync(tempRepoPath, { recursive: true });
-    git = simpleGit(tempRepoPath);
+    git = simpleGit(tempRepoPath, { unsafe: { allowUnsafeHooksPath: true } });
     await git.init(['--initial-branch=master']);
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');

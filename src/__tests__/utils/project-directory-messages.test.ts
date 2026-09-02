@@ -100,7 +100,7 @@ Tip: Initialize git with 'git init' to enable git tracking features.`;
     beforeEach(async () => {
       tempRepoPath = path.join(os.tmpdir(), `test-git-messages-${Date.now()}`);
       fs.mkdirSync(tempRepoPath, { recursive: true });
-      git = simpleGit(tempRepoPath);
+      git = simpleGit(tempRepoPath, { unsafe: { allowUnsafeHooksPath: true } });
       await git.init();
       await git.addConfig('user.name', 'Test User');
       await git.addConfig('user.email', 'test@example.com');
