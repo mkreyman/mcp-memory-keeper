@@ -37,8 +37,10 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
+          # Pinned explicitly. The action default was claude-sonnet-4-20250514,
+          # which has been retired, so every run 404s. Bump this deliberately
+          # rather than relying on the action's default tracking a live model.
+          model: "claude-sonnet-5"
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
