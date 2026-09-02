@@ -37,13 +37,15 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-          # Pinned explicitly. The action default was claude-sonnet-4-20250514,
-          # which has been retired, so every run 404s. Bump this deliberately
-          # rather than relying on the action's default tracking a live model.
-          model: "claude-sonnet-5"
+          # The model is pinned through claude_args. v1 dropped the top-level
+          # model input, and an unknown input is only a warning, so a typo here
+          # yields a green check that reviewed nothing. The action default was
+          # claude-sonnet-4-20250514, now retired, so pin deliberately.
+          claude_args: --model claude-sonnet-5
 
-          # Direct prompt for automated review (no @claude mention needed)
-          direct_prompt: |
+          # Automated review prompt (no @claude mention needed).
+          # v1 renamed direct_prompt to prompt.
+          prompt: |
             Please review this pull request and provide feedback on:
             - Code quality and best practices
             - Potential bugs or issues
