@@ -10,3 +10,4 @@ coverage/
 *.log
 memory-keeper-export-*.json
 .build-marker-*
+.playwright-mcp/

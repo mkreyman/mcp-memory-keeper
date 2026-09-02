@@ -58,7 +58,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.3",
-    "better-sqlite3": "^12.1.0",
+    "better-sqlite3": "^12.11.1",
     "simple-git": "^3.28.0",
     "uuid": "^11.1.0"
   },

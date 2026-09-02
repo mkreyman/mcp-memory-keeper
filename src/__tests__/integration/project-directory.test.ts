@@ -16,7 +16,7 @@ describe('Project Directory Feature Tests', () => {
     fs.mkdirSync(tempProjectPath, { recursive: true });
 
     // Initialize git repo in the temp project
-    const git = simpleGit(tempProjectPath);
+    const git = simpleGit(tempProjectPath, { unsafe: { allowUnsafeHooksPath: true } });
     await git.init();
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');
@@ -253,7 +253,7 @@ describe('Project Directory Feature Tests', () => {
       const pathWithSpaces = path.join(os.tmpdir(), `test project ${Date.now()}`);
       fs.mkdirSync(pathWithSpaces, { recursive: true });
 
-      const git = simpleGit(pathWithSpaces);
+      const git = simpleGit(pathWithSpaces, { unsafe: { allowUnsafeHooksPath: true } });
       await git.init();
 
       // Configure git for this test to avoid CI failures

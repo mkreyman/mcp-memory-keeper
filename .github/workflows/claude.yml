@@ -31,12 +31,15 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
+          # The model is pinned through claude_args. v1 dropped the top-level
+          # model input, and an unknown input is only a warning, so a typo here
+          # yields a green check that reviewed nothing. The action default was
+          # claude-sonnet-4-20250514, now retired, so pin deliberately.
+          claude_args: --model claude-sonnet-5
 
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
