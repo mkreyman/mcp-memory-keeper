@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-09-02
+
+### Fixed
+
+- **`npx mcp-memory-keeper` no longer fails to start after a Node upgrade.** The published dependency floor for better-sqlite3 was `^12.1.0`, which let a cached install resolve a build with no prebuilt binary for a newer Node ABI; the server then died at startup with `ERR_DLOPEN_FAILED` (`NODE_MODULE_VERSION` mismatch) before it could speak MCP, so clients reported it only as a closed connection. The floor is now `^12.11.1`, verified loading on Node 25.7 and Node 26.0 (#40).
+
 ## [0.14.0] - 2026-06-05
 
 ### Added
